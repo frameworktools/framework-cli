@@ -82,9 +82,9 @@ func TestNewPythonFromWizard(t *testing.T) {
 	if _, _, err := h.run(t, "", "new", "py study", "--lang", "python", "--type", "course"); err != nil {
 		t.Fatal(err)
 	}
-	want := "--name 'py study' --path " + filepath.Join(h.app.home, "py-study") + " --type course"
-	if len(f.ran) != 1 || !strings.HasSuffix(f.ran[0].String(), want) {
-		t.Errorf("ran %v; want a command ending %s", f.ran, want)
+	want := []string{"--name", "py study", "--path", filepath.Join(h.app.home, "py-study"), "--type", "course"}
+	if len(f.ran) != 1 || len(f.ran[0].Args) < len(want) || strings.Join(f.ran[0].Args[len(f.ran[0].Args)-len(want):], "|") != strings.Join(want, "|") {
+		t.Errorf("ran %v; want arguments ending %q", f.ran, want)
 	}
 }
 
