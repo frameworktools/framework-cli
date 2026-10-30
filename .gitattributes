@@ -1,0 +1,5 @@
+# Files copied from the R package are checked against SHA-256 hashes in
+# assets.lock.json, so git must not change their line endings.
+internal/spec/schema/*.json -text
+internal/spec/testdata/conformance/README.md -text
+internal/spec/testdata/conformance/merge/*.json -text

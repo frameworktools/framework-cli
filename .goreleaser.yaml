@@ -1,0 +1,65 @@
+# Release builds: one static binary per platform, archives and checksums on
+# GitHub Releases, and the Homebrew tap. Run by .github/workflows/release.yml
+# when a v* tag is pushed.
+version: 2
+
+project_name: fw
+
+builds:
+  - id: fw
+    main: ./cmd/fw
+    binary: fw
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/frameworktools/framework-cli/internal/cli.version={{.Version}}
+      - -X github.com/frameworktools/framework-cli/internal/cli.commit={{.ShortCommit}}
+      - -X github.com/frameworktools/framework-cli/internal/cli.date={{.Date}}
+
+archives:
+  # framework-cloud's scaffold workflow downloads fw_<version>_linux_amd64.tar.gz
+  # and expects the fw binary at the top level. Keep these names stable.
+  - name_template: "fw_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "fw_{{ .Version }}_checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+homebrew_casks:
+  - name: fw
+    binaries: [fw]
+    repository:
+      owner: frameworktools
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: https://framework.pub
+    description: Command-line helper for Framework projects and Framework Cloud
+    license: MIT
+    hooks:
+      post:
+        # The binary is not notarized yet, so macOS would block it. This
+        # skips Gatekeeper for fw only; notarizing the binary would remove
+        # the need for it.
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/fw"]
+          end

@@ -1,0 +1,31 @@
+version: "2"
+
+linters:
+  enable:
+    - errorlint
+    - gosec
+    - misspell
+    - revive
+    - unconvert
+  settings:
+    misspell:
+      locale: US
+    gosec:
+      excludes:
+        - G304 # fw reads files at paths the user or the project names
+        - G703 # and writes them there
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      # Project folders and files are shared through git, so they get the
+      # usual 0755 and 0644. Secrets (.env, tokens) are written 0600.
+      - path: internal/stata/
+        linters: [gosec]
+        text: "G301|G302|G306"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
