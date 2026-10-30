@@ -53,6 +53,12 @@ jobs:
           use-public-rspm: true
       - run: Rscript -e 'install.packages("keyring")'
       - run: python3 -m pip install --user keyring secretstorage
+      # The Python-writes check needs framework-py's own keyring helpers. It
+      # is skipped until framework-py is published.
+      - name: Install framework-py if published
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: python3 -m pip install --user "framework-py @ git+https://github.com/frameworktools/framework-py" || echo "framework-py is not available; the Python-writes check will be skipped"
       - name: Round-trip tokens through the Secret Service
         run: |
           dbus-run-session -- sh -c '
