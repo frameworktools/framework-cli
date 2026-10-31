@@ -41,6 +41,9 @@ type app struct {
 	// run runs a language package with the terminal attached and returns
 	// its exit status.
 	run func(engine.Command) (int, error)
+	// jsonOut is set by a command's --json flag. Errors are then printed as
+	// JSON on stderr too.
+	jsonOut bool
 }
 
 func newApp() (*app, error) {
@@ -101,7 +104,7 @@ func (a *app) userClient(flag string) (*cloud.Client, error) {
 	}
 	found, ok := a.tokens().Lookup(server.URL)
 	if !ok {
-		return nil, fmt.Errorf("not logged in to %s. Run: %s", cloud.Host(server.URL), loginCommand(server.URL))
+		return nil, &errNotLoggedIn{fmt.Sprintf("not logged in to %s. Run: %s", cloud.Host(server.URL), loginCommand(server.URL))}
 	}
 	return cloud.NewClient(server.URL, found.Token), nil
 }

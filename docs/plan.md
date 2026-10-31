@@ -16,10 +16,14 @@ fw status     [--url URL]                   server in use and its source, signed
 fw new        [NAME] [--type T] [--lang r|python|stata] [--dir PATH]
               [--from SLUG|layers.json] [--pull-token] [--headless] [--print]
 fw projects   list                          the user's projects on the server
-fw project    link --from SLUG | --pull-token
+fw project    show SLUG                     one project's details on the server
+              link --from SLUG | --pull-token
                                             write FW_PROJECT_TOKEN and FW_CLOUD_URL to .env
               status                        this project's server, link, and runtime
               bootstrap                     run the language's bootstrap() in the project's env
+              push-spec                     send .framework/spec.json to the project page
+fw blueprints list                          blueprints the user can start a project from
+fw publish    PATH [--slug S] [--readable]  publish rendered HTML with the project token
 fw config     sync | path                   pull settings from R's folder; print config paths
 fw doctor                                   runtimes found, keyring backend, config paths
 fw version | fw completion SHELL
@@ -37,8 +41,42 @@ fw version | fw completion SHELL
   in. A token is never accepted as an argument, because arguments are saved
   in shell history and are visible in the process list.
 - `fw new --print` prints the command it would run and runs nothing.
-- `fw publish` and the ledger commands are left out of the first release.
-  R and Python already handle them inside a project.
+- `fw publish` (added in 0.2.0) uploads rendered HTML through the same
+  `POST /api/v1/documents` endpoint as R's `publish()`: one self-contained
+  file, an HTML file with the `_files` folders it refers to, or a rendered
+  folder with an entry point. It refuses paths inside a folder named
+  `private`, as R does, unless `--allow-private` is given. It asks before
+  uploading; without a terminal it needs `--yes`. Erik chose this on
+  2026-10-31. The ledger commands stay in R and Python.
+- `fw project push-spec` (0.2.0) sends `.framework/spec.json` to
+  `PUT /api/v2/project/spec` with the project token. Sensitive projects are
+  allowed, because the spec holds structure and template text and no data;
+  fw says what it sends. This was framework-cloud-f1's default, and Erik can
+  overrule it.
+
+### Scripts and AI agents
+
+Added in 0.2.0 for the Framework Cloud landing page, which presents fw as the
+way agents work with the platform.
+
+- `--json` on `login`, `status`, `projects list`, `project show`,
+  `blueprints list`, `project status`, `publish`, and `project push-spec`.
+  Output is one JSON document on stdout and never includes token values.
+  With `--json`, errors are one JSON line on stderr:
+  `{"error": ..., "exit_code": N}`.
+- Exit codes: 0 success, 1 failure, 2 usage, 3 not logged in or token
+  rejected (401, 403), 4 not found (404), 5 browser login denied or expired.
+- Without a terminal, `fw login --yes` runs the device flow and prints the
+  code and link on stderr (as JSON with `--json`). A person approves it and
+  the agent never handles the token.
+
+### Docs site
+
+`docs/site` holds the site for cli.framework.pub in the common format shared
+with R and Python (`inst/schema/docs-site.md` and `docs-reference.v1.json` in
+the R repository). `reference.json` is generated from the command tree by
+`internal/cli/reference.go`. Each release attaches `docs-site.tar.gz`, built
+by `tools/docsite`, and framework-cloud imports it.
 
 ## Contracts shared with R and Python
 
@@ -266,8 +304,10 @@ Decisions made while building it (2026-10-30):
 Existing endpoints that fw uses: `GET /api/v1/me`, `GET /api/v1/projects`, and
 `GET /api/v1/project` with a project token.
 
-Agreed with framework-cloud-f1 on 2026-10-30. These are not built yet. They
-are listed in build order.
+Agreed with framework-cloud-f1 on 2026-10-30 and built. Added on 2026-10-31:
+`GET /api/v2/projects/{slug}`, `GET /api/v2/blueprints`, and
+`PUT /api/v2/project/spec`. Publishing uses the existing
+`POST /api/v1/documents`.
 
 1. `language` stored for projects and blueprints and emitted in the project
    layer. Every project layer sets it, `r` included.

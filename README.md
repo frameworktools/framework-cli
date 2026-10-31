@@ -22,14 +22,28 @@ put `fw` in a folder on your PATH.
 
 ```
 fw login | logout | status          Framework Cloud login, shared with R and Python
-fw new                              create an R, Python, or Stata project
 fw projects list                    your projects on Framework Cloud
-fw project link                     link the current project to Framework Cloud
+fw project show SLUG                one project's details
+fw blueprints list                  blueprints you can start a project from
+fw new                              create an R, Python, or Stata project
+fw project link | status            the current project's cloud link and runtime
+fw project bootstrap                prepare a cloned project
+fw project push-spec                send the project's spec to Framework Cloud
+fw publish PATH                     publish a rendered notebook or HTML file
 fw config path | sync               configuration folders
 fw doctor                           runtimes and settings fw would use
 ```
 
-Run `fw help <command>` for details.
+Run `fw help <command>` for details. The full documentation is at
+[cli.framework.pub](https://cli.framework.pub), built from `docs/site`.
+
+### Scripts and AI agents
+
+Commands that report information take `--json`. Without a terminal,
+`fw login --yes` prints a code and link for a person to approve, so the
+token never passes through the agent. Exit codes: 0 success, 1 failure,
+2 bad flags or arguments, 3 not logged in or token rejected, 4 not found,
+5 browser login denied or expired.
 
 ## Development
 
@@ -47,3 +61,7 @@ them again:
 go run ./tools/syncassets --from ../framework --ref <tag or commit>
 go run ./tools/syncassets --check --from ../framework
 ```
+
+The docs site lives in `docs/site`. `go test` checks it, and each release
+attaches `docs-site.tar.gz` (built with `go run ./tools/docsite`) for
+framework-cloud to import.

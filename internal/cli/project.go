@@ -63,7 +63,7 @@ func newProjectCmd(a *app) *cobra.Command {
 				}
 				l = cloudLink{token: token, url: server.URL}
 			default:
-				return errors.New("give --from SLUG or --pull-token")
+				return usageError("give --from SLUG or --pull-token")
 			}
 			return linkProject(cmd, &l, root)
 		},
@@ -72,7 +72,7 @@ func newProjectCmd(a *app) *cobra.Command {
 	link.Flags().BoolVar(&pullToken, "pull-token", false, "use a project token (asked for, or read from stdin)")
 	link.Flags().StringVar(&urlFlag, "url", "", "Framework Cloud server")
 	link.MarkFlagsMutuallyExclusive("from", "pull-token")
-	cmd.AddCommand(link, newProjectStatusCmd(a), newProjectBootstrapCmd(a))
+	cmd.AddCommand(link, newProjectShowCmd(a), newProjectStatusCmd(a), newProjectBootstrapCmd(a), newPushSpecCmd(a))
 	return cmd
 }
 
@@ -84,17 +84,72 @@ func (a *app) requireProject() (string, error) {
 	return root, nil
 }
 
+// projectStatusJSON is fw project status --json.
+type projectStatusJSON struct {
+	Root           string     `json:"root"`
+	Language       string     `json:"language"`
+	LanguageSource string     `json:"language_source,omitempty"`
+	Runner         []string   `json:"runner"`
+	RunnerReason   string     `json:"runner_reason,omitempty"`
+	Cloud          cloudState `json:"cloud"`
+	Warnings       []string   `json:"warnings"`
+}
+
+// cloudState is the project's link to Framework Cloud. Linked means .env
+// has a project token; OK means the server accepted it.
+type cloudState struct {
+	Linked       bool   `json:"linked"`
+	Server       string `json:"server,omitempty"`
+	ServerSource string `json:"server_source,omitempty"`
+	Project      string `json:"project,omitempty"`
+	OK           bool   `json:"ok"`
+	Problem      string `json:"problem,omitempty"`
+}
+
 func newProjectStatusCmd(a *app) *cobra.Command {
-	return &cobra.Command{
-		Use:   "status",
-		Short: "Show this project's language, runtime, and cloud link",
-		Args:  cobra.NoArgs,
+	cmd := &cobra.Command{
+		Use:     "status",
+		Short:   "Show this project's language, runtime, and cloud link",
+		Example: "  fw project status\n  fw project status --json",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := a.requireProject()
 			if err != nil {
 				return err
 			}
 			p := a.engines.Detect(root)
+			res := projectStatusJSON{
+				Root: root, Language: p.Language, LanguageSource: p.LanguageSource,
+				Runner: p.Runner, RunnerReason: p.Reason, Warnings: []string{},
+			}
+			if res.Runner == nil {
+				res.Runner = []string{}
+			}
+			if token := project.EnvValue(root, "FW_PROJECT_TOKEN"); token != "" {
+				res.Cloud.Linked = true
+				server, serr := a.server("", cloud.ProjectScope)
+				if serr != nil {
+					res.Cloud.Problem = serr.Error()
+				} else {
+					res.Cloud.Server, res.Cloud.ServerSource = server.URL, server.Source
+					me, err := cloud.NewClient(server.URL, token).Me(cmd.Context())
+					switch {
+					case err != nil:
+						res.Cloud.Problem = "checking the project token failed: " + err.Error()
+					case me.Kind != "project":
+						res.Cloud.Problem = "FW_PROJECT_TOKEN is not a project token"
+					default:
+						res.Cloud.OK, res.Cloud.Project = true, me.Project
+					}
+				}
+			}
+			if project.EnvTracked(root) {
+				res.Warnings = append(res.Warnings, "git tracks .env. Run git rm --cached .env, add .env to .gitignore, and rotate any tokens in it.")
+			}
+			if a.jsonOut {
+				return writeJSON(cmd.OutOrStdout(), res)
+			}
+
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintf(w, "Project\t%s\n", root)
 			if p.Language == "" {
@@ -108,33 +163,25 @@ func newProjectStatusCmd(a *app) *cobra.Command {
 			if p.Reason != "" {
 				fmt.Fprintf(w, "\t%s\n", p.Reason)
 			}
-
-			token := project.EnvValue(root, "FW_PROJECT_TOKEN")
-			if token == "" {
+			c := res.Cloud
+			switch {
+			case !c.Linked:
 				fmt.Fprintln(w, "Cloud\tnot linked (run fw project link)")
-			} else {
-				server, serr := a.server("", cloud.ProjectScope)
-				var me cloud.Me
-				if serr == nil {
-					me, err = cloud.NewClient(server.URL, token).Me(cmd.Context())
-				}
-				switch {
-				case serr != nil:
-					fmt.Fprintf(w, "Cloud\t%v\n", serr)
-				case err != nil:
-					fmt.Fprintf(w, "Cloud\t%s (from %s); checking the project token failed: %v\n", server.URL, server.Source, err)
-				case me.Kind != "project":
-					fmt.Fprintf(w, "Cloud\t%s (from %s); FW_PROJECT_TOKEN is not a project token\n", server.URL, server.Source)
-				default:
-					fmt.Fprintf(w, "Cloud\tlinked to %s as project %s (from %s)\n", cloud.Host(server.URL), me.Project, server.Source)
-				}
+			case c.Server == "":
+				fmt.Fprintf(w, "Cloud\t%s\n", c.Problem)
+			case !c.OK:
+				fmt.Fprintf(w, "Cloud\t%s (from %s); %s\n", c.Server, c.ServerSource, c.Problem)
+			default:
+				fmt.Fprintf(w, "Cloud\tlinked to %s as project %s (from %s)\n", cloud.Host(c.Server), c.Project, c.ServerSource)
 			}
-			if project.EnvTracked(root) {
-				fmt.Fprintln(w, "Warning\tgit tracks .env. Run git rm --cached .env, add .env to .gitignore, and rotate any tokens in it.")
+			for _, warning := range res.Warnings {
+				fmt.Fprintf(w, "Warning\t%s\n", warning)
 			}
 			return w.Flush()
 		},
 	}
+	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
+	return cmd
 }
 
 func newProjectBootstrapCmd(a *app) *cobra.Command {

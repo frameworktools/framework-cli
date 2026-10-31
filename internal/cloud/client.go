@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -32,11 +34,17 @@ type APIError struct {
 	Status  int
 	Message string
 	Code    string // the "error" field, used by the device flow
+	// Problems lists Laravel's validation errors, field by field.
+	Problems []string
 }
 
 func (e *APIError) Error() string {
 	if e.Message != "" {
-		return fmt.Sprintf("%s (HTTP %d)", e.Message, e.Status)
+		msg := fmt.Sprintf("%s (HTTP %d)", e.Message, e.Status)
+		if len(e.Problems) > 0 {
+			msg += ": " + strings.Join(e.Problems, "; ")
+		}
+		return msg
 	}
 	if e.Code != "" {
 		return fmt.Sprintf("%s (HTTP %d)", e.Code, e.Status)
@@ -68,11 +76,17 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", UserAgent)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	return c.do(req, out)
+}
+
+// do adds the common headers, sends req, and decodes a JSON response into
+// out when out is not nil.
+func (c *Client) do(req *http.Request, out any) error {
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", UserAgent)
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
@@ -90,11 +104,24 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		apiErr := &APIError{Status: resp.StatusCode}
 		var payload struct {
-			Message string `json:"message"`
-			Error   string `json:"error"`
+			Message string              `json:"message"`
+			Error   string              `json:"error"`
+			Errors  map[string][]string `json:"errors"`
 		}
 		if json.Unmarshal(data, &payload) == nil {
 			apiErr.Message, apiErr.Code = payload.Message, payload.Error
+			fields := make([]string, 0, len(payload.Errors))
+			for field := range payload.Errors {
+				fields = append(fields, field)
+			}
+			sort.Strings(fields)
+			for _, field := range fields {
+				for _, problem := range payload.Errors[field] {
+					if problem != payload.Message {
+						apiErr.Problems = append(apiErr.Problems, problem)
+					}
+				}
+			}
 		}
 		return apiErr
 	}

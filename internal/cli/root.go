@@ -2,8 +2,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -44,8 +46,9 @@ func newRootCmd(a *app) *cobra.Command {
 	}
 	root.AddCommand(
 		newLoginCmd(a), newLogoutCmd(a), newStatusCmd(a), newNewCmd(a), newProjectsCmd(a), newProjectCmd(a),
-		newConfigCmd(a), newDoctorCmd(a), newVersionCmd(),
+		newBlueprintsCmd(a), newPublishCmd(a), newConfigCmd(a), newDoctorCmd(a), newVersionCmd(),
 	)
+	markUsage(root)
 	return root
 }
 
@@ -56,16 +59,24 @@ func Execute() int {
 	if err == nil {
 		err = newRootCmd(a).Execute()
 	}
+	report(os.Stderr, a, err)
+	return exitCode(err)
+}
+
+// report prints a command's error on stderr: as one JSON line after --json,
+// otherwise as text. Silent errors were already reported by the command.
+func report(w io.Writer, a *app, err error) {
 	if err == nil {
-		return 0
+		return
 	}
 	var exit *exitError
-	if errors.As(err, &exit) {
-		if !exit.silent {
-			fmt.Fprintln(os.Stderr, "fw:", err)
-		}
-		return exit.code
+	if errors.As(err, &exit) && exit.silent {
+		return
 	}
-	fmt.Fprintln(os.Stderr, "fw:", err)
-	return 1
+	if a != nil && a.jsonOut {
+		data, _ := json.Marshal(jsonError{Error: err.Error(), Code: exitCode(err)})
+		fmt.Fprintln(w, string(data))
+		return
+	}
+	fmt.Fprintln(w, "fw:", err)
 }

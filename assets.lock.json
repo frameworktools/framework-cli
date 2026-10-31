@@ -1,8 +1,12 @@
 {
   "source": "framework (R package)",
-  "ref": "c74051f2f75a5b20f41a2281bb548ff57310cf58",
-  "commit": "c74051f2f75a5b20f41a2281bb548ff57310cf58",
+  "ref": "552bb004ca000c93a1cc00646cbc4a574312ed19",
+  "commit": "552bb004ca000c93a1cc00646cbc4a574312ed19",
   "files": {
+    "internal/spec/schema/docs-reference.v1.json": {
+      "source": "inst/schema/docs-reference.v1.json",
+      "sha256": "e115abd1d68a5f15d46c5794f05f880623e9286197ffda6a4c1fe8dcb9309f5f"
+    },
     "internal/spec/schema/layer.v1.json": {
       "source": "inst/schema/layer.v1.json",
       "sha256": "99f1f1d673304103a2b0afd0b62ca7b7f66b995fb4b802b393e36f561ff84b39"

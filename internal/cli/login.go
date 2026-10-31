@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,10 +35,14 @@ func newLoginCmd(a *app) *cobra.Command {
 			"By default fw opens a browser to approve the login. --paste asks for a token\n" +
 			"from the server's tokens page instead, and --with-token reads one from stdin.\n" +
 			"The token is stored in the system keyring, where the R and Python packages\n" +
-			"find it too.",
+			"find it too.\n\n" +
+			"Without a terminal, as when an AI agent runs fw, pass --yes after reading\n" +
+			"the notice. fw prints a code and a link on stderr and waits while a person\n" +
+			"approves it in a browser. The agent never sees the token.",
 		Example: "  fw login\n" +
 			"  fw login --url https://framework.example.edu\n" +
-			"  fw login --with-token --yes < token.txt",
+			"  fw login --with-token --yes < token.txt\n" +
+			"  fw login --yes --json",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -70,8 +75,8 @@ func newLoginCmd(a *app) *cobra.Command {
 				if token, err = a.readLine(); err != nil {
 					return fmt.Errorf("reading the token from stdin: %w", err)
 				}
-			case !a.interactive:
-				return errors.New("no terminal to log in from. Pipe a token to fw login --with-token --yes")
+			case paste && !a.interactive:
+				return usageError("--paste needs a terminal. Pipe a token to fw login --with-token --yes instead")
 			case !paste:
 				token, err = browserLogin(cmd, a, client)
 				if errors.Is(err, cloud.ErrDeviceUnsupported) {
@@ -105,6 +110,12 @@ func newLoginCmd(a *app) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			if a.jsonOut {
+				return writeJSON(out, statusJSON{
+					Server: server.URL, ServerSource: server.Source, LoggedIn: true,
+					Account: &accountJSON{Kind: me.Kind, Name: me.Name, Email: me.Email}, TokenSource: where,
+				})
+			}
 			fmt.Fprintf(out, "Logged in to %s as %s.\n", host, me.Who())
 			fmt.Fprintf(out, "Token stored in %s.\n", where)
 			fmt.Fprintf(out, "Default server: %s\n", server.URL)
@@ -115,6 +126,7 @@ func newLoginCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "read the token from stdin")
 	cmd.Flags().BoolVar(&paste, "paste", false, "paste a token instead of approving in a browser")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm connecting without a prompt")
+	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp+"; the browser code goes to stderr as JSON")
 	cmd.MarkFlagsMutuallyExclusive("with-token", "paste")
 	return cmd
 }
@@ -130,11 +142,22 @@ func browserLogin(cmd *cobra.Command, a *app, client *cloud.Client) (string, err
 	if link == "" {
 		link = code.VerificationURL
 	}
-	fmt.Fprintf(errOut, "\nYour code is %s. Approve it at:\n  %s\n", code.UserCode, link)
-	if a.openURL(link) == nil {
-		fmt.Fprintln(errOut, "Opened your browser. Waiting for approval...")
+	if a.jsonOut {
+		data, _ := json.Marshal(map[string]any{
+			"user_code": code.UserCode, "verification_url": link, "expires_in": code.ExpiresIn,
+		})
+		fmt.Fprintln(errOut, string(data))
 	} else {
+		fmt.Fprintf(errOut, "\nYour code is %s. Approve it at:\n  %s\n", code.UserCode, link)
+	}
+	switch {
+	case a.interactive && a.openURL(link) == nil:
+		fmt.Fprintln(errOut, "Opened your browser. Waiting for approval...")
+	case a.jsonOut:
+	case a.interactive:
 		fmt.Fprintln(errOut, "Waiting for approval...")
+	default:
+		fmt.Fprintln(errOut, "Waiting for approval. Open the link in a browser where you are signed in.")
 	}
 	return client.PollDevice(cmd.Context(), code, a.sleep)
 }

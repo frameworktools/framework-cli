@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,10 +81,74 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		}
 		_, _ = w.Write([]byte(strings.Replace(layers, `"language":"r"`, `"language":"python"`, 1)))
 	})
+	mux.HandleFunc("GET /api/v2/projects/{slug}", func(w http.ResponseWriter, r *http.Request) {
+		if auth(r) != "user-tok" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"This needs a user token."}`))
+			return
+		}
+		if r.PathValue("slug") != "vaccine-study" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"You have no project named 'nope'."}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"slug":"vaccine-study","name":"Vaccine study","description":"","language":"stata","type":"project_sensitive","blueprint":{"key":"framework/project_sensitive","version":2},"github":null,"created_at":"2026-10-30T12:00:00Z","updated_at":"2026-10-31T09:00:00Z","spec_received_at":null}`))
+	})
+	mux.HandleFunc("GET /api/v2/blueprints", func(w http.ResponseWriter, r *http.Request) {
+		if auth(r) != "user-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"blueprints":[{"key":"framework/project","name":"Project","description":"A standard project","language":null,"type":"project","version":3,"visibility":"public","system":true,"facets":["analysis"]}]}`))
+	})
+	mux.HandleFunc("POST /api/v1/documents", func(w http.ResponseWriter, r *http.Request) {
+		if auth(r) != "proj-tok" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"This endpoint requires a project token."}`))
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+		if err := r.ParseMultipartForm(64 << 20); err != nil { // #nosec G120 -- test server, body capped above
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+		lastUpload = map[string]string{"slug": r.FormValue("slug"), "readable": r.FormValue("readable"), "entrypoint": r.FormValue("entrypoint")}
+		for _, field := range []string{"file", "bundle"} {
+			if f, hdr, err := r.FormFile(field); err == nil {
+				data, _ := io.ReadAll(f)
+				lastUpload["field"], lastUpload["name"], lastUpload["data"] = field, hdr.Filename, string(data)
+			}
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"slug":"analysis","version":2,"url":"https://x/d/abc","private_url":"https://x/d/abc","readable_url":null,"version_url":"https://x/d/abc/v2","raw_url":"https://x/d/abc/raw","notice":null}`))
+	})
+	mux.HandleFunc("PUT /api/v2/project/spec", func(w http.ResponseWriter, r *http.Request) {
+		if auth(r) != "proj-tok" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		var body struct {
+			Spec json.RawMessage `json:"spec"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if strings.Contains(string(body.Spec), "hunter2") {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"The spec is invalid.","errors":{"spec":["env.DB_PASSWORD looks secret and must be empty."]}}`))
+			return
+		}
+		lastSpec = string(body.Spec)
+		_, _ = w.Write([]byte(`{"received_at":"2026-10-31T10:00:00Z","spec_version":1,"changed":true}`))
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// lastUpload and lastSpec record what the fake cloud last received.
+var (
+	lastUpload map[string]string
+	lastSpec   string
+)
 
 // minted counts pull tokens the fake cloud has issued.
 var minted int

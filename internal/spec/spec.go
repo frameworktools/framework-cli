@@ -54,7 +54,7 @@ func (e Envelope) Language() string {
 	return language
 }
 
-var layersSchema, specSchema = func() (*jsonschema.Schema, *jsonschema.Schema) {
+var layersSchema, specSchema, docsSchema = func() (*jsonschema.Schema, *jsonschema.Schema, *jsonschema.Schema) {
 	compiler := jsonschema.NewCompiler()
 	// The path patterns use lookaheads, which Go's regexp lacks. JSON Schema
 	// patterns are ECMAScript regular expressions.
@@ -65,7 +65,7 @@ var layersSchema, specSchema = func() (*jsonschema.Schema, *jsonschema.Schema) {
 		}
 		return ecmaRegexp{re}, nil
 	})
-	for _, name := range []string{"layer.v1.json", "layers.v1.json", "spec.v1.json"} {
+	for _, name := range []string{"layer.v1.json", "layers.v1.json", "spec.v1.json", "docs-reference.v1.json"} {
 		data, err := schemaFiles.ReadFile("schema/" + name)
 		if err != nil {
 			panic(err)
@@ -80,8 +80,26 @@ var layersSchema, specSchema = func() (*jsonschema.Schema, *jsonschema.Schema) {
 		}
 	}
 	return compiler.MustCompile("https://framework.pub/schema/layers/v1.json"),
-		compiler.MustCompile("https://framework.pub/schema/spec/v1.json")
+		compiler.MustCompile("https://framework.pub/schema/spec/v1.json"),
+		compiler.MustCompile("https://framework.pub/schema/docs-reference.v1.json")
 }()
+
+// ValidateDocsReference checks a docs site's reference.json against
+// docs-reference.v1.
+func ValidateDocsReference(data []byte) error {
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("not valid JSON: %w", err)
+	}
+	if err := docsSchema.Validate(doc); err != nil {
+		var verr *jsonschema.ValidationError
+		if errors.As(err, &verr) {
+			return fmt.Errorf("reference.json does not match the docs reference schema:\n%s", indent(verr.Error()))
+		}
+		return err
+	}
+	return nil
+}
 
 // ValidateResolved checks a resolved spec against spec.v1.
 func ValidateResolved(resolved map[string]any) error {
