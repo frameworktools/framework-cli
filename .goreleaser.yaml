@@ -5,6 +5,13 @@ version: 2
 
 project_name: fw
 
+before:
+  hooks:
+    # The docs site for cli.framework.pub: docs/site plus reference.json
+    # generated from the command tree. framework-cloud imports it from the
+    # release.
+    - go run ./tools/docsite --version {{ .Version }} --out build/docs-site.tar.gz
+
 builds:
   - id: fw
     main: ./cmd/fw
@@ -32,8 +39,30 @@ archives:
       - README.md
       - LICENSE
 
+# Sign and notarize the macOS binaries from Linux (GoReleaser runs quill).
+# Skipped when the secrets are absent, as in snapshot builds and forks.
+# Bare binaries cannot be stapled, so Gatekeeper checks the notarization
+# online the first time fw runs.
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids: [fw]
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
 checksum:
   name_template: "fw_{{ .Version }}_checksums.txt"
+
+release:
+  extra_files:
+    - glob: ./build/docs-site.tar.gz
 
 changelog:
   sort: asc
@@ -56,9 +85,9 @@ homebrew_casks:
     license: MIT
     hooks:
       post:
-        # The binary is not notarized yet, so macOS would block it. This
-        # skips Gatekeeper for fw only; notarizing the binary would remove
-        # the need for it.
+        # Releases before 0.2.0 were not notarized, so macOS would block
+        # them. This skips Gatekeeper for fw only. Remove it once a
+        # notarized release is confirmed to open without it.
         install_steps: |
           on_macos do
             run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/fw"]
