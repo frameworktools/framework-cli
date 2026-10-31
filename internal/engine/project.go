@@ -130,7 +130,7 @@ func (f Finder) Bootstrap(p Project) (Command, error) {
 	}
 	if !f.Probe(probe) {
 		pkg := map[string]string{"r": "framework R package", "python": "framework-py package"}[p.Language]
-		return Command{}, &UnavailableError{"the " + pkg + " in this project's environment has no bootstrap yet. Update it, then run fw project bootstrap again."}
+		return Command{}, &UnavailableError{"fw could not find bootstrap in this project's environment. Either the environment could not be set up, or the " + pkg + " there has no bootstrap yet. To see which, run: " + probe.String()}
 	}
 	return cmd, nil
 }
