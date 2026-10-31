@@ -56,4 +56,7 @@ func TestFrontMatterProblems(t *testing.T) {
 	if err != nil || fm.ID != "x" || *fm.Position != 1 || !strings.Contains(body, "## A") {
 		t.Errorf("%+v %q %v", fm, body, err)
 	}
+	if _, _, err := splitFrontMatter("---\r\nid: x\r\n---\r\n\r\n## A\r\n"); err != nil {
+		t.Errorf("CRLF front matter: %v", err)
+	}
 }

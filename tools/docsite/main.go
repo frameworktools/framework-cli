@@ -137,6 +137,7 @@ func checkSite(dir string) ([]string, error) {
 
 func splitFrontMatter(text string) (frontMatter, string, error) {
 	var fm frontMatter
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {
 		return fm, "", errors.New("no front matter")

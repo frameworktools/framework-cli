@@ -3,3 +3,6 @@
 internal/spec/schema/*.json -text
 internal/spec/testdata/conformance/README.md -text
 internal/spec/testdata/conformance/merge/*.json -text
+
+# The docs site archive ships these as written; keep LF on Windows too.
+docs/site/** text eol=lf
