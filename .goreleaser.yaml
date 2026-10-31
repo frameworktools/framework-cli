@@ -83,12 +83,3 @@ homebrew_casks:
     homepage: https://framework.pub
     description: Command-line helper for Framework projects and Framework Cloud
     license: MIT
-    hooks:
-      post:
-        # Releases before 0.2.0 were not notarized, so macOS would block
-        # them. This skips Gatekeeper for fw only. Remove it once a
-        # notarized release is confirmed to open without it.
-        install_steps: |
-          on_macos do
-            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/fw"]
-          end
