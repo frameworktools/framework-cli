@@ -33,6 +33,9 @@ type GitHub struct {
 	URL            string `json:"url"`
 	Private        bool   `json:"private"`
 	ScaffoldStatus string `json:"scaffold_status"`
+	// PagesURL is the repository's GitHub Pages address, or nil while Pages
+	// is off.
+	PagesURL *string `json:"pages_url"`
 }
 
 // Project fetches one of the signed-in user's projects.

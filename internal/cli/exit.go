@@ -21,6 +21,7 @@ const (
 	exitAuth     = 3 // not logged in, or the server rejected the token (401, 403)
 	exitNotFound = 4 // the server has no such project or resource (404)
 	exitLogin    = 5 // browser login was denied, or its code expired
+	exitPrivate  = 6 // an upload has "private" in a path and needs --include-private
 )
 
 // errNotLoggedIn means no token is stored for the server.
@@ -93,6 +94,7 @@ func writeJSON(w io.Writer, v any) error {
 
 // jsonError is what a failed command prints on stderr with --json.
 type jsonError struct {
-	Error string `json:"error"`
-	Code  int    `json:"exit_code"`
+	Error  string `json:"error"`
+	Code   int    `json:"exit_code"`
+	Reason string `json:"reason,omitempty"`
 }

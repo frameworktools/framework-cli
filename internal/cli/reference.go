@@ -71,11 +71,12 @@ var refReturns = map[string]string{
 		"```json\n{\"user_code\": \"QGMK-JE6Q\", \"verification_url\": \"https://framework.pub/device?code=QGMK-JE6Q\", \"expires_in\": 600}\n```",
 	"status": "With `--json`, an object with `server`, `server_source`, `logged_in`, `account` (`kind`, `name`, `email`, or `null`), `token_source`, " +
 		"`problem` when not logged in, and `project_server` when the current project is linked to another server. Token values never appear.",
-	"projects list":     "With `--json`, `{\"server\": ..., \"projects\": [...]}`. Each project has `slug`, `name`, `language`, `type`, `description`, and `created_at`.",
-	"project show":      "With `--json`, the project: `slug`, `name`, `description`, `language`, `type`, `blueprint` (`key`, `version`, or `null`), `github` (`repository`, `url`, `private`, `scaffold_status`, or `null`), `created_at`, `updated_at`, and `spec_received_at`.",
-	"blueprints list":   "With `--json`, `{\"server\": ..., \"blueprints\": [...]}`. Each blueprint has `key`, `name`, `description`, `language`, `type`, `version`, `visibility`, `system`, and `facets`.",
-	"project status":    "With `--json`, an object with `root`, `language`, `language_source`, `runner` (a list), `runner_reason`, `cloud` (`linked`, `server`, `server_source`, `project`, `ok`, `problem`), and `warnings`.",
-	"publish":           "With `--json`, the document: `slug`, `version`, `url` (the link to share), `private_url`, `readable_url`, `version_url`, `raw_url`, and `notice`.",
+	"projects list":   "With `--json`, `{\"server\": ..., \"projects\": [...]}`. Each project has `slug`, `name`, `language`, `type`, `description`, and `created_at`.",
+	"project show":    "With `--json`, the project: `slug`, `name`, `description`, `language`, `type`, `blueprint` (`key`, `version`, or `null`), `github` (`repository`, `url`, `private`, `scaffold_status`, `pages_url`, or `null`), `created_at`, `updated_at`, and `spec_received_at`.",
+	"blueprints list": "With `--json`, `{\"server\": ..., \"blueprints\": [...]}`. Each blueprint has `key`, `name`, `description`, `language`, `type`, `version`, `visibility`, `system`, and `facets`.",
+	"project status":  "With `--json`, an object with `root`, `language`, `language_source`, `runner` (a list), `runner_reason`, `cloud` (`linked`, `server`, `server_source`, `project`, `ok`, `problem`), and `warnings`.",
+	"publish": "With `--json`, the document: `slug`, `version`, `url` (the link to share), `private_url`, `readable_url`, `version_url`, `raw_url`, and `notice`. " +
+		"With `--to github`, `url`, `commit` (null when nothing changed), `pushed`, and `pages_enabled` (null when the project is not linked, or fw could not reach Framework Cloud).",
 	"project push-spec": "With `--json`, `received_at`, `spec_version`, and `changed`, which is false when the cloud already had this spec.",
 }
 
@@ -133,8 +134,10 @@ type reference struct {
 const exitCodesMarkdown = "| Code | Meaning |\n|------|---------|\n" +
 	"| 0 | Success |\n| 1 | Failure |\n| 2 | Bad flags or arguments |\n" +
 	"| 3 | Not logged in, or the server rejected the token |\n| 4 | The server has no such project or resource |\n" +
-	"| 5 | Browser login was denied, or its code expired |\n\n" +
-	"With `--json`, a failure also prints one JSON line on stderr: `{\"error\": \"...\", \"exit_code\": 4}`."
+	"| 5 | Browser login was denied, or its code expired |\n" +
+	"| 6 | An upload has \"private\" in a path; rerun with `--include-private` if you mean to send it |\n\n" +
+	"With `--json`, a failure also prints one JSON line on stderr: `{\"error\": \"...\", \"exit_code\": 4}`. " +
+	"Exit code 6 adds `\"reason\": \"private_path\"`."
 
 // refCommands lists the documented commands: every runnable command except
 // help and shell completion.

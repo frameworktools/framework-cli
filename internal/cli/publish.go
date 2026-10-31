@@ -49,6 +49,11 @@ func (a *app) confirm(cmd *cobra.Command, yes bool, question string) error {
 	if !a.interactive {
 		return usageError("no terminal to confirm from. After reading the summary above, rerun with --yes")
 	}
+	return a.ask(cmd, question)
+}
+
+// ask asks a yes or no question at the terminal, defaulting to No.
+func (a *app) ask(cmd *cobra.Command, question string) error {
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
 	answer, err := a.readLine()
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -60,22 +65,62 @@ func (a *app) confirm(cmd *cobra.Command, yes bool, question string) error {
 	return nil
 }
 
-// privatePart returns the first path, relative to root, that lies in a
-// folder named private, as R's publish() checks. Paths outside root are not
-// checked.
-func privatePart(root string, paths ...string) string {
+// privatePaths returns the paths whose full path contains "private" in any
+// letter case. Such folders usually hold restricted data, so fw warns before
+// uploading from them. A leading /private/ is ignored: macOS adds it when it
+// resolves /tmp, /var, and /etc. R and Python check the same way.
+func privatePaths(paths ...string) []string {
+	var found []string
 	for _, p := range paths {
-		rel, err := filepath.Rel(root, p)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
-		}
-		for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
-			if part == "private" {
-				return filepath.ToSlash(rel)
-			}
+		if isPrivatePath(p) {
+			found = append(found, p)
 		}
 	}
-	return ""
+	return found
+}
+
+func isPrivatePath(p string) bool {
+	p = filepath.ToSlash(p)
+	if rest, ok := strings.CutPrefix(p, "/private/"); ok {
+		p = rest
+	}
+	return strings.Contains(strings.ToLower(p), "private")
+}
+
+// checkPrivate warns when an upload includes a path with "private" in it.
+// At a terminal it asks, defaulting to No, and reports that it asked so the
+// caller does not ask again. With --yes, with --json, or without a terminal,
+// the upload needs --include-private.
+func (a *app) checkPrivate(cmd *cobra.Command, root string, paths []string, include, yes bool) (asked bool, err error) {
+	found := privatePaths(paths...)
+	if len(found) == 0 {
+		return false, nil
+	}
+	shown := make([]string, 0, 5)
+	for _, p := range found[:min(len(found), 5)] {
+		if rel, err := filepath.Rel(root, p); err == nil && !strings.HasPrefix(rel, "..") {
+			p = rel
+		}
+		shown = append(shown, filepath.ToSlash(p))
+	}
+	list := strings.Join(shown, ", ")
+	if len(found) > len(shown) {
+		list += fmt.Sprintf(" ... and %d more", len(found)-len(shown))
+	}
+	what := fmt.Sprintf("%d files to upload have \"private\" in their path: %s", len(found), list)
+	if len(found) == 1 {
+		what = "a file to upload has \"private\" in its path: " + list
+	}
+	if include {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Including them as --include-private asks: %s.\n", what)
+		return false, nil
+	}
+	if !a.interactive || yes || a.jsonOut {
+		return false, &exitError{code: exitPrivate, reason: "private_path", err: fmt.Errorf(
+			"%s. Folders named private usually hold restricted data. Rerun with --include-private if you mean to upload them", what)}
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s. Folders named private usually hold restricted data.\n", what)
+	return true, a.ask(cmd, "Upload them anyway?")
 }
 
 // bundleFiles lists the regular files under dir, relative to it, in order.
@@ -232,8 +277,8 @@ func sizeText(n int) string {
 }
 
 func newPublishCmd(a *app) *cobra.Command {
-	var urlFlag, slug, title, entrypoint string
-	var readable, allowPrivate, yes bool
+	var urlFlag, slug, title, entrypoint, to string
+	var readable, includePrivate, yes bool
 	cmd := &cobra.Command{
 		Use:   "publish PATH",
 		Short: "Publish a rendered notebook or HTML file to Framework Cloud",
@@ -246,28 +291,46 @@ func newPublishCmd(a *app) *cobra.Command {
 			"Every document gets a private link. --readable also gives it a readable\n" +
 			"address under your handle, and --readable=false takes that away.\n" +
 			"Publishing to the same slug again adds a new version.\n\n" +
-			"fw sends only what PATH names. It refuses anything inside a folder named\n" +
-			"private in the project unless you pass --allow-private. It shows what it\n" +
-			"will send and asks first; --yes skips the question.",
+			"--to github publishes to the project's GitHub Pages site instead. fw\n" +
+			"copies the document to published/SLUG/ in the repository, commits only\n" +
+			"that folder, and pushes; the workflow Framework Cloud added to the\n" +
+			"repository deploys it. GitHub Pages sites are public, even from a private\n" +
+			"repository. Turn Pages on for the project under Projects on Framework\n" +
+			"Cloud first.\n\n" +
+			"fw sends only what PATH names, and only when you run it. It shows what it\n" +
+			"will send and asks first; --yes skips the question. When a file's full\n" +
+			"path contains \"private\", fw warns and asks again. With --yes, --json, or\n" +
+			"no terminal, such an upload stops with exit code 6 unless you pass\n" +
+			"--include-private.",
 		Example: "  fw publish notebooks/analysis.html\n" +
 			"  fw publish outputs/reports/summary.html --slug summary --readable --yes\n" +
-			"  fw publish _site --entrypoint index.html --json --yes",
+			"  fw publish _site --entrypoint index.html --json --yes\n" +
+			"  fw publish outputs/notebooks/results.html --to github --slug results",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, root, err := a.projectClient(urlFlag)
-			if err != nil {
-				return err
-			}
 			path := args[0]
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(a.cwd, path)
 			}
-			upload, files, err := planUpload(path, entrypoint)
+			switch to {
+			case "cloud":
+			case "github":
+				for _, name := range []string{"title", "readable", "entrypoint"} {
+					if cmd.Flags().Changed(name) {
+						return usageError("--" + name + " is for publishing to Framework Cloud, not with --to github")
+					}
+				}
+				return a.publishToGitHub(cmd, pagesOptions{path: path, slug: slug, urlFlag: urlFlag, includePrivate: includePrivate, yes: yes})
+			default:
+				return usageError("--to takes cloud or github")
+			}
+			client, root, err := a.projectClient(urlFlag)
 			if err != nil {
 				return err
 			}
-			if p := privatePart(root, files...); p != "" && !allowPrivate {
-				return fmt.Errorf("refusing to publish %s: it is inside a private folder, which holds restricted data. Pass --allow-private if you really mean to publish it", p)
+			upload, files, err := planUpload(path, entrypoint)
+			if err != nil {
+				return err
 			}
 			if len(upload.Data) > maxUpload {
 				return fmt.Errorf("%s is %s, larger than the server's 50 MB limit", upload.Name, sizeText(len(upload.Data)))
@@ -283,8 +346,14 @@ func newPublishCmd(a *app) *cobra.Command {
 				what = fmt.Sprintf("%s (%d files, opening at %s)", what, len(files), upload.Entrypoint)
 			}
 			fmt.Fprintf(errOut, "Publishing %s, %s, to this project on %s.\n", what, sizeText(len(upload.Data)), cloud.Host(client.URL))
-			if err := a.confirm(cmd, yes, "Upload it?"); err != nil {
+			asked, err := a.checkPrivate(cmd, root, files, includePrivate, yes)
+			if err != nil {
 				return err
+			}
+			if !asked {
+				if err := a.confirm(cmd, yes, "Upload it?"); err != nil {
+					return err
+				}
 			}
 
 			doc, err := client.Publish(cmd.Context(), upload)
@@ -313,10 +382,14 @@ func newPublishCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&slug, "slug", "", "the document's name in the project (default: from the file name)")
+	cmd.Flags().StringVar(&to, "to", "cloud", "where to publish: cloud (Framework Cloud) or github (the project's GitHub Pages site)")
 	cmd.Flags().StringVar(&title, "title", "", "the document's title")
 	cmd.Flags().BoolVar(&readable, "readable", false, "give the document a readable address; --readable=false removes it")
 	cmd.Flags().StringVar(&entrypoint, "entrypoint", "", "with a folder: the HTML file to open (default index.html)")
-	cmd.Flags().BoolVar(&allowPrivate, "allow-private", false, "publish even from a folder named private")
+	cmd.Flags().BoolVar(&includePrivate, "include-private", false, "upload files whose path contains \"private\" without asking")
+	// 0.2.0 called it --allow-private.
+	cmd.Flags().BoolVar(&includePrivate, "allow-private", false, "")
+	_ = cmd.Flags().MarkHidden("allow-private")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "upload without asking")
 	cmd.Flags().StringVar(&urlFlag, "url", "", "Framework Cloud server (default: the project's FW_CLOUD_URL)")
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
@@ -336,13 +409,17 @@ func explainProject(err error) error {
 
 func newPushSpecCmd(a *app) *cobra.Command {
 	var urlFlag string
+	var includePrivate bool
 	cmd := &cobra.Command{
 		Use:   "push-spec",
 		Short: "Send this project's spec to Framework Cloud",
 		Long: "Sends .framework/spec.json to the project on Framework Cloud, which shows\n" +
 			"it on the project page. The spec describes the project's structure:\n" +
 			"folders, settings, packages, and templates. It never holds data, and the\n" +
-			"server refuses secret values in it. It uses the project token in .env.",
+			"server refuses secret values in it. It uses the project token in .env.\n\n" +
+			"When the project's full path contains \"private\", fw warns and asks\n" +
+			"first. With --json or no terminal, it stops with exit code 6 unless you\n" +
+			"pass --include-private.",
 		Example: "  fw project push-spec\n  fw project push-spec --json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -350,7 +427,8 @@ func newPushSpecCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			data, err := os.ReadFile(filepath.Join(root, ".framework", "spec.json"))
+			specPath := filepath.Join(root, ".framework", "spec.json")
+			data, err := os.ReadFile(specPath)
 			if errors.Is(err, fs.ErrNotExist) {
 				return errors.New("this project has no .framework/spec.json. Projects made by older versions of R and Python don't record one")
 			}
@@ -375,6 +453,9 @@ func newPushSpecCmd(a *app) *cobra.Command {
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "Sending .framework/spec.json (%s, %d sections) to this project on %s.%s\n",
 				sizeText(len(data)), len(sections), cloud.Host(client.URL), sensitive)
+			if _, err := a.checkPrivate(cmd, root, []string{specPath}, includePrivate, false); err != nil {
+				return err
+			}
 
 			res, err := client.PushSpec(cmd.Context(), data)
 			if err != nil {
@@ -391,6 +472,7 @@ func newPushSpecCmd(a *app) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&includePrivate, "include-private", false, "send the spec without asking when the project's path contains \"private\"")
 	cmd.Flags().StringVar(&urlFlag, "url", "", "Framework Cloud server (default: the project's FW_CLOUD_URL)")
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd

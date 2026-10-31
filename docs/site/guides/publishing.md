@@ -1,7 +1,7 @@
 ---
 id: publishing
 title: Publishing documents
-description: Publish rendered Quarto notebooks and other HTML to Framework Cloud
+description: Publish rendered Quarto notebooks and other HTML to Framework Cloud or GitHub Pages
 section: guides
 position: 2
 ---
@@ -39,9 +39,17 @@ bundle cannot pull in files from elsewhere.
 
 ## Private folders
 
-fw refuses to publish anything inside a folder named `private` in the
-project, as R does. Private folders hold restricted data. If you are sure a
-document in one is safe to share, pass `--allow-private`.
+Folders named `private` usually hold restricted data. When the full path of
+a file fw would upload contains "private", in any letter case, fw warns and
+asks again, defaulting to No. With `--yes`, `--json`, or no terminal, it
+stops with exit code 6 instead. If you are sure the files are safe to share,
+pass `--include-private`. A leading `/private/` is not counted, because
+macOS adds it to `/tmp`, `/var`, and `/etc`. The R and Python packages
+check paths the same way.
+
+Publishing is always your choice. A sensitive project can publish like any
+other; the sensitive setting only changes how the project is set up on your
+machine.
 
 ## Links and versions
 
@@ -59,6 +67,36 @@ fw publish outputs/notebooks/results.html --slug results --readable
 > [!NOTE]
 > On framework.pub, publishing needs paid hosting. Self-hosted servers allow
 > it for every account.
+
+## Publishing to GitHub Pages
+
+A project with a GitHub repository can publish to GitHub Pages for free.
+Turn Pages on once, with "Publish with GitHub Pages" under Projects on
+Framework Cloud. That adds a workflow to the repository which deploys its
+`published/` folder whenever a change to it reaches the default branch.
+
+```sh
+fw publish outputs/notebooks/results.html --to github --slug results
+```
+
+fw copies the rendered file to `published/results/index.html`, with the
+`_files` folders it refers to, and replaces anything already in
+`published/results/`. A folder is copied as it is and must have an
+`index.html`. fw then commits only `published/results/` and pushes, so
+anything else you have staged stays out of that commit. When nothing
+changed, fw says so and makes no commit. The document never passes through
+Framework Cloud.
+
+> [!WARNING]
+> GitHub Pages sites are public, even when the repository is private.
+
+fw prints the document's address. When the project is linked to Framework
+Cloud, fw gets the site's address from there with the project token and
+warns if Pages is still off. Otherwise it works the address out from the
+GitHub remote, such as
+`https://acme.github.io/study/results/`. Pages deploys only from the default
+branch, so on another branch fw warns and pushes anyway. The document goes
+live once that branch is merged.
 
 ## Sending the project spec
 

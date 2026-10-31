@@ -19,6 +19,7 @@ fw new --from vaccine-study && cd vaccine-study
 fw project bootstrap
 fw project push-spec
 fw publish outputs/notebooks/results.html --slug results --yes --json
+fw publish outputs/notebooks/results.html --to github --yes --json
 ```
 
 ## Logging in without a terminal
@@ -70,6 +71,7 @@ fw projects list --json | jq -r '.projects[].slug'
 | 3 | Not logged in, or the server rejected the token |
 | 4 | The server has no such project or resource |
 | 5 | Browser login was denied, or its code expired |
+| 6 | An upload has "private" in a path and needs `--include-private` |
 
 With `--json`, a failure also prints one JSON line on stderr:
 
@@ -77,17 +79,26 @@ With `--json`, a failure also prints one JSON line on stderr:
 {"error": "You have no project named 'nope'. (HTTP 404)", "exit_code": 4}
 ```
 
+Exit code 6 also carries `"reason": "private_path"`. Show the person which
+files have "private" in their path, and rerun with `--include-private` only
+if they confirm the upload.
+
 ## Questions fw asks
 
 fw asks before it connects a machine (`fw login`) and before it uploads
 (`fw publish`). Without a terminal it cannot ask, so these need `--yes`.
 fw prints what it is about to do first, so an agent can show it to the
-person. Nothing else prompts when there is no terminal.
+person. `fw project push-spec` asks only when the project's path contains
+"private". Nothing else prompts when there is no terminal.
 
 ## What never leaves the machine
 
-Data files and project code go to the cloud only when you publish them.
-`fw publish` sends only the path it is given, and refuses anything inside
-a folder named `private` unless you pass `--allow-private`. Sensitive
-projects keep their AI deny rules, which stop agents from reading private
-folders and `.env`.
+fw never uploads anything on its own. Data files and project code go to the
+cloud only when you run `fw publish` or `fw project push-spec`, and
+`fw publish` sends only the path it is given. `fw publish --to github`
+commits and pushes only `published/SLUG/` in the project's repository, and
+its JSON is `{"url", "commit", "pushed", "pages_enabled"}`. Tell the person
+that a GitHub Pages site is public, even from a private repository. When a file's full path
+contains "private", in any letter case, fw stops with exit code 6 unless you
+pass `--include-private`. Sensitive projects keep their AI deny rules, which
+stop agents from reading private folders and `.env`.

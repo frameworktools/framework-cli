@@ -44,15 +44,29 @@ fw version | fw completion SHELL
 - `fw publish` (added in 0.2.0) uploads rendered HTML through the same
   `POST /api/v1/documents` endpoint as R's `publish()`: one self-contained
   file, an HTML file with the `_files` folders it refers to, or a rendered
-  folder with an entry point. It refuses paths inside a folder named
-  `private`, as R does, unless `--allow-private` is given. It asks before
-  uploading; without a terminal it needs `--yes`. Erik chose this on
-  2026-10-31. The ledger commands stay in R and Python.
+  folder with an entry point. It asks before uploading; without a terminal it
+  needs `--yes`. Erik chose this on 2026-10-31. The ledger commands stay in R and Python.
 - `fw project push-spec` (0.2.0) sends `.framework/spec.json` to
   `PUT /api/v2/project/spec` with the project token. Sensitive projects are
   allowed, because the spec holds structure and template text and no data;
-  fw says what it sends. This was framework-cloud-f1's default, and Erik can
-  overrule it.
+  fw says what it sends.
+- `fw publish --to github` (framework-cloud-f1's design, 2026-10-31) copies
+  the rendered document to `published/<slug>/` at the top of the git
+  repository, commits only that path, and pushes. The workflow the cloud adds
+  when Pages is turned on deploys `published/`. The URL comes from
+  `pages_url` in `GET /api/v1/me` with the project token (cloud 49bd585).
+  Older servers need `github.pages_url` from the project's details with the
+  user's login. Without either, fw builds it from the remote. It asks before publishing, like the cloud upload, and runs the same
+  private-path check. Documents never pass through the cloud.
+- Upload policy (Erik, 2026-10-31): an explicit upload is the user's choice,
+  whether or not the project is sensitive, and fw never uploads on its own.
+  Sensitive only shapes the local setup. When any full path fw would upload
+  contains "private" in any case, `fw publish` and `fw project push-spec`
+  warn and ask, defaulting to No. With `--yes`, `--json`, or no terminal they
+  exit 6 (`reason: private_path`) unless `--include-private` is given. A
+  leading `/private/`, which macOS adds to `/tmp`, `/var`, and `/etc`, is
+  ignored, as in R and Python. 0.2.0's
+  `--allow-private` still works as a hidden alias.
 
 ### Scripts and AI agents
 
@@ -298,6 +312,71 @@ Decisions made while building it (2026-10-30):
   projects and runs `fw new --from .framework/layers.json --dir . --headless`.
   Headless mode follows the R rules: no prompts, no git commands, and refusal
   to write under `.github/workflows/`.
+
+## Blueprints, structures, and settings (planned, 0.4.0)
+
+Framework Cloud's plan of 2026-10-31 (framework-cloud c5c9f4a) replaces
+project types and facets with blueprints, project structures, package sets,
+skills and skill sets, tools, and settings. fw's side:
+
+- The cloud keeps emitting only the existing layer kinds. A structure is a
+  `base` layer; tools, package sets, and skill sets are `facet` layers with
+  keys such as `framework/tool-quarto`; settings are in the `blueprint`
+  layer. The cloud applies the sensitive private/public split itself, so
+  clients see final directories. fw 0.2.0 keeps working.
+- R adds optional `core_files` (base layer, default true), `tools` (id to
+  boolean), and a looser `type` (`^[a-z][a-z0-9_]*$`) at spec_version 1. fw
+  syncs them. Stata scaffolding then keys bare on `core_files` and sensitive
+  on `security.sensitive`, accepts any type label when the layers carry
+  directories, and treats a true tool in a Stata spec as an error. Without
+  layers, `--type project|project_sensitive|bare` maps to fw's built-in
+  Stata structures.
+- Listing commands with `--json`: `fw structures list`, `fw package-sets
+  list`, `fw skills list` (`--sets`), and `fw tools list`. `fw blueprints
+  list` drops facets.
+- `fw new` gains `--blueprint`, `--structure`, `--package-set`, `--skill`,
+  `--skill-set`, `--tool`/`--no-tool`, `--sensitive`, `--ai`, and `--git`.
+  With any of them, fw posts the choices to `POST /api/v2/resolve`, which
+  fills the rest from the user's defaults and returns a layers envelope.
+  Without them, or logged out, fw keeps the offline path.
+- Creating the cloud project too (Erik, 2026-10-31): at a terminal fw asks
+  "Also create this project on <server>? [y/N]". With `--yes`, `--json`, or
+  no terminal it creates it only with `--cloud`; `--no-cloud` skips the
+  question. Logged out, fw does not ask. Creation uses the same endpoint as
+  the website.
+- `fw new --from SLUG` and `fw project push-spec` are unchanged.
+
+Endpoints (framework-cloud 0381706, live on framework.pub; user token only,
+a project token gets 403):
+
+- Lists, each with `?language=r|python|stata`: `GET /api/v2/structures`
+  `{structures: [{key, name, description, type, version, system,
+  visibility}]}`; `/tools` `{tools: [{key, name, description, language[],
+  requires[], ...}]}`; `/package-sets` `{package_sets: [{..., language,
+  packages[]}]}`; `/skill-sets` `{skill_sets: [{..., language, skills[],
+  packages[]}]}`; `/skills` `{skills: [...]}`. `GET /api/v2/blueprints` adds
+  `structure`, `tools`, `package_sets`, and `skill_sets`, and keeps `facets`
+  for fw 0.2 and 0.3.
+- Keys are handles: `framework/<key>` or `<user-handle>/<key>`. Bare tool ids
+  mean `framework/<id>`.
+- `POST /api/v2/resolve` `{name?, language?, blueprint?, structure?, tools
+  {id: bool}, package_sets[], skill_sets[], skills[], settings {sensitive,
+  git, ai (bool or {enabled, assistants})}}` returns the layers envelope of
+  `GET /api/v2/projects/{slug}/layers`. It needs a blueprint or a structure.
+  422 `{errors: {field: [...]}}` for unknown handles, wrong-language or
+  missing required tools, and any tool on Stata. AI off drops all skills;
+  sensitive with AI on adds framework-sensitive-data.
+- `POST /api/v2/projects`: the same body plus `name` (required) and
+  `description`. 201 `{slug, name, language, url, token}`; the token is a
+  project token for linking. 422 `errors.name` when the name is taken.
+- User defaults (framework-cloud 2196b0d): `GET /api/v2/defaults` returns
+  `{blueprint, package_sets[], skill_sets[], tools {id: bool}, settings
+  {sensitive, git, ai}}`. Resolve and create apply them: with no blueprint
+  or structure, the default blueprint and the preferred sets and tools are
+  used, and default settings fill any the blueprint leaves unset. An empty
+  body resolves to the user's defaults. `source.blueprint` appears whenever
+  the result equals the blueprint. A `fw defaults show` command can read
+  them.
 
 ## Endpoints needed from framework-cloud
 

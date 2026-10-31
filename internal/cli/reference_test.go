@@ -73,7 +73,7 @@ func TestReferenceMatchesSchema(t *testing.T) {
 		}
 	}
 	text, _ := json.Marshal(publish)
-	for _, want := range []string{`"PATH"`, `--allow-private`, `"env":"FW_CLOUD_URL"`, `Exit codes`, `private_url`} {
+	for _, want := range []string{`"PATH"`, `--include-private`, `"env":"FW_CLOUD_URL"`, `Exit codes`, `private_url`} {
 		if !strings.Contains(string(text), want) {
 			t.Errorf("publish entry lacks %s:\n%s", want, text)
 		}

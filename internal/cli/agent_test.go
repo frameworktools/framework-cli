@@ -47,6 +47,11 @@ func TestReportJSON(t *testing.T) {
 		t.Errorf("report: %q %v", buf.String(), err)
 	}
 	buf.Reset()
+	report(&buf, &app{jsonOut: true}, &exitError{code: exitPrivate, reason: "private_path", err: errors.New("private")})
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil || got.Code != exitPrivate || got.Reason != "private_path" {
+		t.Errorf("report with a reason: %q %v", buf.String(), err)
+	}
+	buf.Reset()
 	report(&buf, &app{}, errors.New("boom"))
 	if buf.String() != "fw: boom\n" {
 		t.Errorf("text report: %q", buf.String())
@@ -204,7 +209,15 @@ func TestLoginWithoutTerminal(t *testing.T) {
 // project token, and runs fw from it.
 func linkedProject(t *testing.T, h *harness, url string) string {
 	t.Helper()
-	root := filepath.Join(h.app.home, "study")
+	return linkedProjectAt(t, h, url, "study")
+}
+
+func linkedProjectAt(t *testing.T, h *harness, url, name string) string {
+	t.Helper()
+	if isPrivatePath(h.app.home) {
+		t.Skip("the temporary folder's path contains \"private\", so every upload would warn")
+	}
+	root := filepath.Join(h.app.home, name)
 	write(t, root, "settings.yml", "default: {}\n")
 	write(t, root, ".env", "FW_PROJECT_TOKEN=proj-tok\nFW_CLOUD_URL="+url+"\n")
 	h.app.cwd = root
@@ -249,6 +262,7 @@ func TestPublish(t *testing.T) {
 	write(t, root, "_site/index.html", "<html>site</html>")
 	write(t, root, "_site/about/index.html", "<html>about</html>")
 	write(t, root, "inputs/private/table.html", "<html>secret</html>")
+	write(t, root, "outputs/Private-notes.html", "<html>notes</html>")
 	write(t, root, "notes.qmd", "---\n")
 
 	// Without a terminal, publishing needs --yes.
@@ -298,13 +312,40 @@ func TestPublish(t *testing.T) {
 		t.Errorf("entrypoint outside the folder: %v", err)
 	}
 
+	// A path containing "private" in any case needs --include-private
+	// without a terminal or with --yes or --json.
+	for _, args := range [][]string{
+		{"publish", "inputs/private/table.html", "--yes"},
+		{"publish", "outputs/Private-notes.html", "--yes", "--json"},
+		{"publish", "inputs/private/table.html"},
+	} {
+		lastUpload = nil
+		_, _, err := h.run(t, "", args...)
+		if exitCode(err) != exitPrivate || !strings.Contains(err.Error(), "--include-private") || lastUpload != nil {
+			t.Errorf("%v: exit %d %v %+v", args, exitCode(err), err, lastUpload)
+		}
+	}
+	h.app.jsonOut = false
+	if _, errOut, err := h.run(t, "", "publish", "inputs/private/table.html", "--yes", "--include-private"); err != nil || lastUpload == nil || !strings.Contains(errOut, "inputs/private/table.html") {
+		t.Errorf("--include-private: %v\n%s", err, errOut)
+	}
 	lastUpload = nil
-	if _, _, err := h.run(t, "", "publish", "inputs/private/table.html", "--yes"); err == nil || !strings.Contains(err.Error(), "private folder") || lastUpload != nil {
-		t.Errorf("private file: %v %+v", err, lastUpload)
-	}
 	if _, _, err := h.run(t, "", "publish", "inputs/private/table.html", "--yes", "--allow-private"); err != nil || lastUpload == nil {
-		t.Errorf("--allow-private: %v", err)
+		t.Errorf("--allow-private from 0.2.0: %v", err)
 	}
+
+	// At a terminal, fw warns and asks once, defaulting to No.
+	h.app.interactive = true
+	lastUpload = nil
+	if _, errOut, err := h.run(t, "\n", "publish", "inputs/private/table.html"); err == nil || lastUpload != nil || !strings.Contains(errOut, "Warning:") {
+		t.Errorf("declined private upload: %v\n%s", err, errOut)
+	}
+	if _, errOut, err := h.run(t, "y\n", "publish", "inputs/private/table.html"); err != nil || lastUpload == nil ||
+		!strings.Contains(errOut, "Upload them anyway?") || strings.Contains(errOut, "Upload it?") {
+		t.Errorf("accepted private upload: %v\n%s", err, errOut)
+	}
+	h.app.interactive = false
+
 	if _, _, err := h.run(t, "", "publish", "notes.qmd", "--yes"); err == nil || !strings.Contains(err.Error(), "Render") {
 		t.Errorf("source file: %v", err)
 	}
@@ -316,15 +357,23 @@ func TestPublish(t *testing.T) {
 	}
 }
 
-func TestPublishRefusesPrivateInsideBundle(t *testing.T) {
+func TestPublishWarnsPrivateInsideBundle(t *testing.T) {
 	srv := fakeCloud(t)
 	h := newHarness(t, nil)
 	root := linkedProject(t, h, srv.URL)
 	write(t, root, "outputs/site/index.html", "<html></html>")
 	write(t, root, "outputs/site/private/rows.html", "<html></html>")
 	lastUpload = nil
-	if _, _, err := h.run(t, "", "publish", "outputs/site", "--yes"); err == nil || !strings.Contains(err.Error(), "outputs/site/private/rows.html") || lastUpload != nil {
+	if _, _, err := h.run(t, "", "publish", "outputs/site", "--yes"); exitCode(err) != exitPrivate || !strings.Contains(err.Error(), "outputs/site/private/rows.html") || lastUpload != nil {
 		t.Errorf("bundle with a private folder: %v", err)
+	}
+	// Every file in a folder is checked; the warning lists five.
+	for i := range 6 {
+		write(t, root, fmt.Sprintf("outputs/site/private/more%d.html", i), "<html></html>")
+	}
+	_, _, err := h.run(t, "", "publish", "outputs/site", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "7 files to upload") || !strings.Contains(err.Error(), " ... and 2 more") {
+		t.Errorf("long list: %v", err)
 	}
 }
 
@@ -347,5 +396,42 @@ func TestPushSpec(t *testing.T) {
 	write(t, root, ".framework/spec.json", `{"env":{"DB_PASSWORD":"hunter2"}}`)
 	if _, _, err := h.run(t, "", "project", "push-spec"); err == nil || !strings.Contains(err.Error(), "DB_PASSWORD looks secret") {
 		t.Errorf("rejected spec: %v", err)
+	}
+}
+
+func TestPrivatePaths(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/private/tmp/x/report.html":                 false, // macOS's /tmp
+		"/private/var/folders/T/study/a.html":        false,
+		"/private/tmp/x/private/data.csv":            true,
+		"/Users/ada/proj/Private/out.html":           true,
+		"/Users/ada/PRIVATE-study/a.html":            true,
+		"/Users/ada/proj/outputs/a.html":             false,
+		"/privateer/a.html":                          true,
+		"/private/var/folders/proj/Private/out.html": true,
+		"/srv/my_private_notes.html":                 true,
+	} {
+		if got := isPrivatePath(p); got != want {
+			t.Errorf("isPrivatePath(%q) = %v; want %v", p, got, want)
+		}
+	}
+}
+
+func TestPushSpecPrivatePath(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProjectAt(t, h, srv.URL, "PRIVATE-study")
+	write(t, root, ".framework/spec.json", `{"spec_version":1}`)
+	lastSpec = ""
+	if _, _, err := h.run(t, "", "project", "push-spec"); exitCode(err) != exitPrivate || lastSpec != "" {
+		t.Errorf("private path without a terminal: exit %d %v", exitCode(err), err)
+	}
+	if _, _, err := h.run(t, "", "project", "push-spec", "--include-private"); err != nil || lastSpec == "" {
+		t.Errorf("--include-private: %v", err)
+	}
+	h.app.interactive = true
+	lastSpec = ""
+	if _, errOut, err := h.run(t, "y\n", "project", "push-spec"); err != nil || lastSpec == "" || !strings.Contains(errOut, "Warning:") {
+		t.Errorf("confirmed at a terminal: %v\n%s", err, errOut)
 	}
 }

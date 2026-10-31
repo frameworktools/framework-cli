@@ -26,6 +26,8 @@ type exitError struct {
 	code   int
 	err    error
 	silent bool
+	// reason is a stable name for the problem in --json errors.
+	reason string
 }
 
 func (e *exitError) Error() string {
@@ -74,7 +76,11 @@ func report(w io.Writer, a *app, err error) {
 		return
 	}
 	if a != nil && a.jsonOut {
-		data, _ := json.Marshal(jsonError{Error: err.Error(), Code: exitCode(err)})
+		e := jsonError{Error: err.Error(), Code: exitCode(err)}
+		if exit != nil {
+			e.Reason = exit.reason
+		}
+		data, _ := json.Marshal(e)
 		fmt.Fprintln(w, string(data))
 		return
 	}

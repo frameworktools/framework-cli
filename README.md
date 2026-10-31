@@ -29,7 +29,7 @@ fw new                              create an R, Python, or Stata project
 fw project link | status            the current project's cloud link and runtime
 fw project bootstrap                prepare a cloned project
 fw project push-spec                send the project's spec to Framework Cloud
-fw publish PATH                     publish a rendered notebook or HTML file
+fw publish PATH [--to github]       publish a rendered notebook or HTML file
 fw config path | sync               configuration folders
 fw doctor                           runtimes and settings fw would use
 ```
@@ -43,7 +43,8 @@ Commands that report information take `--json`. Without a terminal,
 `fw login --yes` prints a code and link for a person to approve, so the
 token never passes through the agent. Exit codes: 0 success, 1 failure,
 2 bad flags or arguments, 3 not logged in or token rejected, 4 not found,
-5 browser login denied or expired.
+5 browser login denied or expired, 6 an upload has "private" in a path
+and needs `--include-private`.
 
 ## Development
 

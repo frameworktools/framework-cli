@@ -28,7 +28,11 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		case "user-tok":
 			_ = json.NewEncoder(w).Encode(map[string]string{"kind": "user", "email": "ada@example.edu"})
 		case "proj-tok":
-			_ = json.NewEncoder(w).Encode(map[string]string{"kind": "project", "project": "study"})
+			me := map[string]any{"kind": "project", "project": "study"}
+			if fakeMePages != nil {
+				me["pages_url"] = *fakeMePages
+			}
+			_ = json.NewEncoder(w).Encode(me)
 		default:
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"message":"Unauthenticated."}`))
@@ -51,6 +55,14 @@ func fakeCloud(t *testing.T) *httptest.Server {
 	mux.HandleFunc("GET /api/v2/projects/{slug}/layers", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.PathValue("slug") == "study" {
+			pages := "null"
+			if fakePagesURL != "" {
+				pages = `"` + fakePagesURL + `"`
+			}
+			_, _ = w.Write([]byte(`{"slug":"study","name":"Study","github":{"repository":"Acme/study","url":"https://github.com/Acme/study","private":true,"scaffold_status":"done","pages_url":` + pages + `}}`))
 			return
 		}
 		if r.PathValue("slug") != "vaccine-study" {
@@ -85,6 +97,14 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message":"This needs a user token."}`))
+			return
+		}
+		if r.PathValue("slug") == "study" {
+			pages := "null"
+			if fakePagesURL != "" {
+				pages = `"` + fakePagesURL + `"`
+			}
+			_, _ = w.Write([]byte(`{"slug":"study","name":"Study","github":{"repository":"Acme/study","url":"https://github.com/Acme/study","private":true,"scaffold_status":"done","pages_url":` + pages + `}}`))
 			return
 		}
 		if r.PathValue("slug") != "vaccine-study" {
@@ -149,6 +169,14 @@ var (
 	lastUpload map[string]string
 	lastSpec   string
 )
+
+// fakePagesURL is the Pages address the fake cloud reports for the
+// project "study"; empty means Pages is off.
+var fakePagesURL string
+
+// fakeMePages, when set, is what /me reports as pages_url for the project
+// token, as servers from 49bd585 on do. Nil leaves the field out.
+var fakeMePages *any
 
 // minted counts pull tokens the fake cloud has issued.
 var minted int
