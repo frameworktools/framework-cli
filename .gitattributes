@@ -10,3 +10,7 @@ internal/adopt/rules.json -text
 
 # The docs site archive ships these as written; keep LF on Windows too.
 docs/site/** text eol=lf
+
+# fw embeds these and writes them into projects; keep LF on Windows too.
+internal/stata/templates/** text eol=lf
+internal/stata/skills/** text eol=lf
