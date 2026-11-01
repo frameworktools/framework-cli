@@ -3,6 +3,10 @@
 internal/spec/schema/*.json -text
 internal/spec/testdata/conformance/README.md -text
 internal/spec/testdata/conformance/merge/*.json -text
+internal/spec/testdata/conformance/create/stata/*.json -text
+internal/spec/testdata/conformance/resolve/*.json -text
+internal/spec/testdata/conformance/adopt/*.json -text
+internal/adopt/rules.json -text
 
 # The docs site archive ships these as written; keep LF on Windows too.
 docs/site/** text eol=lf
