@@ -67,14 +67,13 @@ func Scaffold(r Resolved, o Options) (Result, error) {
 		return Result{}, err
 	}
 	v := r.View
-	bare := v.Type == "bare"
 
 	steps := []func() error{s.directories, s.settingsDo}
-	if !bare {
+	if v.CoreFiles {
 		steps = append(steps, s.doFiles, s.envFile)
 	}
 	steps = append(steps, s.gitignore)
-	if !bare && v.AI.Enabled {
+	if !v.SkipAI && v.AI.Enabled {
 		steps = append(steps, s.ai)
 	}
 	steps = append(steps, s.specFiles, s.record)

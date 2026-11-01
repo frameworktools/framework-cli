@@ -28,6 +28,7 @@ type newOptions struct {
 	headless  bool
 	print     bool
 	url       string
+	pieces    pieceOptions
 }
 
 // cloudLink is how a project created from the cloud gets its .env entries.
@@ -52,8 +53,15 @@ func newNewCmd(a *app) *cobra.Command {
 			"--from takes a layers file or the slug of one of your projects on Framework\n" +
 			"Cloud. A project from the cloud gets FW_PROJECT_TOKEN and FW_CLOUD_URL in its\n" +
 			".env. --pull-token creates a project from a project token instead of your\n" +
-			"login; fw asks for the token, or reads it from stdin.",
+			"login; fw asks for the token, or reads it from stdin.\n\n" +
+			"--blueprint, --structure, --package-set, --skill-set, --skill, --tool,\n" +
+			"--sensitive, --ai, and --git build the project from pieces on Framework\n" +
+			"Cloud, with your defaults there filling the rest; --defaults uses only your\n" +
+			"defaults. These need fw login. At a terminal fw then asks whether to also\n" +
+			"create the project on the cloud, defaulting to No. Without a terminal it\n" +
+			"creates it there only with --cloud. --no-cloud keeps it on this machine.",
 		Example: "  fw new vaccine-study\n" +
+			"  fw new survey --blueprint framework/project --tool renv --sensitive\n" +
 			"  fw new --from vaccine-study\n" +
 			"  fw new --from .framework/layers.json --dir . --headless\n" +
 			"  fw new --pull-token --url https://framework.example.edu",
@@ -75,6 +83,7 @@ func newNewCmd(a *app) *cobra.Command {
 	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work")
 	f.BoolVar(&o.print, "print", false, "print the command instead of running it")
 	f.StringVar(&o.url, "url", "", "Framework Cloud server")
+	addPieceFlags(cmd, &o.pieces)
 	cmd.MarkFlagsMutuallyExclusive("from", "pull-token")
 	return cmd
 }
@@ -89,6 +98,17 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	}
 	if o.headless && fromCloud {
 		return errors.New("--headless works with a layers file, for automation. Fetch the layers first, or drop --headless")
+	}
+	pieces := usesPieces(cmd)
+	switch {
+	case pieces && (o.from != "" || o.pullToken):
+		return usageError("--blueprint, --structure, and the other cloud choices describe a new project; --from and --pull-token take an existing one")
+	case pieces && o.kind != "":
+		return usageError("--type picks one of fw's built-in setups; with --blueprint or --structure, the cloud's pieces decide instead")
+	case pieces && o.headless:
+		return usageError("--headless works with a layers file, for automation. Drop it to build from cloud choices")
+	case pieces && o.print && o.pieces.cloud:
+		return usageError("--print only shows the command, so it cannot create the project on the cloud. Drop --cloud")
 	}
 
 	// Gather the layers, if any
@@ -167,6 +187,17 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		if err := checkEmptyTarget(dir); err != nil {
 			return err
 		}
+	}
+	if pieces {
+		if o.print {
+			o.pieces.noCloud = true
+		}
+		e, l, err := a.layersFromPieces(cmd, o, name)
+		if err != nil {
+			return err
+		}
+		env, link = e, l
+		language = env.Language()
 	}
 
 	switch language {

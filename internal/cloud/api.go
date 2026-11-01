@@ -48,15 +48,21 @@ func (c *Client) Project(ctx context.Context, slug string) (ProjectDetail, error
 // Blueprint is one entry of GET /api/v2/blueprints. A project's blueprint
 // carries only Key and Version.
 type Blueprint struct {
-	Key         string   `json:"key"`
-	Name        string   `json:"name,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Language    string   `json:"language,omitempty"`
-	Type        string   `json:"type,omitempty"`
-	Version     int      `json:"version"`
-	Visibility  string   `json:"visibility,omitempty"`
-	System      bool     `json:"system,omitempty"`
+	Key         string `json:"key"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Language    string `json:"language,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Version     int    `json:"version"`
+	Visibility  string `json:"visibility,omitempty"`
+	System      bool   `json:"system,omitempty"`
+	// Facets are listed by servers from before structures and tools. Newer
+	// ones list the blueprint's pieces instead, and keep facets for fw 0.3.
 	Facets      []string `json:"facets,omitempty"`
+	Structure   string   `json:"structure,omitempty"`
+	Tools       []string `json:"tools,omitempty"`
+	PackageSets []string `json:"package_sets,omitempty"`
+	SkillSets   []string `json:"skill_sets,omitempty"`
 }
 
 // Blueprints lists the blueprints the signed-in user can use.

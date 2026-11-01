@@ -57,15 +57,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		if r.PathValue("slug") == "study" {
-			pages := "null"
-			if fakePagesURL != "" {
-				pages = `"` + fakePagesURL + `"`
-			}
-			_, _ = w.Write([]byte(`{"slug":"study","name":"Study","github":{"repository":"Acme/study","url":"https://github.com/Acme/study","private":true,"scaffold_status":"done","pages_url":` + pages + `}}`))
-			return
-		}
-		if r.PathValue("slug") != "vaccine-study" {
+		if r.PathValue("slug") != "vaccine-study" && r.PathValue("slug") != "survey" {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"message":"You have no project named 'x'."}`))
 			return
@@ -74,7 +66,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		if stataLayers {
 			body = strings.Replace(layers, `"language":"r"`, `"language":"stata"`, 1)
 		}
-		_, _ = w.Write([]byte(body))
+		_, _ = w.Write([]byte(body)) // #nosec G705 -- fixed test bodies
 	})
 	mux.HandleFunc("POST /api/v2/projects/{slug}/pull-tokens", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
@@ -114,6 +106,64 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		}
 		_, _ = w.Write([]byte(`{"slug":"vaccine-study","name":"Vaccine study","description":"","language":"stata","type":"project_sensitive","blueprint":{"key":"framework/project_sensitive","version":2},"github":null,"created_at":"2026-10-30T12:00:00Z","updated_at":"2026-10-31T09:00:00Z","spec_received_at":null}`))
 	})
+	pieces := map[string]string{
+		"structures":   `{"structures":[{"key":"framework/project","name":"Project","description":"Folders for an analysis","type":"project","version":2,"system":true,"visibility":"public"}]}`,
+		"tools":        `{"tools":[{"key":"quarto","name":"Quarto","description":"Render documents","language":["r","python"],"requires":[],"version":1},{"key":"quarto_slides","name":"Quarto slides","language":["r","python"],"requires":["quarto"],"version":1}]}`,
+		"package-sets": `{"package_sets":[{"key":"framework/tidyverse-analysis","name":"Tidyverse analysis","language":"r","packages":["dplyr","ggplot2","readr","tidyr","purrr"],"version":1}]}`,
+		"skill-sets":   `{"skill_sets":[{"key":"framework/ggplot2","name":"ggplot2","language":"r","skills":["ggplot2-exploring"],"packages":["ggplot2"],"version":1}]}`,
+		"skills":       `{"skills":[{"key":"framework/ggplot2-exploring","name":"Exploring with ggplot2","version":3}]}`,
+	}
+	mux.HandleFunc("GET /api/v2/{kind}", func(w http.ResponseWriter, r *http.Request) {
+		body, ok := pieces[r.PathValue("kind")]
+		if !ok || auth(r) != "user-tok" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		lastPiecesQuery = r.URL.RawQuery
+		if r.URL.Query().Get("language") == "stata" {
+			body = `{"` + strings.ReplaceAll(r.PathValue("kind"), "-", "_") + `":[]}`
+		}
+		_, _ = w.Write([]byte(body)) // #nosec G705 -- fixed test bodies
+	})
+	// resolve and create build layers from choices; lastChoices records the
+	// body. A tool on Stata gets 422, as on the real server.
+	choicesHandler := func(create bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if auth(r) != "user-tok" {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			lastChoices = string(body)
+			var c struct {
+				Name     string          `json:"name"`
+				Language string          `json:"language"`
+				Tools    map[string]bool `json:"tools"`
+			}
+			_ = json.Unmarshal(body, &c)
+			if c.Language == "stata" && len(c.Tools) > 0 {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(`{"message":"Stata projects have no tools.","errors":{"tools":["Stata projects have no tools."]}}`))
+				return
+			}
+			if create {
+				w.WriteHeader(http.StatusCreated)
+				_, _ = w.Write([]byte(`{"slug":"survey","name":"Survey","language":"r","url":"https://x/projects/survey","token":"created-tok"}`))
+				return
+			}
+			language := c.Language
+			if language == "" {
+				language = "r"
+			}
+			out, _ := json.Marshal(map[string]any{"spec_version": 1, "name": c.Name, "layers": []any{
+				map[string]any{"kind": "base", "key": "framework/project", "layer": map[string]any{"type": "project"}},
+				map[string]any{"kind": "project", "layer": map[string]any{"language": language}},
+			}})
+			_, _ = w.Write(out)
+		}
+	}
+	mux.HandleFunc("POST /api/v2/resolve", choicesHandler(false))
+	mux.HandleFunc("POST /api/v2/projects", choicesHandler(true))
 	mux.HandleFunc("GET /api/v2/blueprints", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -169,6 +219,12 @@ var (
 	lastUpload map[string]string
 	lastSpec   string
 )
+
+// lastChoices is the body of the last resolve or create request.
+var lastChoices string
+
+// lastPiecesQuery is the query string of the last list of pieces.
+var lastPiecesQuery string
 
 // fakePagesURL is the Pages address the fake cloud reports for the
 // project "study"; empty means Pages is off.

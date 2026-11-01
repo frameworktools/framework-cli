@@ -11,17 +11,47 @@ project made with fw is the same as one made in R or Python.
 
 ## Creating a project
 
-`fw new` takes a project from one of three places:
+`fw new` takes a project from one of four places:
 
 - `--from SLUG`: one of your projects on Framework Cloud.
 - `--from FILE`: a layers file, such as one downloaded from Framework Cloud.
-- A name, `--lang`, and `--type`: a new project from your own defaults.
+- A name and pieces on Framework Cloud: a blueprint, a project structure,
+  tools, package sets, skills, and settings.
+- A name, `--lang`, and `--type`: a new project from the language's own
+  defaults, without the cloud.
 
 ```sh
 fw new --from vaccine-study
 fw new --from layers.json --dir vaccine-study
+fw new survey --blueprint framework/project --tool renv --sensitive
 fw new survey-analysis --lang r --type project_sensitive
 ```
+
+## Building from cloud pieces
+
+These flags build a project from pieces on Framework Cloud. Your defaults
+there (Settings > Defaults) fill whatever you leave out, and `--defaults`
+uses only your defaults.
+
+| Flag | Chooses |
+|------|---------|
+| `--blueprint KEY` | a saved set of choices |
+| `--structure KEY` | the folders and Framework's core files |
+| `--tool ID`, `--no-tool ID` | tools such as `quarto`, `targets`, `renv`, `uv`, and `jupyter` |
+| `--package-set KEY` | a named list of packages |
+| `--skill-set KEY`, `--skill KEY` | skills for AI assistants |
+| `--sensitive`, `--ai`, `--git` | settings; add `=false` to turn one off |
+
+The flags can be repeated where it makes sense, as in `--tool renv --tool
+targets`. List what you can choose from with `fw blueprints list`,
+`fw structures list`, `fw tools list`, `fw package-sets list`, and
+`fw skills list`. Stata projects have no tools.
+
+These flags need `fw login`. At a terminal, fw then asks whether to also
+create the project on Framework Cloud, defaulting to No. A project created
+there is linked, as with `--from`. Without a terminal, fw creates it on the
+cloud only with `--cloud`. `--no-cloud` keeps it on this machine without
+asking.
 
 ## Languages
 

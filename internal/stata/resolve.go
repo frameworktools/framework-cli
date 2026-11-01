@@ -14,8 +14,9 @@ import (
 	"github.com/frameworktools/framework-cli/internal/spec"
 )
 
-// Types fw can scaffold for Stata. Courses and presentations are R and
-// Quarto project types.
+// Types names fw's built-in Stata structures, used when the layers bring no
+// directories of their own. type is otherwise only a label: behavior follows
+// directories, security.sensitive, and core_files.
 var Types = []string{"project", "project_sensitive", "bare"}
 
 // defaults is layer 0 for a Stata project of the given type.
@@ -114,6 +115,13 @@ type View struct {
 		Content string            `json:"content"`
 		Files   map[string]string `json:"files"`
 	} `json:"skills"`
+
+	// CoreFiles is false for a bare structure: no starter .do files and no
+	// .env.
+	CoreFiles bool `json:"-"`
+	// SkipAI is set for a bare project known only by its type label, which
+	// fw has always created without AI files.
+	SkipAI bool `json:"-"`
 }
 
 // Resolve merges the envelope's layers over the Stata defaults and finalizes
@@ -133,15 +141,37 @@ func Resolve(env spec.Envelope, fwVersion string) (Resolved, error) {
 			kind = t
 		}
 	}
-	if !contains(Types, kind) {
-		return Resolved{}, fmt.Errorf("fw scaffolds Stata projects of type %s, not %q", strings.Join(Types, ", "), kind)
-	}
-
 	merged, err := spec.Merge(append([]spec.Labeled{{Label: spec.DefaultsLabel, Layer: defaults(kind)}}, layers...))
 	if err != nil {
 		return Resolved{}, err
 	}
 	doc := merged.Spec
+
+	// core_files: false marks a bare structure. Layers from before it
+	// existed say so with the type label alone.
+	coreFiles, explicit := doc["core_files"].(bool)
+	if !explicit {
+		coreFiles = kind != "bare"
+	}
+	if !coreFiles {
+		doc["core_files"] = false
+	} else {
+		delete(doc, "core_files")
+	}
+	if !contains(Types, kind) && coreFiles && len(asMap(doc["directories"])) == 0 {
+		return Resolved{}, fmt.Errorf("fw has no Stata structure for type %q, and the layers bring no directories. Built-in types: %s", kind, strings.Join(Types, ", "))
+	}
+	var on []string
+	for id, v := range asMap(doc["tools"]) {
+		if v == true {
+			on = append(on, id)
+		}
+	}
+	if len(on) > 0 {
+		sort.Strings(on)
+		return Resolved{}, fmt.Errorf("the layers turn on %s, but Stata projects have no tools", strings.Join(on, ", "))
+	}
+
 	doc["spec_version"] = 1
 	doc["name"] = env.Name
 	doc["type"] = kind
@@ -165,7 +195,8 @@ func Resolve(env spec.Envelope, fwVersion string) (Resolved, error) {
 	if fwVersion != "" {
 		asMap(doc["source"])["fw_version"] = fwVersion
 	}
-	finalize(doc, kind, merged.Gitignore)
+	legacyBare := kind == "bare" && !explicit
+	finalize(doc, legacyBare, merged.Gitignore)
 
 	if err := spec.ValidateResolved(doc); err != nil {
 		return Resolved{}, err
@@ -181,6 +212,8 @@ func Resolve(env spec.Envelope, fwVersion string) (Resolved, error) {
 	if err := checkStata(view); err != nil {
 		return Resolved{}, err
 	}
+	view.CoreFiles = coreFiles
+	view.SkipAI = legacyBare
 	return Resolved{Doc: doc, View: view, Conflicts: merged.Conflicts}, nil
 }
 
@@ -196,14 +229,16 @@ func mergeAuthor(base, over map[string]any) map[string]any {
 	return base
 }
 
-func finalize(doc map[string]any, kind string, blocks []spec.Block) {
+// finalize fills settings the layers left out. legacyBare is a bare
+// project described only by its type label, which also has no AI setup.
+func finalize(doc map[string]any, legacyBare bool, blocks []spec.Block) {
 	security := asMap(doc["security"])
 	sensitive, _ := security["sensitive"].(bool)
 	security["sensitive"] = sensitive
 	doc["security"] = security
 
 	skills := asMap(doc["skills"])
-	if sensitive && kind != "bare" {
+	if sensitive && !legacyBare {
 		if _, ok := skills["framework-sensitive-data"]; !ok {
 			skills["framework-sensitive-data"] = map[string]any{"package": true}
 		}

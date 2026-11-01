@@ -203,6 +203,44 @@ func TestScaffoldBare(t *testing.T) {
 	}
 }
 
+// Cloud structures arrive as a base layer with any type label. Behavior
+// follows core_files and the directories, not the label.
+func TestStructureLayers(t *testing.T) {
+	dir, _ := scaffold(t, `{"spec_version":1,"name":"B","layers":[
+		{"kind":"base","key":"framework/bare","layer":{"type":"bare","core_files":false}},
+		{"kind":"blueprint","layer":{"ai":{"enabled":true,"assistants":{"claude":true}},"tools":{"renv":false}}},
+		{"kind":"project","layer":{"language":"stata"}}]}`, true)
+	for _, rel := range []string{"settings.do", "AGENTS.md", ".framework/spec.json"} {
+		read(t, dir, rel)
+	}
+	for _, rel := range []string{"master.do", ".env"} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); !os.IsNotExist(err) {
+			t.Errorf("core_files: false project has %s", rel)
+		}
+	}
+	if spec := read(t, dir, ".framework/spec.json"); !strings.Contains(spec, `"core_files": false`) {
+		t.Errorf("spec does not record core_files:\n%s", spec)
+	}
+
+	dir, _ = scaffold(t, `{"spec_version":1,"name":"S","layers":[
+		{"kind":"base","key":"ada/survey","layer":{"type":"survey_stata","directories":{"do":"code","inputs_raw":"data/raw"}}},
+		{"kind":"project","layer":{"language":"stata"}}]}`, true)
+	for _, rel := range []string{"master.do", "code", "data/raw"} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Errorf("custom structure lacks %s", rel)
+		}
+	}
+
+	for name, doc := range map[string]string{
+		"tool on":       `{"spec_version":1,"name":"T","layers":[{"kind":"facet","key":"framework/tool-quarto","layer":{"tools":{"quarto":true}}},{"kind":"project","layer":{"language":"stata"}}]}`,
+		"unknown label": `{"spec_version":1,"name":"T","layers":[{"kind":"project","layer":{"language":"stata","type":"survey_stata"}}]}`,
+	} {
+		if _, err := Resolve(envelope(t, doc), "test"); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
 func TestScaffoldHeadlessChecks(t *testing.T) {
 	r, err := Resolve(envelope(t, basic), "1.2.3")
 	if err != nil {

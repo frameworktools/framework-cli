@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "552bb004ca000c93a1cc00646cbc4a574312ed19",
-  "commit": "552bb004ca000c93a1cc00646cbc4a574312ed19",
+  "ref": "e08db38",
+  "commit": "e08db380b7906f2d65f3f0c6b27039b0f0150667",
   "files": {
     "internal/spec/schema/docs-reference.v1.json": {
       "source": "inst/schema/docs-reference.v1.json",
@@ -9,15 +9,15 @@
     },
     "internal/spec/schema/layer.v1.json": {
       "source": "inst/schema/layer.v1.json",
-      "sha256": "99f1f1d673304103a2b0afd0b62ca7b7f66b995fb4b802b393e36f561ff84b39"
+      "sha256": "89d098996158e9c229cd43f5eca524eda3a1480683acee7f1107c66d0eb51580"
     },
     "internal/spec/schema/layers.v1.json": {
       "source": "inst/schema/layers.v1.json",
-      "sha256": "dc74cac172b3edbfb09bc0731f2db9e09fe2a29c542c6094ef1e29e1970487f6"
+      "sha256": "548453105811683072e2738597b5c0349b58ff9dacbea1cff4e338e5f8e08d67"
     },
     "internal/spec/schema/spec.v1.json": {
       "source": "inst/schema/spec.v1.json",
-      "sha256": "d6e35829aa628ae6ed86234cfa1e727000286e2775f1db4874ed5c9589971387"
+      "sha256": "dd0b269036dace8c158d4c3656f61bce0b96963362065e9e03bf73a5350e7ae6"
     },
     "internal/spec/testdata/conformance/README.md": {
       "source": "inst/conformance/README.md",
@@ -42,6 +42,10 @@
     "internal/spec/testdata/conformance/merge/maps-and-null-removal.json": {
       "source": "inst/conformance/merge/maps-and-null-removal.json",
       "sha256": "98ecad70cba4a1537fe7612d2c2191ebce0c4b7892da628474d94924f5812334"
+    },
+    "internal/spec/testdata/conformance/merge/tools-and-core-files.json": {
+      "source": "inst/conformance/merge/tools-and-core-files.json",
+      "sha256": "48d949b3212e8a8e640164ebaa8921e4d63a649dd7dfef57133198b8bb3454ed"
     }
   }
 }

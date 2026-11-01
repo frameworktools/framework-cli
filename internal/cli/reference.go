@@ -33,6 +33,7 @@ var refCategories = []refCategory{
 var refCategoryOf = map[string]string{
 	"login": "account", "logout": "account", "status": "account",
 	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud",
+	"structures list": "cloud", "tools list": "cloud", "package-sets list": "cloud", "skills list": "cloud",
 	"new": "projects", "project link": "projects", "project status": "projects", "project bootstrap": "projects",
 	"project push-spec": "projects",
 	"config path":       "setup", "config sync": "setup", "doctor": "setup", "version": "setup",
@@ -44,6 +45,7 @@ var refSince = map[string]string{
 	"project link": "0.1.0", "project status": "0.1.0", "project bootstrap": "0.1.0",
 	"config path": "0.1.0", "config sync": "0.1.0", "doctor": "0.1.0", "version": "0.1.0",
 	"project show": "0.2.0", "blueprints list": "0.2.0", "publish": "0.2.0", "project push-spec": "0.2.0",
+	"structures list": "0.3.0", "tools list": "0.3.0", "package-sets list": "0.3.0", "skills list": "0.3.0",
 }
 
 // refEnv names the environment variable that sets a flag.
@@ -54,7 +56,11 @@ var refSeeAlso = map[string][]string{
 	"status":            {"login", "guide:agents"},
 	"projects list":     {"project show", "new"},
 	"project show":      {"projects list", "new"},
-	"blueprints list":   {"projects list"},
+	"blueprints list":   {"structures list", "tools list", "package-sets list", "skills list"},
+	"structures list":   {"blueprints list", "new"},
+	"tools list":        {"blueprints list", "new"},
+	"package-sets list": {"blueprints list", "new"},
+	"skills list":       {"blueprints list", "new"},
 	"publish":           {"project link", "guide:publishing", "r:ref:publish"},
 	"new":               {"project bootstrap", "project link", "guide:projects"},
 	"project link":      {"publish", "project push-spec"},
@@ -71,10 +77,14 @@ var refReturns = map[string]string{
 		"```json\n{\"user_code\": \"QGMK-JE6Q\", \"verification_url\": \"https://framework.pub/device?code=QGMK-JE6Q\", \"expires_in\": 600}\n```",
 	"status": "With `--json`, an object with `server`, `server_source`, `logged_in`, `account` (`kind`, `name`, `email`, or `null`), `token_source`, " +
 		"`problem` when not logged in, and `project_server` when the current project is linked to another server. Token values never appear.",
-	"projects list":   "With `--json`, `{\"server\": ..., \"projects\": [...]}`. Each project has `slug`, `name`, `language`, `type`, `description`, and `created_at`.",
-	"project show":    "With `--json`, the project: `slug`, `name`, `description`, `language`, `type`, `blueprint` (`key`, `version`, or `null`), `github` (`repository`, `url`, `private`, `scaffold_status`, `pages_url`, or `null`), `created_at`, `updated_at`, and `spec_received_at`.",
-	"blueprints list": "With `--json`, `{\"server\": ..., \"blueprints\": [...]}`. Each blueprint has `key`, `name`, `description`, `language`, `type`, `version`, `visibility`, `system`, and `facets`.",
-	"project status":  "With `--json`, an object with `root`, `language`, `language_source`, `runner` (a list), `runner_reason`, `cloud` (`linked`, `server`, `server_source`, `project`, `ok`, `problem`), and `warnings`.",
+	"projects list":     "With `--json`, `{\"server\": ..., \"projects\": [...]}`. Each project has `slug`, `name`, `language`, `type`, `description`, and `created_at`.",
+	"project show":      "With `--json`, the project: `slug`, `name`, `description`, `language`, `type`, `blueprint` (`key`, `version`, or `null`), `github` (`repository`, `url`, `private`, `scaffold_status`, `pages_url`, or `null`), `created_at`, `updated_at`, and `spec_received_at`.",
+	"blueprints list":   "With `--json`, `{\"server\": ..., \"blueprints\": [...]}`. Each blueprint has `key`, `name`, `description`, `language`, `type`, `version`, `visibility`, `system`, `structure`, `tools`, `package_sets`, and `skill_sets`. Older servers list `facets` instead of the pieces.",
+	"structures list":   "With `--json`, `{\"server\": ..., \"structures\": [...]}`, each with `key`, `name`, `description`, `type`, `version`, `system`, and `visibility`.",
+	"tools list":        "With `--json`, `{\"server\": ..., \"tools\": [...]}`, each with `key`, `name`, `description`, `language` (a list), `requires`, `version`, `system`, and `visibility`.",
+	"package-sets list": "With `--json`, `{\"server\": ..., \"package_sets\": [...]}`, each with `key`, `name`, `description`, `language`, `packages`, `version`, `system`, and `visibility`.",
+	"skills list":       "With `--json`, `{\"server\": ..., \"skills\": [...]}`, or `skill_sets` with `--sets`. A skill set also has `language`, `skills`, and the `packages` they need.",
+	"project status":    "With `--json`, an object with `root`, `language`, `language_source`, `runner` (a list), `runner_reason`, `cloud` (`linked`, `server`, `server_source`, `project`, `ok`, `problem`), and `warnings`.",
 	"publish": "With `--json`, the document: `slug`, `version`, `url` (the link to share), `private_url`, `readable_url`, `version_url`, `raw_url`, and `notice`. " +
 		"With `--to github`, `url`, `commit` (null when nothing changed), `pushed`, and `pages_enabled` (null when the project is not linked, or fw could not reach Framework Cloud).",
 	"project push-spec": "With `--json`, `received_at`, `spec_version`, and `changed`, which is false when the cloud already had this spec.",
@@ -83,7 +93,7 @@ var refReturns = map[string]string{
 // refNeedsServer marks commands whose examples need a server or credentials.
 var refNeedsServer = map[string]bool{
 	"login": true, "logout": true, "status": true, "projects list": true, "project show": true,
-	"blueprints list": true, "publish": true, "project link": true, "project push-spec": true, "new": true,
+	"blueprints list": true, "structures list": true, "tools list": true, "package-sets list": true, "skills list": true, "publish": true, "project link": true, "project push-spec": true, "new": true,
 }
 
 type refParam struct {

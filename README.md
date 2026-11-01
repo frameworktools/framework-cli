@@ -25,6 +25,8 @@ fw login | logout | status          Framework Cloud login, shared with R and Pyt
 fw projects list                    your projects on Framework Cloud
 fw project show SLUG                one project's details
 fw blueprints list                  blueprints you can start a project from
+fw structures | tools | package-sets | skills list
+                                    pieces a project can be built from
 fw new                              create an R, Python, or Stata project
 fw project link | status            the current project's cloud link and runtime
 fw project bootstrap                prepare a cloned project

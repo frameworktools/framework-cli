@@ -51,9 +51,10 @@ func exitCode(err error) int {
 	case http.StatusNotFound:
 		return exitNotFound
 	}
-	// Cobra reports an unknown command or flag as a plain error.
+	// Cobra reports an unknown command or flag, and flags that cannot go
+	// together, as plain errors.
 	if msg := err.Error(); strings.HasPrefix(msg, "unknown command") || strings.HasPrefix(msg, "unknown flag") ||
-		strings.HasPrefix(msg, "unknown shorthand flag") {
+		strings.HasPrefix(msg, "unknown shorthand flag") || strings.HasPrefix(msg, "if any flags in the group") {
 		return exitUsage
 	}
 	return exitFailure

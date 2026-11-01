@@ -313,7 +313,7 @@ Decisions made while building it (2026-10-30):
   Headless mode follows the R rules: no prompts, no git commands, and refusal
   to write under `.github/workflows/`.
 
-## Blueprints, structures, and settings (planned, 0.4.0)
+## Blueprints, structures, and settings (built for 0.3.0)
 
 Framework Cloud's plan of 2026-10-31 (framework-cloud c5c9f4a) replaces
 project types and facets with blueprints, project structures, package sets,
@@ -331,7 +331,7 @@ skills and skill sets, tools, and settings. fw's side:
   directories, and treats a true tool in a Stata spec as an error. Without
   layers, `--type project|project_sensitive|bare` maps to fw's built-in
   Stata structures.
-- Listing commands with `--json`: `fw structures list`, `fw package-sets
+- Listing commands with `--json` and `--lang`: `fw structures list`, `fw package-sets
   list`, `fw skills list` (`--sets`), and `fw tools list`. `fw blueprints
   list` drops facets.
 - `fw new` gains `--blueprint`, `--structure`, `--package-set`, `--skill`,

@@ -15,6 +15,7 @@ distinct exit codes, and the login keeps the token away from the agent.
 ```sh
 fw login --yes --json                 # a person approves the link
 fw projects list --json
+fw structures list --lang r --json    # also tools, package-sets, and skills
 fw new --from vaccine-study && cd vaccine-study
 fw project bootstrap
 fw project push-spec
@@ -89,7 +90,9 @@ fw asks before it connects a machine (`fw login`) and before it uploads
 (`fw publish`). Without a terminal it cannot ask, so these need `--yes`.
 fw prints what it is about to do first, so an agent can show it to the
 person. `fw project push-spec` asks only when the project's path contains
-"private". Nothing else prompts when there is no terminal.
+"private". `fw new` with cloud choices such as `--blueprint` never creates
+the project on Framework Cloud without a terminal unless you pass `--cloud`.
+Nothing else prompts when there is no terminal.
 
 ## What never leaves the machine
 
