@@ -52,6 +52,24 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("request failed (HTTP %d)", e.Status)
 }
 
+// UnreachableError is a request that never got a response: a network
+// error or a timeout.
+type UnreachableError struct {
+	Host string
+	Err  error
+}
+
+func (e *UnreachableError) Error() string { return fmt.Sprintf("cannot reach %s: %v", e.Host, e.Err) }
+
+func (e *UnreachableError) Unwrap() error { return e.Err }
+
+// IsOffline reports whether err means the server is unavailable: it could
+// not be reached, or it answered with a 5xx. 401 and 403 are not offline.
+func IsOffline(err error) bool {
+	var unreachable *UnreachableError
+	return errors.As(err, &unreachable) || StatusOf(err) >= 500
+}
+
 // StatusOf returns the HTTP status of an APIError, or 0.
 func StatusOf(err error) int {
 	var apiErr *APIError
@@ -85,6 +103,12 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 // do adds the common headers, sends req, and decodes a JSON response into
 // out when out is not nil.
 func (c *Client) do(req *http.Request, out any) error {
+	_, err := c.doHeader(req, out)
+	return err
+}
+
+// doHeader is do that also returns the response headers.
+func (c *Client) doHeader(req *http.Request, out any) (http.Header, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", UserAgent)
 	if c.Token != "" {
@@ -93,12 +117,12 @@ func (c *Client) do(req *http.Request, out any) error {
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("cannot reach %s: %w", Host(c.URL), err)
+		return nil, &UnreachableError{Host: Host(c.URL), Err: err}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return err
+		return nil, &UnreachableError{Host: Host(c.URL), Err: err}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -123,15 +147,15 @@ func (c *Client) do(req *http.Request, out any) error {
 				}
 			}
 		}
-		return apiErr
+		return nil, apiErr
 	}
 	if out == nil {
-		return nil
+		return resp.Header, nil
 	}
 	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("unexpected response from %s: %w", Host(c.URL), err)
+		return nil, fmt.Errorf("unexpected response from %s: %w", Host(c.URL), err)
 	}
-	return nil
+	return resp.Header, nil
 }
 
 // Me is the response of GET /api/v1/me.

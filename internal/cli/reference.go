@@ -35,8 +35,8 @@ var refCategoryOf = map[string]string{
 	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud",
 	"structures list": "cloud", "tools list": "cloud", "package-sets list": "cloud", "skills list": "cloud",
 	"new": "projects", "project link": "projects", "project status": "projects", "project bootstrap": "projects",
-	"project push-spec": "projects",
-	"config path":       "setup", "config sync": "setup", "doctor": "setup", "version": "setup",
+	"project push-spec": "projects", "adopt": "projects", "structures import": "cloud",
+	"config path": "setup", "config sync": "setup", "doctor": "setup", "version": "setup",
 }
 
 // refSince records the release that added each command.
@@ -46,6 +46,7 @@ var refSince = map[string]string{
 	"config path": "0.1.0", "config sync": "0.1.0", "doctor": "0.1.0", "version": "0.1.0",
 	"project show": "0.2.0", "blueprints list": "0.2.0", "publish": "0.2.0", "project push-spec": "0.2.0",
 	"structures list": "0.3.0", "tools list": "0.3.0", "package-sets list": "0.3.0", "skills list": "0.3.0",
+	"adopt": "0.4.0", "structures import": "0.4.0",
 }
 
 // refEnv names the environment variable that sets a flag.
@@ -57,7 +58,9 @@ var refSeeAlso = map[string][]string{
 	"projects list":     {"project show", "new"},
 	"project show":      {"projects list", "new"},
 	"blueprints list":   {"structures list", "tools list", "package-sets list", "skills list"},
-	"structures list":   {"blueprints list", "new"},
+	"structures list":   {"blueprints list", "structures import", "new"},
+	"structures import": {"structures list", "adopt", "new"},
+	"adopt":             {"structures import", "project push-spec", "guide:projects"},
 	"tools list":        {"blueprints list", "new"},
 	"package-sets list": {"blueprints list", "new"},
 	"skills list":       {"blueprints list", "new"},
@@ -73,6 +76,9 @@ var refSeeAlso = map[string][]string{
 
 // refReturns describes the --json output of each command that has it.
 var refReturns = map[string]string{
+	"structures import": "With `--json` and no `--yes`, the proposed mapping and nothing saved: `{\"name\", \"language\", \"saved\": false, \"directories\", \"extra_directories\", \"warnings\"}`. " +
+		"With `--yes`, the same with `\"saved\": true` and the new structure's `key`, `name`, and `url`. Each warning is `{\"code\": \"private_path\", \"path\": ...}`.",
+	"adopt": "With `--json` (and `--yes`), `{\"path\", \"language\", \"created\", \"directories\", \"extra_directories\", \"warnings\"}`. `created` lists the files fw wrote.",
 	"login": "With `--json`, stdout gets the same object as `fw status --json`. Without a terminal, the code to approve goes to stderr as one JSON line:\n\n" +
 		"```json\n{\"user_code\": \"QGMK-JE6Q\", \"verification_url\": \"https://framework.pub/device?code=QGMK-JE6Q\", \"expires_in\": 600}\n```",
 	"status": "With `--json`, an object with `server`, `server_source`, `logged_in`, `account` (`kind`, `name`, `email`, or `null`), `token_source`, " +

@@ -41,6 +41,10 @@ var assets = []asset{
 	{"inst/schema/*.json", "internal/spec/schema"},
 	{"inst/conformance/README.md", "internal/spec/testdata/conformance"},
 	{"inst/conformance/merge/*.json", "internal/spec/testdata/conformance/merge"},
+	{"inst/conformance/create/stata/*.json", "internal/spec/testdata/conformance/create/stata"},
+	{"inst/conformance/resolve/*.json", "internal/spec/testdata/conformance/resolve"},
+	{"inst/conformance/adopt/*.json", "internal/spec/testdata/conformance/adopt"},
+	{"inst/adopt/rules.json", "internal/adopt"},
 }
 
 // Lock is the contents of assets.lock.json. Files is keyed by the copy's path

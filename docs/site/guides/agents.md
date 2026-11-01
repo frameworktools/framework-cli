@@ -92,7 +92,9 @@ fw prints what it is about to do first, so an agent can show it to the
 person. `fw project push-spec` asks only when the project's path contains
 "private". `fw new` with cloud choices such as `--blueprint` never creates
 the project on Framework Cloud without a terminal unless you pass `--cloud`.
-Nothing else prompts when there is no terminal.
+`fw new NAME --lang stata` while logged in stops with exit 1 when the server
+cannot be reached and no defaults are saved; pass `--offline` to use fw's
+built-in defaults instead. Nothing else prompts when there is no terminal.
 
 ## What never leaves the machine
 

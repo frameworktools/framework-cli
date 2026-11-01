@@ -68,6 +68,10 @@ func defaults(kind string) map[string]any {
 		"data_hooks":        map[string]any{},
 		"files":             map[string]any{},
 		"skills":            skills,
+		"scaffold": map[string]any{
+			"seed_on_scaffold": false, "seed": "",
+			"workflow": "scripts", "notebook_format": "script",
+		},
 	}
 }
 
@@ -105,6 +109,11 @@ type View struct {
 	Security struct {
 		Sensitive bool `json:"sensitive"`
 	} `json:"security"`
+	Tools    map[string]bool `json:"tools"`
+	Scaffold struct {
+		Workflow       string `json:"workflow"`
+		NotebookFormat string `json:"notebook_format"`
+	} `json:"scaffold"`
 	Env   map[string]any `json:"env"`
 	Files map[string]struct {
 		Content  string `json:"content"`
@@ -119,9 +128,6 @@ type View struct {
 	// CoreFiles is false for a bare structure: no starter .do files and no
 	// .env.
 	CoreFiles bool `json:"-"`
-	// SkipAI is set for a bare project known only by its type label, which
-	// fw has always created without AI files.
-	SkipAI bool `json:"-"`
 }
 
 // Resolve merges the envelope's layers over the Stata defaults and finalizes
@@ -161,16 +167,6 @@ func Resolve(env spec.Envelope, fwVersion string) (Resolved, error) {
 	if !contains(Types, kind) && coreFiles && len(asMap(doc["directories"])) == 0 {
 		return Resolved{}, fmt.Errorf("fw has no Stata structure for type %q, and the layers bring no directories. Built-in types: %s", kind, strings.Join(Types, ", "))
 	}
-	var on []string
-	for id, v := range asMap(doc["tools"]) {
-		if v == true {
-			on = append(on, id)
-		}
-	}
-	if len(on) > 0 {
-		sort.Strings(on)
-		return Resolved{}, fmt.Errorf("the layers turn on %s, but Stata projects have no tools", strings.Join(on, ", "))
-	}
 
 	doc["spec_version"] = 1
 	doc["name"] = env.Name
@@ -198,23 +194,44 @@ func Resolve(env spec.Envelope, fwVersion string) (Resolved, error) {
 	legacyBare := kind == "bare" && !explicit
 	finalize(doc, legacyBare, merged.Gitignore)
 
-	if err := spec.ValidateResolved(doc); err != nil {
+	view, err := prepare(doc)
+	if err != nil {
 		return Resolved{}, err
+	}
+	return Resolved{Doc: doc, View: view, Conflicts: merged.Conflicts}, nil
+}
+
+// FromSpec prepares an already resolved Stata spec for scaffolding, such as
+// the input of a create/ conformance case.
+func FromSpec(doc map[string]any) (Resolved, error) {
+	if lang, _ := doc["language"].(string); lang != "stata" {
+		return Resolved{}, fmt.Errorf("this spec describes a %q project, not a Stata project", lang)
+	}
+	view, err := prepare(doc)
+	if err != nil {
+		return Resolved{}, err
+	}
+	return Resolved{Doc: doc, View: view}, nil
+}
+
+// prepare validates a resolved spec and returns its view.
+func prepare(doc map[string]any) (View, error) {
+	if err := spec.ValidateResolved(doc); err != nil {
+		return View{}, err
 	}
 	var view View
 	data, err := json.Marshal(doc)
 	if err != nil {
-		return Resolved{}, err
+		return View{}, err
 	}
 	if err := json.Unmarshal(data, &view); err != nil {
-		return Resolved{}, err
+		return View{}, err
 	}
 	if err := checkStata(view); err != nil {
-		return Resolved{}, err
+		return View{}, err
 	}
-	view.CoreFiles = coreFiles
-	view.SkipAI = legacyBare
-	return Resolved{Doc: doc, View: view, Conflicts: merged.Conflicts}, nil
+	view.CoreFiles = doc["core_files"] != false
+	return view, nil
 }
 
 // mergeAuthor applies the envelope's author over the merged one: non-empty
@@ -294,10 +311,26 @@ func gitignore(sensitive bool, blocks []spec.Block) string {
 
 var stataName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,31}$`)
 
-// checkStata rejects what the schema allows but Stata cannot use: global
-// names Stata does not accept, and paths with characters that Stata expands
-// inside quotes.
+// checkStata rejects what the schema allows but Stata cannot use: tools,
+// workflows other than Scripts only, global names Stata does not accept,
+// and paths with characters that Stata expands inside quotes.
 func checkStata(v View) error {
+	var on []string
+	for id, enabled := range v.Tools {
+		if enabled {
+			on = append(on, id)
+		}
+	}
+	if len(on) > 0 {
+		sort.Strings(on)
+		return fmt.Errorf("the layers turn on %s, but Stata projects have no tools", strings.Join(on, ", "))
+	}
+	if w := v.Scaffold.Workflow; w != "" && w != "scripts" {
+		return fmt.Errorf("the layers choose the %s workflow, but Stata projects support only the Scripts-only workflow (scripts)", w)
+	}
+	if f := v.Scaffold.NotebookFormat; f != "" && f != "script" {
+		return fmt.Errorf("the layers choose the %s notebook format, but Stata projects use scripts only (script)", f)
+	}
 	keys := make([]string, 0, len(v.Directories)+len(v.ExtraDirectories))
 	paths := map[string]string{}
 	for k, p := range v.Directories {

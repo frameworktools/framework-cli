@@ -155,6 +155,11 @@ func fakeCloud(t *testing.T) *httptest.Server {
 			if language == "" {
 				language = "r"
 			}
+			w.Header().Set("Framework-Defaults-Revision", "rev-1")
+			if c.Name == "" {
+				c.Name = "Untitled project"
+				w.Header().Add("Framework-Notice", "Your default blueprint does not support "+language+".")
+			}
 			out, _ := json.Marshal(map[string]any{"spec_version": 1, "name": c.Name, "layers": []any{
 				map[string]any{"kind": "base", "key": "framework/project", "layer": map[string]any{"type": "project"}},
 				map[string]any{"kind": "project", "layer": map[string]any{"language": language}},
@@ -162,6 +167,16 @@ func fakeCloud(t *testing.T) *httptest.Server {
 			_, _ = w.Write(out)
 		}
 	}
+	mux.HandleFunc("POST /api/v2/structures", func(w http.ResponseWriter, r *http.Request) {
+		if auth(r) != "user-tok" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		lastStructure = string(body)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"key":"ada/old-study","name":"Old Study","url":"https://x/structures/ada/old-study"}`))
+	})
 	mux.HandleFunc("POST /api/v2/resolve", choicesHandler(false))
 	mux.HandleFunc("POST /api/v2/projects", choicesHandler(true))
 	mux.HandleFunc("GET /api/v2/blueprints", func(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +234,9 @@ var (
 	lastUpload map[string]string
 	lastSpec   string
 )
+
+// lastStructure is the body of the last structure upload.
+var lastStructure string
 
 // lastChoices is the body of the last resolve or create request.
 var lastChoices string

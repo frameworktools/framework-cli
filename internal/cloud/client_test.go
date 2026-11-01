@@ -78,3 +78,29 @@ func TestPollDeviceStops(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateStructure(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v2/structures" {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"key":"ada/survey-layout","name":"Survey layout","url":"https://x/structures/ada/survey-layout"}`))
+	}))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "tok").CreateStructure(context.Background(), NewStructure{
+		Name:             "Survey layout",
+		Directories:      map[string]string{"inputs_raw": "data/raw"},
+		ExtraDirectories: map[string]ExtraDirectory{"codebooks": {Label: "codebooks", Path: "docs/codebooks"}},
+	})
+	if err != nil || got.Key != "ada/survey-layout" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	want := `{"directories":{"inputs_raw":"data/raw"},"extra_directories":{"codebooks":{"label":"codebooks","path":"docs/codebooks"}},"name":"Survey layout"}`
+	if data, _ := json.Marshal(body); string(data) != want {
+		t.Errorf("body %s", data)
+	}
+}

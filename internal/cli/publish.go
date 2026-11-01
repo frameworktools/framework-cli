@@ -54,15 +54,24 @@ func (a *app) confirm(cmd *cobra.Command, yes bool, question string) error {
 
 // ask asks a yes or no question at the terminal, defaulting to No.
 func (a *app) ask(cmd *cobra.Command, question string) error {
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
-	answer, err := a.readLine()
-	if err != nil && !errors.Is(err, io.EOF) {
+	yes, err := a.askYes(cmd, question)
+	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(strings.ToLower(answer), "y") {
+	if !yes {
 		return errors.New("canceled; nothing was uploaded")
 	}
 	return nil
+}
+
+// askYes asks a yes-or-no question that defaults to No.
+func (a *app) askYes(cmd *cobra.Command, question string) (bool, error) {
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
+	answer, err := a.readLine()
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	return strings.HasPrefix(strings.ToLower(answer), "y"), nil
 }
 
 // privatePaths returns the paths whose full path contains "private" in any

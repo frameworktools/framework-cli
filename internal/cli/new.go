@@ -28,6 +28,7 @@ type newOptions struct {
 	headless  bool
 	print     bool
 	url       string
+	offline   bool
 	pieces    pieceOptions
 }
 
@@ -47,9 +48,14 @@ func newNewCmd(a *app) *cobra.Command {
 		Long: "Creates a Framework project. R projects are created by the framework R\n" +
 			"package and Python projects by framework-py. fw finds the runtime, runs it,\n" +
 			"and prints the command to run instead when the runtime is missing. fw builds\n" +
-			"Stata projects itself: folders, master.do, settings.do, and do-file templates.\n\n" +
+			"Stata projects itself: folders, master.do, and settings.do.\n\n" +
 			"Without --from, fw creates an R project from your R defaults (author,\n" +
 			"directories, and packages), the same as framework::new().\n\n" +
+			"Logged in, fw new NAME --lang stata builds from your defaults on Framework\n" +
+			"Cloud and saves them for offline use. When the server cannot be reached it\n" +
+			"uses the saved defaults and says from when. With none saved it asks at a\n" +
+			"terminal, and without one it stops unless --offline is given. --offline\n" +
+			"uses the saved defaults, or fw's built-ins, without contacting the server.\n\n" +
 			"--from takes a layers file or the slug of one of your projects on Framework\n" +
 			"Cloud. A project from the cloud gets FW_PROJECT_TOKEN and FW_CLOUD_URL in its\n" +
 			".env. --pull-token creates a project from a project token instead of your\n" +
@@ -83,6 +89,7 @@ func newNewCmd(a *app) *cobra.Command {
 	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work")
 	f.BoolVar(&o.print, "print", false, "print the command instead of running it")
 	f.StringVar(&o.url, "url", "", "Framework Cloud server")
+	f.BoolVar(&o.offline, "offline", false, "build from your saved Framework Cloud defaults, or fw's built-ins, without contacting the server")
 	addPieceFlags(cmd, &o.pieces)
 	cmd.MarkFlagsMutuallyExclusive("from", "pull-token")
 	return cmd
@@ -107,6 +114,8 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		return usageError("--type picks one of fw's built-in setups; with --blueprint or --structure, the cloud's pieces decide instead")
 	case pieces && o.headless:
 		return usageError("--headless works with a layers file, for automation. Drop it to build from cloud choices")
+	case o.offline && (pieces || o.from != "" || o.pullToken):
+		return usageError("--offline builds from your saved defaults; --from, --pull-token, and cloud choices need the server")
 	case pieces && o.print && o.pieces.cloud:
 		return usageError("--print only shows the command, so it cannot create the project on the cloud. Drop --cloud")
 	}
@@ -203,6 +212,13 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	switch language {
 	case "r", "python":
 	case "stata":
+		if env == nil && o.kind == "" {
+			e, err := a.savedDefaults(cmd, o, name, language)
+			if err != nil {
+				return err
+			}
+			env = e
+		}
 		if env == nil {
 			layer, _ := json.Marshal(map[string]string{"language": "stata"})
 			if o.kind != "" {
@@ -218,6 +234,10 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		return newStata(cmd, o, env, dir, link)
 	default:
 		return fmt.Errorf("unknown language %q: use r, python, or stata", language)
+	}
+
+	if o.offline {
+		return usageError("--offline works only for Stata projects for now; R and Python apply their own offline rules")
 	}
 
 	// Without layers, the language's new() builds the project from the user's
@@ -292,16 +312,20 @@ func linkProject(cmd *cobra.Command, link *cloudLink, dir string) error {
 		return fmt.Errorf("git tracks %s, so the project token would be committed. "+
 			"Run `git rm --cached .env`, add .env to .gitignore, then run fw project link in %s", filepath.Join(dir, ".env"), dir)
 	}
+	out := cmd.OutOrStdout()
+	ignored, err := project.IgnoreEnv(dir)
+	if err != nil {
+		return fmt.Errorf("could not add .env to .gitignore, so the project token was not written: %w", err)
+	}
+	if ignored {
+		fmt.Fprintln(out, "Added .env to .gitignore so the project token stays out of git.")
+	}
 	added, err := project.LinkCloud(dir, token, url)
 	if err != nil {
 		return err
 	}
-	out := cmd.OutOrStdout()
 	if len(added) > 0 {
 		fmt.Fprintf(out, "Linked to %s: added %s to .env.\n", cloud.Host(url), strings.Join(added, " and "))
-	}
-	if !project.GitignoresEnv(dir) {
-		fmt.Fprintln(out, "Warning: no .gitignore line ignores .env, which holds the project token. Add .env to .gitignore before you commit.")
 	}
 	return nil
 }

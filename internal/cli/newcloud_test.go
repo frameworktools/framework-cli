@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/frameworktools/framework-cli/internal/cloud"
+	"github.com/frameworktools/framework-cli/internal/config"
 	"github.com/frameworktools/framework-cli/internal/project"
 )
 
@@ -90,5 +92,83 @@ func TestNewFromCloudChoicesNeedsLogin(t *testing.T) {
 	_, _, err := h.run(t, "", "new", "Survey", "--blueprint", "framework/project")
 	if exitCode(err) != exitAuth || !strings.Contains(err.Error(), "need a login") {
 		t.Errorf("logged out: exit %d %v", exitCode(err), err)
+	}
+}
+
+func TestNewStataFromSavedDefaults(t *testing.T) {
+	srv := fakeCloud(t)
+	env := map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL}
+	h := newHarness(t, env)
+	cache := filepath.Join(h.app.dirs.FW, "cache", "defaults", strings.ReplaceAll(cloud.Host(srv.URL), ":", "_"), "stata.json")
+
+	// A rejected token is an auth error and never falls back to a cache.
+	env["FW_CLOUD_TOKEN"] = "wrong"
+	if _, _, err := h.run(t, "", "new", "Study", "--lang", "stata", "--print"); err == nil || exitCode(err) != exitAuth {
+		t.Errorf("rejected token: %v", err)
+	}
+	env["FW_CLOUD_TOKEN"] = "user-tok"
+
+	// Signed in, fw resolves from the person's defaults and saves them.
+	lastChoices = ""
+	out, errOut, err := h.run(t, "", "new", "Study", "--lang", "stata", "--print")
+	if err != nil || lastChoices != `{"language":"stata"}` || !strings.Contains(errOut, "Using your Framework Cloud defaults from") {
+		t.Fatalf("online: %v %s\n%s", err, lastChoices, errOut)
+	}
+	if !strings.Contains(errOut, "Note from the server: Your default blueprint does not support stata.") {
+		t.Errorf("notice:\n%s", errOut)
+	}
+	if !strings.Contains(out, `"name": "Study"`) {
+		t.Errorf("the project name should replace the resolved one:\n%s", out)
+	}
+	var saved config.CachedDefaults
+	data, _ := os.ReadFile(cache) // #nosec G304 -- test path
+	if err := json.Unmarshal(data, &saved); err != nil || saved.Revision != "rev-1" || saved.FetchedAt.IsZero() {
+		t.Errorf("cache: %v %+v", err, saved)
+	}
+
+	// Unreachable, fw uses the saved defaults and says from when.
+	srv.Close()
+	_, errOut, err = h.run(t, "", "new", "Again", "--lang", "stata", "--print")
+	if err != nil || !strings.Contains(errOut, ", saved "+saved.FetchedAt.Local().Format("2006-01-02")) || !strings.Contains(errOut, "cannot reach") {
+		t.Errorf("cached: %v\n%s", err, errOut)
+	}
+
+	// With nothing saved, it stops without a terminal unless --offline is given.
+	if err := os.Remove(cache); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.run(t, "", "new", "Again", "--lang", "stata", "--print"); err == nil || exitCode(err) != exitFailure || !strings.Contains(err.Error(), "--offline") {
+		t.Errorf("no cache: %v", err)
+	}
+	if _, errOut, err := h.run(t, "", "new", "Again", "--lang", "stata", "--print", "--offline"); err != nil || !strings.Contains(errOut, "fw's built-in defaults") {
+		t.Errorf("--offline: %v\n%s", err, errOut)
+	}
+
+	// At a terminal it asks, defaulting to No.
+	h.app.interactive = true
+	if _, _, err := h.run(t, "\n", "new", "Again", "--lang", "stata", "--print"); err == nil || !strings.Contains(err.Error(), "canceled") {
+		t.Errorf("declined: %v", err)
+	}
+	if _, errOut, err := h.run(t, "y\n", "new", "Again", "--lang", "stata", "--print"); err != nil || !strings.Contains(errOut, "built-in defaults?") {
+		t.Errorf("accepted: %v\n%s", err, errOut)
+	}
+	h.app.interactive = false
+
+	for name, args := range map[string][]string{
+		"r":      {"new", "X", "--offline"},
+		"pieces": {"new", "X", "--lang", "stata", "--structure", "framework/project", "--offline"},
+		"from":   {"new", "--from", "vaccine-study", "--offline"},
+	} {
+		if _, _, err := h.run(t, "", args...); exitCode(err) != exitUsage {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestNewStataLoggedOutUsesBuiltIns(t *testing.T) {
+	h := newHarness(t, nil)
+	out, errOut, err := h.run(t, "", "new", "Study", "--lang", "stata", "--print")
+	if err != nil || strings.Contains(errOut, "defaults") || !strings.Contains(out, `"language": "stata"`) {
+		t.Errorf("%v\n%s", err, errOut)
 	}
 }

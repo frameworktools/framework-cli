@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,18 +58,60 @@ func EnvTracked(projectDir string) bool {
 	return cmd.Run() == nil
 }
 
-// GitignoresEnv reports whether the project's .gitignore has a line that
-// ignores .env.
+// GitignoresEnv reports whether git would ignore the project's .env. In a
+// git repository git decides. Otherwise the project's .gitignore does: the
+// last line about .env wins, so "!.env" after ".env" un-ignores it.
 func GitignoresEnv(projectDir string) bool {
+	cmd := exec.Command("git", "check-ignore", "-q", ".env")
+	cmd.Dir = projectDir
+	err := cmd.Run()
+	if err == nil {
+		return true
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return false
+	}
+	// No git, or not a repository
 	data, err := os.ReadFile(filepath.Join(projectDir, ".gitignore"))
 	if err != nil {
 		return false
 	}
+	ignored := false
 	for _, line := range strings.Split(string(data), "\n") {
-		switch strings.TrimSpace(line) {
+		rule := strings.TrimSpace(line)
+		negate := strings.HasPrefix(rule, "!")
+		switch strings.TrimPrefix(rule, "!") {
 		case ".env", "/.env", "*.env", ".env*", "**/.env":
-			return true
+			ignored = !negate
 		}
 	}
-	return false
+	return ignored
+}
+
+// IgnoreEnv makes sure git ignores the project's .env before a token is
+// written there, appending a rule to .gitignore (and creating it) when
+// needed, as the R and Python packages do. It reports whether it changed
+// .gitignore.
+func IgnoreEnv(projectDir string) (bool, error) {
+	if GitignoresEnv(projectDir) {
+		return false, nil
+	}
+	path := filepath.Join(projectDir, ".gitignore")
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	text := string(data)
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	if text != "" {
+		text += "\n"
+	}
+	text += "# Secrets (added by Framework)\n.env\n"
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil { // #nosec G306 -- .gitignore is not secret
+		return false, err
+	}
+	return true, nil
 }

@@ -286,7 +286,7 @@ func TestNewStata(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(h.app.home, "stata-study")
-	for _, rel := range []string{"master.do", "settings.do", "do/01_import.do", ".claude/settings.json", ".framework/spec.json"} {
+	for _, rel := range []string{"master.do", "settings.do", "do/.gitkeep", ".claude/settings.json", ".framework/spec.json"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Errorf("missing %s", rel)
 		}

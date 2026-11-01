@@ -29,6 +29,8 @@ fw structures | tools | package-sets | skills list
                                     pieces a project can be built from
 fw new                              create an R, Python, or Stata project
 fw project link | status            the current project's cloud link and runtime
+fw adopt [DIR]                      make an existing folder a Framework project
+fw structures import [DIR]          save a folder's layout as a structure
 fw project bootstrap                prepare a cloned project
 fw project push-spec                send the project's spec to Framework Cloud
 fw publish PATH [--to github]       publish a rendered notebook or HTML file
@@ -63,6 +65,14 @@ them again:
 ```sh
 go run ./tools/syncassets --from ../framework --ref <tag or commit>
 go run ./tools/syncassets --check --from ../framework
+```
+
+fw is the Stata engine, so it generates the Stata cases of R's shared
+`create/` fixtures. After changing Stata creation, regenerate them and send
+them to the R repository:
+
+```sh
+go run ./tools/createfixtures --out ../framework/inst/conformance/create/stata
 ```
 
 The docs site lives in `docs/site`. `go test` checks it, and each release

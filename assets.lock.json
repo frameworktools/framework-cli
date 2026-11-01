@@ -1,27 +1,91 @@
 {
   "source": "framework (R package)",
-  "ref": "e08db38",
-  "commit": "e08db380b7906f2d65f3f0c6b27039b0f0150667",
+  "ref": "f526b1d",
+  "commit": "f526b1dd8cd753ee9919190c34cb84b3772c006d",
   "files": {
+    "internal/adopt/rules.json": {
+      "source": "inst/adopt/rules.json",
+      "sha256": "6aeed84de1f33a2628b66fa54fc6a9de46f5b755a6380799784828ba621beffe"
+    },
     "internal/spec/schema/docs-reference.v1.json": {
       "source": "inst/schema/docs-reference.v1.json",
       "sha256": "e115abd1d68a5f15d46c5794f05f880623e9286197ffda6a4c1fe8dcb9309f5f"
     },
     "internal/spec/schema/layer.v1.json": {
       "source": "inst/schema/layer.v1.json",
-      "sha256": "89d098996158e9c229cd43f5eca524eda3a1480683acee7f1107c66d0eb51580"
+      "sha256": "10bc25ba31da0f19c8902a4c39b07221bda6adba78cbfa870e8d340cc80de48e"
     },
     "internal/spec/schema/layers.v1.json": {
       "source": "inst/schema/layers.v1.json",
-      "sha256": "548453105811683072e2738597b5c0349b58ff9dacbea1cff4e338e5f8e08d67"
+      "sha256": "ed7223a59101ab54cf17afa81f80e41d579d86fa0e89c616da6fa513f21a6a46"
     },
     "internal/spec/schema/spec.v1.json": {
       "source": "inst/schema/spec.v1.json",
-      "sha256": "dd0b269036dace8c158d4c3656f61bce0b96963362065e9e03bf73a5350e7ae6"
+      "sha256": "62d4071bbcd93a1fc9a6f78701f886011a22b1917a341354019200a6c6916d4b"
     },
     "internal/spec/testdata/conformance/README.md": {
       "source": "inst/conformance/README.md",
-      "sha256": "ed26d6c7182b4d8f6bd36d0cd059078c4d595e92e4c7634777b55c6a27bfae78"
+      "sha256": "6f2d8cf9a3f73fc90bca8802a1741421be6603f93658a0872900a574e3908611"
+    },
+    "internal/spec/testdata/conformance/adopt/case-insensitive.json": {
+      "source": "inst/conformance/adopt/case-insensitive.json",
+      "sha256": "0af7d0ed1362096a64918d68068bfc5b4fc34d0b7c997073c83f7a13da1e7198"
+    },
+    "internal/spec/testdata/conformance/adopt/data-science-template.json": {
+      "source": "inst/conformance/adopt/data-science-template.json",
+      "sha256": "902ba71e4a54d00ddd4d7e4383460f5ed416df4ae6cfe09396a2535c6120614f"
+    },
+    "internal/spec/testdata/conformance/adopt/extra-keys.json": {
+      "source": "inst/conformance/adopt/extra-keys.json",
+      "sha256": "96a0f4f5d6aeaa24867037e0aa9ef0478f6d90dded5ea41ef4c5124844863266"
+    },
+    "internal/spec/testdata/conformance/adopt/nested-under-matched.json": {
+      "source": "inst/conformance/adopt/nested-under-matched.json",
+      "sha256": "d0909e68a82e24691c369feb7aeb688acda39204cb93e7e92d5616babdd82fe1"
+    },
+    "internal/spec/testdata/conformance/adopt/pattern-priority.json": {
+      "source": "inst/conformance/adopt/pattern-priority.json",
+      "sha256": "d10a3a5e5ee596b0190fb720f0a8ad750c4477ea7bb244cfa63e9d0ae36f86bc"
+    },
+    "internal/spec/testdata/conformance/adopt/private-paths.json": {
+      "source": "inst/conformance/adopt/private-paths.json",
+      "sha256": "19fc85cb578040bcaeaf257ca3fbbe4316f39a00884ad308abd7361f5fd24995"
+    },
+    "internal/spec/testdata/conformance/adopt/r-analysis.json": {
+      "source": "inst/conformance/adopt/r-analysis.json",
+      "sha256": "3173c6f45b44def6deb86698ba3a8c8fb8075894b51bffeb19609bfc9225e6e2"
+    },
+    "internal/spec/testdata/conformance/adopt/skip-and-depth.json": {
+      "source": "inst/conformance/adopt/skip-and-depth.json",
+      "sha256": "83ee8b31ac65fc40549483c78381144c7e70db9bfeee5bf6254407ba0cd695ae"
+    },
+    "internal/spec/testdata/conformance/adopt/stata-folders-in-r.json": {
+      "source": "inst/conformance/adopt/stata-folders-in-r.json",
+      "sha256": "1a92bc5dbc25525c1697e772ad7675d0e8a8e1d9d6811c3c3b261f9b9330c776"
+    },
+    "internal/spec/testdata/conformance/adopt/stata.json": {
+      "source": "inst/conformance/adopt/stata.json",
+      "sha256": "a125211866360109e2e92c87efbbb015dd6096ac41104ed3d515552d40a4ab71"
+    },
+    "internal/spec/testdata/conformance/create/stata/bare-scripts.json": {
+      "source": "inst/conformance/create/stata/bare-scripts.json",
+      "sha256": "8a624f6588f35f4452e14a57f74236f7f19451acf118b9b3783917c1b7acc8ef"
+    },
+    "internal/spec/testdata/conformance/create/stata/project-scripts-codex-copilot.json": {
+      "source": "inst/conformance/create/stata/project-scripts-codex-copilot.json",
+      "sha256": "3e96c89f2e3becd4ec0fd3c108b77dce6f18dfb1c665755d9288ba64a32943a3"
+    },
+    "internal/spec/testdata/conformance/create/stata/project-scripts-no-agents.json": {
+      "source": "inst/conformance/create/stata/project-scripts-no-agents.json",
+      "sha256": "59052e3d9514772a2eafac399762a0f3e2d75408052b28883ddef6b80b5e37cf"
+    },
+    "internal/spec/testdata/conformance/create/stata/project-scripts.json": {
+      "source": "inst/conformance/create/stata/project-scripts.json",
+      "sha256": "f821a703225eb66c4079cf3cbc1896156fba2282d309325515dd1b2550994f12"
+    },
+    "internal/spec/testdata/conformance/create/stata/project_sensitive-scripts.json": {
+      "source": "inst/conformance/create/stata/project_sensitive-scripts.json",
+      "sha256": "eb4b59355a056a3b74e6581a421cd7e9970adb183425b5ca7b03d6d61d062b83"
     },
     "internal/spec/testdata/conformance/merge/atomic-entries.json": {
       "source": "inst/conformance/merge/atomic-entries.json",

@@ -227,13 +227,11 @@ gitignore blocks, `ai`, and `security`.
 
 ```
 my-study/
-  master.do              runs settings.do, opens a log, then each step in order
+  master.do              runs settings.do, opens a log, then each do-file you
+                         list in it
   settings.do            one global per directory key, and mkdir for folders git
                          does not keep (private data, logs, and outputs)
-  do/
-    01_import.do
-    02_clean.do
-    03_analysis.do
+  do/                    empty; starter do-files come only from a blueprint
   inputs/ outputs/ docs/ logs/ scratch/   from the spec, with .gitkeep files
   .gitignore             *.dta, *.log, *.smcl, private folders, .env, and logs
   AGENTS.md, CLAUDE.md, and skills (framework-stata, plus
@@ -377,6 +375,70 @@ a project token gets 403):
   body resolves to the user's defaults. `source.blueprint` appears whenever
   the result equals the blueprint. A `fw defaults show` command can read
   them.
+
+### Offline creation from saved defaults (framework-cloud plan 2026-11-01)
+
+The shared contract is in framework-cloud's
+`docs/plans/2026-11-01-workflows-defaults-and-recipes.md`.
+
+- Logged in, `fw new NAME --lang stata` posts `{"language": "stata"}` to
+  `POST /api/v2/resolve` and saves `{fetched_at, defaults_revision,
+  envelope}` to `cache/defaults/<host_port>/<language>.json` in fw's config
+  folder. Every `:` in `host[:port]` becomes `_` on every platform, because
+  Windows folder names cannot contain `:`. `defaults_revision` comes from
+  the `Framework-Defaults-Revision` header and is compared only for
+  equality.
+- The server names a nameless envelope "Untitled project". Clients replace
+  the name with the project's before validating, so a cached envelope is
+  valid as stored.
+- Each `Framework-Notice` response header is one plain-text notice, printed
+  as is. The body stays exactly a layers envelope.
+- Offline means a network error, a timeout, or a 5xx. Offline, fw uses the
+  newest cache from its own folder or R's and prints the date it was saved.
+  With no cache it asks at a terminal, and without one it stops (exit 1)
+  unless `--offline` is given. `--offline` skips the server and uses the
+  cache, or fw's built-ins. 401 and 403 are exit 3 and never fall back.
+  Logged out, or with `--type`, fw uses its built-ins without asking.
+- R and Python run the same policy inside their own `new()`. fw will pass
+  the choices and `--offline` through to them once released versions accept
+  those arguments, and until then `--offline` is Stata-only. R's arrive in
+  framework 2.0.0 (`workflow`, `offline`, and the choices), so fw checks
+  `packageVersion("framework") >= "2.0.0"` first. framework-py will name its
+  minimum version when it ships them.
+
+### Adopt and structure import
+
+- The scanner and mapping are shared: `inst/adopt/rules.json` and the
+  `inst/conformance/adopt/` cases come from the R package, and
+  `internal/adopt` follows the algorithm in the conformance README.
+- `fw adopt` detects the language from top-level files (.do, pyproject.toml,
+  renv.lock, DESCRIPTION, or .Rproj); `--lang` overrides it. For Stata it
+  writes `settings.do` and `.framework/spec.json` (a bare spec with exactly
+  the mapped folders, no AI, no git) and refuses when the folder is already a
+  project. It stays local. R and Python will be handed to `adopt()` once
+  framework 2.0.0 and framework-py release it.
+- `fw structures import` (alias `fw structure import`) posts `{name,
+  description?, directories, extra_directories?}` to `POST
+  /api/v2/structures` and gets 201 `{key, name, url}`; the structure is
+  private.
+- Before writing FW_PROJECT_TOKEN to .env, fw makes sure git ignores .env,
+  adding "# Secrets (added by Framework)" and ".env" to .gitignore when
+  needed, as R and Python do.
+
+### Workflows and create/ fixtures
+
+- Stata supports only the Scripts-only workflow. The Stata defaults record
+  `scaffold.workflow: scripts` and `notebook_format: script`, and any other
+  workflow or format in the layers is an error.
+- As in R, a project without core files (`core_files: false`) gets no AI
+  files.
+- R generates `inst/conformance/create/r/`, Python `create/python/`, and fw
+  `create/stata/` with `go run ./tools/createfixtures`. Each owner sends its
+  files to the R repository, and everyone pins one copy. A case is
+  `{description, language, layers, spec, expected: {paths}}`. Creating
+  `spec` in an empty folder must write exactly `expected.paths`: folders end
+  in `/`, `.git/` is left out, and the list is sorted by byte value. fw pins
+  `create/stata/` and `resolve/`, and its tests check the pinned Stata cases.
 
 ## Endpoints needed from framework-cloud
 

@@ -1,6 +1,7 @@
 package cloud
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -84,11 +85,41 @@ type Choices struct {
 	Settings    map[string]any  `json:"settings,omitempty"`
 }
 
+// DefaultsRevisionHeader names the response header that identifies the
+// version of the person's defaults. It is opaque: compare it for equality.
+const DefaultsRevisionHeader = "Framework-Defaults-Revision"
+
+// NoticeHeader names the response header that carries one notice, plain
+// text explaining what the server did, such as setting a default aside.
+const NoticeHeader = "Framework-Notice"
+
+// Resolution is the response of POST /api/v2/resolve.
+type Resolution struct {
+	Layers   json.RawMessage
+	Revision string   // the defaults revision
+	Notices  []string // for the person to read
+}
+
 // Resolve turns choices into a layers envelope without creating a project.
-func (c *Client) Resolve(ctx context.Context, choices Choices) (json.RawMessage, error) {
-	var raw json.RawMessage
-	err := c.Do(ctx, http.MethodPost, "/api/v2/resolve", choices, &raw)
-	return raw, err
+// Choices with only a language resolve from the person's defaults.
+func (c *Client) Resolve(ctx context.Context, choices Choices) (Resolution, error) {
+	data, err := json.Marshal(choices)
+	if err != nil {
+		return Resolution{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/v2/resolve", bytes.NewReader(data))
+	if err != nil {
+		return Resolution{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	var r Resolution
+	header, err := c.doHeader(req, &r.Layers)
+	if err != nil {
+		return Resolution{}, err
+	}
+	r.Revision = header.Get(DefaultsRevisionHeader)
+	r.Notices = header.Values(NoticeHeader)
+	return r, nil
 }
 
 // CreatedProject is the response of POST /api/v2/projects. Token is a
@@ -107,4 +138,34 @@ func (c *Client) CreateProject(ctx context.Context, choices Choices) (CreatedPro
 	var p CreatedProject
 	err := c.Do(ctx, http.MethodPost, "/api/v2/projects", choices, &p)
 	return p, err
+}
+
+// ExtraDirectory is a folder outside Framework's directory keys.
+type ExtraDirectory struct {
+	Label string `json:"label"`
+	Path  string `json:"path"`
+}
+
+// NewStructure is the body of POST /api/v2/structures: a project structure
+// made from an existing project's folders.
+type NewStructure struct {
+	Name             string                    `json:"name"`
+	Description      string                    `json:"description,omitempty"`
+	Directories      map[string]string         `json:"directories"`
+	ExtraDirectories map[string]ExtraDirectory `json:"extra_directories,omitempty"`
+}
+
+// CreatedStructure is the response of POST /api/v2/structures. The
+// structure starts private.
+type CreatedStructure struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// CreateStructure saves a project structure on Framework Cloud.
+func (c *Client) CreateStructure(ctx context.Context, s NewStructure) (CreatedStructure, error) {
+	var out CreatedStructure
+	err := c.Do(ctx, http.MethodPost, "/api/v2/structures", s, &out)
+	return out, err
 }

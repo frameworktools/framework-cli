@@ -49,7 +49,7 @@ func newRootCmd(a *app) *cobra.Command {
 	root.AddCommand(
 		newLoginCmd(a), newLogoutCmd(a), newStatusCmd(a), newNewCmd(a), newProjectsCmd(a), newProjectCmd(a),
 		newBlueprintsCmd(a), newPiecesCmd(a, structuresKind), newPiecesCmd(a, toolsKind),
-		newPiecesCmd(a, packageSetsKind), newPiecesCmd(a, skillsKind), newPublishCmd(a), newConfigCmd(a), newDoctorCmd(a), newVersionCmd(),
+		newPiecesCmd(a, packageSetsKind), newPiecesCmd(a, skillsKind), newPublishCmd(a), newAdoptCmd(a), newConfigCmd(a), newDoctorCmd(a), newVersionCmd(),
 	)
 	markUsage(root)
 	return root

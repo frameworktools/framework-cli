@@ -68,3 +68,44 @@ func TestEnvTracked(t *testing.T) {
 		t.Error("staged: want true")
 	}
 }
+
+func TestGitignoresEnvNegation(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".env\n!.env\n"), 0o600)
+	if GitignoresEnv(dir) {
+		t.Error("the last .env rule un-ignores it: want false")
+	}
+}
+
+func TestIgnoreEnv(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.dta"), 0o600)
+	changed, err := IgnoreEnv(dir)
+	if err != nil || !changed {
+		t.Fatalf("%v %v", changed, err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, ".gitignore")) // #nosec G304 -- test path
+	if string(data) != "*.dta\n\n# Secrets (added by Framework)\n.env\n" {
+		t.Errorf(".gitignore = %q", data)
+	}
+	if changed, _ := IgnoreEnv(dir); changed {
+		t.Error("a second call should change nothing")
+	}
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if changed, err := IgnoreEnv(repo); err != nil || !changed {
+		t.Fatalf("repository without .gitignore: %v %v", changed, err)
+	}
+	if !GitignoresEnv(repo) {
+		t.Error("git should now ignore .env")
+	}
+}

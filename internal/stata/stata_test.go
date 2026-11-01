@@ -71,8 +71,8 @@ func TestResolveBasic(t *testing.T) {
 	if !strings.Contains(v.Git.GitignoreContent, "*.dta") || !strings.Contains(v.Git.GitignoreContent, "# --- from project vaccine-study ---\n*.xlsx") {
 		t.Errorf("gitignore:\n%s", v.Git.GitignoreContent)
 	}
-	if _, ok := r.Doc["scaffold"]; ok {
-		t.Error("a Stata spec carries no R scaffold settings")
+	if sc, _ := r.Doc["scaffold"].(map[string]any); sc["workflow"] != "scripts" || sc["notebook_format"] != "script" || sc["ggplot_theme"] != nil {
+		t.Errorf("a Stata spec records the Scripts-only workflow and no R scaffold settings: %v", sc)
 	}
 	if r.Doc["language"] != "stata" || r.Doc["source"].(map[string]any)["origin"] != "cli" || r.Doc["source"].(map[string]any)["fw_version"] != "1.2.3" {
 		t.Errorf("doc %v %v", r.Doc["language"], r.Doc["source"])
@@ -124,11 +124,12 @@ func TestScaffoldProject(t *testing.T) {
 	}
 
 	master := read(t, dir, "master.do")
-	if !strings.Contains(master, "do `\"$do/01_import.do\"'") || !strings.Contains(master, "`\"$logs/master_") {
+	if !strings.Contains(master, "* do `\"$do/import.do\"'") || !strings.Contains(master, "`\"$logs/master_") {
 		t.Errorf("master.do:\n%s", master)
 	}
-	if !strings.Contains(read(t, dir, "do/01_import.do"), "$inputs_raw/example.csv") {
-		t.Error("01_import.do should use $inputs_raw")
+	// Starter do-files come only from a blueprint's files.
+	if entries, err := os.ReadDir(filepath.Join(dir, "do")); err != nil || len(entries) != 1 || entries[0].Name() != ".gitkeep" {
+		t.Errorf("do/ should be empty: %v %v", entries, err)
 	}
 	if got := read(t, dir, "README.md"); got != "# Vaccine Study by Ada {{< include x >}}" {
 		t.Errorf("README.md = %q", got)
@@ -183,9 +184,6 @@ func TestScaffoldSensitive(t *testing.T) {
 	if !strings.Contains(read(t, dir, "AGENTS.md"), "`inputs/private/`, `outputs/private/`") {
 		t.Errorf("AGENTS.md:\n%s", read(t, dir, "AGENTS.md"))
 	}
-	if !strings.Contains(read(t, dir, "do/01_import.do"), "$inputs_private_raw") || !strings.Contains(read(t, dir, "do/03_analysis.do"), "$outputs_private_tables") {
-		t.Error("sensitive do-files should use the private folders")
-	}
 	if !strings.Contains(read(t, dir, ".gitignore"), "/inputs/private/") {
 		t.Error("sensitive gitignore")
 	}
@@ -210,10 +208,11 @@ func TestStructureLayers(t *testing.T) {
 		{"kind":"base","key":"framework/bare","layer":{"type":"bare","core_files":false}},
 		{"kind":"blueprint","layer":{"ai":{"enabled":true,"assistants":{"claude":true}},"tools":{"renv":false}}},
 		{"kind":"project","layer":{"language":"stata"}}]}`, true)
-	for _, rel := range []string{"settings.do", "AGENTS.md", ".framework/spec.json"} {
+	for _, rel := range []string{"settings.do", ".framework/spec.json"} {
 		read(t, dir, rel)
 	}
-	for _, rel := range []string{"master.do", ".env"} {
+	// As in R, a project without core files gets no AI files either.
+	for _, rel := range []string{"master.do", ".env", "AGENTS.md"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); !os.IsNotExist(err) {
 			t.Errorf("core_files: false project has %s", rel)
 		}
@@ -311,5 +310,19 @@ func TestCloudStataLayerRemovesRFolders(t *testing.T) {
 func TestLayerWithoutKind(t *testing.T) {
 	if _, err := Resolve(envelope(t, `{"spec_version":1,"name":"K","layers":[{"layer":{"language":"stata"}}]}`), "test"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkflows(t *testing.T) {
+	layer := func(scaffold string) string {
+		return `{"spec_version":1,"name":"W","layers":[{"kind":"facet","key":"framework/workflow","layer":{"scaffold":` + scaffold + `}},{"kind":"project","layer":{"language":"stata"}}]}`
+	}
+	if _, err := Resolve(envelope(t, layer(`{"workflow":"scripts","notebook_format":"script"}`)), ""); err != nil {
+		t.Errorf("scripts: %v", err)
+	}
+	for _, scaffold := range []string{`{"workflow":"quarto","notebook_format":"quarto"}`, `{"workflow":"jupyter"}`, `{"notebook_format":"rmarkdown"}`} {
+		if _, err := Resolve(envelope(t, layer(scaffold)), ""); err == nil || !strings.Contains(err.Error(), "Stata projects") {
+			t.Errorf("%s: %v", scaffold, err)
+		}
 	}
 }

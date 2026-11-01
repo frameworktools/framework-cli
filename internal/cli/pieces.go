@@ -147,6 +147,10 @@ func newPiecesCmd(a *app, kind pieceKind) *cobra.Command {
 	}
 	list.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	cmd.AddCommand(list)
+	if kind.field == "structures" {
+		cmd.Aliases = []string{"structure"}
+		cmd.AddCommand(newStructureImportCmd(a))
+	}
 	return cmd
 }
 

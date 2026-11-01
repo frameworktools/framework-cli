@@ -1,8 +1,0 @@
-* 02_clean.do: clean the imported data and build the analysis file
-*
-* master.do runs this step after 01_import.do.
-
-* use `"{{.Intermediate}}/example.dta"', clear
-* rename *, lower
-* label data "Analysis file for {{.Name}}"
-* save `"{{.Final}}/analysis.dta"', replace

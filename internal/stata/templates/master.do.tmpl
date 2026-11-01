@@ -14,8 +14,7 @@ capture log close master
 local stamp = subinstr("`c(current_date)'", " ", "", .) + "_" + subinstr("`c(current_time)'", ":", "", .)
 log using `"{{.Logs}}/master_`stamp'.log"', name(master) text replace
 
-do `"{{.DoDir}}/01_import.do"'
-do `"{{.DoDir}}/02_clean.do"'
-do `"{{.DoDir}}/03_analysis.do"'
+* Add one line per do-file, in the order they run, for example:
+* do `"{{.DoDir}}/import.do"'
 
 log close master

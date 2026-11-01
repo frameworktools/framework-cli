@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
+	"github.com/frameworktools/framework-cli/internal/config"
 	"github.com/frameworktools/framework-cli/internal/spec"
 )
 
@@ -123,10 +126,12 @@ func (a *app) layersFromPieces(cmd *cobra.Command, o newOptions, name string) (*
 		}
 		link = &cloudLink{token: created.Token, url: client.URL}
 	} else {
-		raw, err = client.Resolve(cmd.Context(), choices)
+		res, err := client.Resolve(cmd.Context(), choices)
 		if err != nil {
 			return nil, nil, explain(err, client.URL)
 		}
+		printNotices(cmd, res.Notices)
+		raw = res.Layers
 	}
 	env, err := spec.Parse(raw)
 	if err != nil {
@@ -136,4 +141,99 @@ func (a *app) layersFromPieces(cmd *cobra.Command, o newOptions, name string) (*
 		fmt.Fprintln(cmd.ErrOrStderr(), note)
 	}
 	return &env, link, nil
+}
+
+// savedDefaults returns the layers for a project built from the person's
+// defaults on Framework Cloud, or nil to build from fw's built-ins. Signed
+// in, it resolves on the server and saves the result, so a later offline
+// project can use it. When the server cannot be reached it uses the saved
+// layers and says so. With none saved, it asks at a terminal and otherwise
+// stops unless --offline is given. Not logged in, there are no cloud
+// defaults, so it returns nil.
+func (a *app) savedDefaults(cmd *cobra.Command, o newOptions, name, language string) (*spec.Envelope, error) {
+	errOut := cmd.ErrOrStderr()
+	client, err := a.userClient(o.url)
+	if err != nil {
+		var notLoggedIn *errNotLoggedIn
+		if errors.As(err, &notLoggedIn) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	host := cloud.Host(client.URL)
+
+	reason := "--offline was given"
+	if !o.offline {
+		res, err := client.Resolve(cmd.Context(), cloud.Choices{Language: language})
+		if err == nil {
+			env, err := parseNamed(res.Layers, name)
+			if err != nil {
+				return nil, fmt.Errorf("the layers from %s %w", host, err)
+			}
+			cache := config.CachedDefaults{FetchedAt: time.Now().UTC(), Revision: res.Revision, Envelope: res.Layers}
+			if err := a.dirs.SaveDefaults(host, language, cache); err != nil {
+				fmt.Fprintf(errOut, "Warning: could not save your defaults for offline use: %v\n", err)
+			}
+			fmt.Fprintf(errOut, "Using your Framework Cloud defaults from %s.\n", host)
+			printNotices(cmd, res.Notices)
+			return &env, nil
+		}
+		if !cloud.IsOffline(err) {
+			return nil, explain(err, client.URL)
+		}
+		reason = "cannot reach " + host
+		if status := cloud.StatusOf(err); status != 0 {
+			reason = fmt.Sprintf("%s answered HTTP %d", host, status)
+		}
+	}
+
+	if cached, ok := a.dirs.LoadDefaults(host, language); ok {
+		env, err := parseNamed(cached.Envelope, name)
+		if err != nil {
+			return nil, fmt.Errorf("your saved defaults from %s %w", host, err)
+		}
+		fmt.Fprintf(errOut, "Using your Framework Cloud defaults from %s, saved %s (%s).\n",
+			host, cached.FetchedAt.Local().Format("2006-01-02"), reason)
+		return &env, nil
+	}
+
+	missing := fmt.Sprintf("there are no saved Framework Cloud defaults for %s from %s", language, host)
+	switch {
+	case o.offline:
+		fmt.Fprintf(errOut, "Using fw's built-in defaults: %s.\n", missing)
+		return nil, nil
+	case a.interactive:
+		yes, err := a.askYes(cmd, fmt.Sprintf("%s, and %s. Create the project from fw's built-in defaults?", reason, missing))
+		if err != nil {
+			return nil, err
+		}
+		if !yes {
+			return nil, errors.New("canceled; no project was created")
+		}
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("%s, and %s. Try again when %s is available, or add --offline to use fw's built-in defaults", reason, missing, host)
+	}
+}
+
+// printNotices shows the server's notices about how it resolved the layers.
+func printNotices(cmd *cobra.Command, notices []string) {
+	for _, n := range notices {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Note from the server: %s\n", n)
+	}
+}
+
+// parseNamed validates layers resolved from defaults alone after giving
+// them the new project's name in place of the server's placeholder.
+func parseNamed(raw []byte, name string) (spec.Envelope, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return spec.Envelope{}, fmt.Errorf("are not valid JSON: %w", err)
+	}
+	doc["name"] = name
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return spec.Envelope{}, err
+	}
+	return spec.Parse(data)
 }

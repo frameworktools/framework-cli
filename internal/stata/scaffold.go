@@ -70,10 +70,10 @@ func Scaffold(r Resolved, o Options) (Result, error) {
 
 	steps := []func() error{s.directories, s.settingsDo}
 	if v.CoreFiles {
-		steps = append(steps, s.doFiles, s.envFile)
+		steps = append(steps, s.masterDo, s.envFile)
 	}
 	steps = append(steps, s.gitignore)
-	if !v.SkipAI && v.AI.Enabled {
+	if v.CoreFiles && v.AI.Enabled {
 		steps = append(steps, s.ai)
 	}
 	steps = append(steps, s.specFiles, s.record)
@@ -224,44 +224,19 @@ func (s *scaffolder) ref(fallback string, keys ...string) string {
 	return "$root/" + fallback
 }
 
-func (s *scaffolder) doFiles() error {
+// masterDo writes master.do, which runs the project's do-files in order.
+// Starter do-files come only from a blueprint's files.
+func (s *scaffolder) masterDo() error {
 	v := s.r.View
-	doDir := "do"
-	if p, ok := v.Directories["do"]; ok {
-		doDir = p
+	content, err := s.render("master.do.tmpl", map[string]any{
+		"Name":  v.Name,
+		"DoDir": s.ref("do", "do"),
+		"Logs":  s.ref("logs", "logs"),
+	})
+	if err != nil {
+		return err
 	}
-	data := map[string]any{
-		"Name":         v.Name,
-		"Sensitive":    v.Security.Sensitive,
-		"DoDir":        s.ref("do", "do"),
-		"Logs":         s.ref("logs", "logs"),
-		"Raw":          s.ref("inputs/raw", "inputs_private_raw", "inputs_raw"),
-		"Intermediate": s.ref("inputs/intermediate", "inputs_private_intermediate", "inputs_intermediate"),
-		"Final":        s.ref("inputs/final", "inputs_private_final", "inputs_final"),
-		"Tables":       s.ref("outputs/tables", "outputs_private_tables", "outputs_tables"),
-		"Figures":      s.ref("outputs/figures", "outputs_private_figures", "outputs_figures"),
-	}
-	files := map[string]string{
-		"master.do":               "master.do.tmpl",
-		doDir + "/01_import.do":   "01_import.do.tmpl",
-		doDir + "/02_clean.do":    "02_clean.do.tmpl",
-		doDir + "/03_analysis.do": "03_analysis.do.tmpl",
-	}
-	names := make([]string, 0, len(files))
-	for rel := range files {
-		names = append(names, rel)
-	}
-	sort.Strings(names)
-	for _, rel := range names {
-		content, err := s.render(files[rel], data)
-		if err != nil {
-			return err
-		}
-		if err := s.write(rel, content, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.write("master.do", content, 0o644)
 }
 
 func (s *scaffolder) envFile() error {
@@ -533,4 +508,54 @@ func (s *scaffolder) git() error {
 		return fmt.Errorf("git commit: %w: %s", err, out)
 	}
 	return nil
+}
+
+// adoptMarkers are files that show a folder is already a Framework project.
+var adoptMarkers = []string{"settings.do", ".framework/spec.json", "settings.yml", "settings.yaml", "config.yml"}
+
+// CheckAdoptable returns an error when dir is already a Framework project.
+func CheckAdoptable(dir string) error {
+	for _, rel := range adoptMarkers {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
+			return fmt.Errorf("%s is already a Framework project (found %s). Nothing was changed", dir, rel)
+		}
+	}
+	return nil
+}
+
+// AdoptLayer is the layer fw adopt records for an existing Stata project: a
+// bare project with exactly its mapped folders, and no AI files or git, as
+// R's adopt() records.
+func AdoptLayer(directories map[string]string, extras map[string]any, sensitive bool) map[string]any {
+	dirs := map[string]any{}
+	for k, v := range directories {
+		dirs[k] = v
+	}
+	return map[string]any{
+		"language":          "stata",
+		"type":              "bare",
+		"core_files":        false,
+		"directories":       dirs,
+		"extra_directories": extras,
+		"git":               map[string]any{"use_git": false},
+		"ai":                map[string]any{"enabled": false},
+		"security":          map[string]any{"sensitive": sensitive},
+	}
+}
+
+// Adopt turns an existing folder into a Stata project by writing
+// settings.do and .framework/spec.json. It creates, moves, and overwrites
+// nothing else, and changes nothing when the folder is already a project.
+func Adopt(r Resolved, dir string) ([]string, error) {
+	if err := CheckAdoptable(dir); err != nil {
+		return nil, err
+	}
+	s := &scaffolder{r: r, o: Options{Dir: dir}}
+	if err := s.settingsDo(); err != nil {
+		return s.res.Created, err
+	}
+	if err := s.record(); err != nil {
+		return s.res.Created, err
+	}
+	return s.res.Created, nil
 }
