@@ -110,6 +110,22 @@ func (c *Client) do(req *http.Request, out any) error {
 // doHeader is do that also returns the response headers.
 func (c *Client) doHeader(req *http.Request, out any) (http.Header, error) {
 	req.Header.Set("Accept", "application/json")
+	header, data, err := c.doRaw(req)
+	if err != nil || out == nil {
+		return header, err
+	}
+	if err := json.Unmarshal(data, out); err != nil {
+		return nil, fmt.Errorf("unexpected response from %s: %w", Host(c.URL), err)
+	}
+	return header, nil
+}
+
+// doRaw sends req with the common headers and returns the body of a 2xx
+// response as is. Other statuses become an *APIError from the JSON body.
+func (c *Client) doRaw(req *http.Request) (http.Header, []byte, error) {
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "application/json")
+	}
 	req.Header.Set("User-Agent", UserAgent)
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -117,12 +133,12 @@ func (c *Client) doHeader(req *http.Request, out any) (http.Header, error) {
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, &UnreachableError{Host: Host(c.URL), Err: err}
+		return nil, nil, &UnreachableError{Host: Host(c.URL), Err: err}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if err != nil {
-		return nil, &UnreachableError{Host: Host(c.URL), Err: err}
+		return nil, nil, &UnreachableError{Host: Host(c.URL), Err: err}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
@@ -147,15 +163,9 @@ func (c *Client) doHeader(req *http.Request, out any) (http.Header, error) {
 				}
 			}
 		}
-		return nil, apiErr
+		return nil, nil, apiErr
 	}
-	if out == nil {
-		return resp.Header, nil
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return nil, fmt.Errorf("unexpected response from %s: %w", Host(c.URL), err)
-	}
-	return resp.Header, nil
+	return resp.Header, data, nil
 }
 
 // Me is the response of GET /api/v1/me.

@@ -31,6 +31,7 @@ type newOptions struct {
 	offline   bool
 	workflow  string
 	pieces    pieceOptions
+	dest      destOptions
 }
 
 // cloudLink is how a project created from the cloud gets its .env entries.
@@ -68,8 +69,20 @@ func newNewCmd(a *app) *cobra.Command {
 			"Cloud, with your defaults there filling the rest; --defaults uses only your\n" +
 			"defaults. These need fw login. At a terminal fw then asks whether to also\n" +
 			"create the project on the cloud, defaulting to No. Without a terminal it\n" +
-			"creates it there only with --cloud. --no-cloud keeps it on this machine.",
-		Example: "  fw new vaccine-study\n" +
+			"creates it there only with --cloud. --no-cloud keeps it on this machine.\n\n" +
+			"--zip has Framework Cloud build the project and downloads it into the\n" +
+			"folder, so R and Python don't need to be installed. --github OWNER[/REPO]\n" +
+			"creates the project in a new GitHub repository, private unless --public,\n" +
+			"waits for it, and clones it here (--no-clone leaves it on GitHub). Both\n" +
+			"create the project on Framework Cloud and need fw login.\n\n" +
+			"At a terminal, fw new with no name asks for the name, language, and\n" +
+			"blueprint. Logged in, fw asks how you want the project: built here,\n" +
+			"downloaded, or on GitHub. --local, --zip, and --github answer that\n" +
+			"question, and without a terminal fw never asks.",
+		Example: "  fw new\n" +
+			"  fw new vaccine-study\n" +
+			"  fw new survey --lang python --zip\n" +
+			"  fw new survey --blueprint framework/project --github my-lab/survey\n" +
 			"  fw new survey --blueprint framework/project --tool renv --sensitive\n" +
 			"  fw new --from vaccine-study\n" +
 			"  fw new --from .framework/layers.json --dir . --headless\n" +
@@ -95,6 +108,7 @@ func newNewCmd(a *app) *cobra.Command {
 	f.BoolVar(&o.offline, "offline", false, "build from your saved Framework Cloud defaults, or the built-ins, without contacting the server")
 	f.StringVar(&o.workflow, "workflow", "", "how notebooks are written: quarto, jupyter, or scripts (Stata uses scripts)")
 	addPieceFlags(cmd, &o.pieces)
+	addDestFlags(cmd, &o.dest)
 	cmd.MarkFlagsMutuallyExclusive("from", "pull-token")
 	return cmd
 }
@@ -109,6 +123,18 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	}
 	if o.headless && fromCloud {
 		return errors.New("--headless works with a layers file, for automation. Fetch the layers first, or drop --headless")
+	}
+	if err := checkDestFlags(cmd, o); err != nil {
+		return err
+	}
+	// Plain fw new at a terminal asks for the name, language, and blueprint
+	if a.interactive && name == "" && o.from == "" && !o.pullToken && !o.headless && !o.print && o.workflow == "" {
+		var err error
+		if name, err = a.walkthrough(cmd, &o); err != nil {
+			return err
+		}
+		o.language, _ = cmd.Flags().GetString("lang")
+		o.pieces.blueprint, _ = cmd.Flags().GetString("blueprint")
 	}
 	pieces := usesPieces(cmd)
 	switch {
@@ -194,6 +220,15 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		if name == "" {
 			return errors.New("a project name is required")
 		}
+	}
+
+	// Downloaded from the cloud or set up on GitHub, instead of built here
+	dest, err := a.destination(cmd, &o, name)
+	if err != nil {
+		return err
+	}
+	if dest != destLocal {
+		return a.newOnCloud(cmd, o, name, dest)
 	}
 
 	dir, err := targetDir(a, o.dir, name)

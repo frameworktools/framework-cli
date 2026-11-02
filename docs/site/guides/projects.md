@@ -27,6 +27,41 @@ fw new survey --blueprint framework/project --tool renv --sensitive
 fw new survey-analysis --lang r --type project_sensitive
 ```
 
+At a terminal, `fw new` with no name walks you through it. It asks for the
+project's name and language and, when you are logged in, a blueprint. Flags
+you give answer their questions, and without a terminal fw never asks.
+
+## Where the project goes
+
+Logged in, fw asks how you want the project when the server offers more
+than one way:
+
+- **Build it here.** fw runs the language's package on this computer. This
+  is the default and needs R, Python, or nothing for Stata.
+- **Download it ready-made.** Framework Cloud builds the project, and fw
+  unpacks it into the folder. Nothing needs to be installed, and there is no
+  Git repository.
+- **Create it on GitHub.** Framework Cloud creates a repository and builds
+  the project there. fw waits for it and clones it into the folder.
+
+Each of these is also a flag, for scripts and agents:
+
+| Flag | Where the project goes |
+|---|---|
+| `--local` | built here, without asking |
+| `--zip` | built on Framework Cloud and downloaded here |
+| `--github OWNER` or `--github OWNER/REPO` | a new repository, private unless `--public`; `--no-clone` leaves it on GitHub |
+
+`--zip` and `--github` create the project on Framework Cloud and link the
+folder to it, so they need `fw login`. GitHub also has to be connected on
+the server, with the Framework app installed on the owner.
+
+```sh
+fw new
+fw new survey --lang python --zip
+fw new survey --blueprint framework/project --github my-lab/survey
+```
+
 ## Building from cloud pieces
 
 These flags build a project from pieces on Framework Cloud. Your defaults

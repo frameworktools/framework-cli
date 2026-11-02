@@ -33,6 +33,8 @@ type GitHub struct {
 	URL            string `json:"url"`
 	Private        bool   `json:"private"`
 	ScaffoldStatus string `json:"scaffold_status"`
+	// ScaffoldError says why scaffolding failed.
+	ScaffoldError string `json:"scaffold_error,omitempty"`
 	// PagesURL is the repository's GitHub Pages address, or nil while Pages
 	// is off.
 	PagesURL *string `json:"pages_url"`
@@ -54,8 +56,10 @@ type Blueprint struct {
 	Language    string `json:"language,omitempty"`
 	Type        string `json:"type,omitempty"`
 	Version     int    `json:"version"`
-	Visibility  string `json:"visibility,omitempty"`
-	System      bool   `json:"system,omitempty"`
+	// Languages the blueprint supports; empty means all of them.
+	Languages  []string `json:"languages,omitempty"`
+	Visibility string   `json:"visibility,omitempty"`
+	System     bool     `json:"system,omitempty"`
 	// Facets are listed by servers from before structures and tools. Newer
 	// ones list the blueprint's pieces instead, and keep facets for fw 0.3.
 	Facets      []string `json:"facets,omitempty"`

@@ -83,6 +83,19 @@ type Choices struct {
 	SkillSets   []string        `json:"skill_sets,omitempty"`
 	Skills      []string        `json:"skills,omitempty"`
 	Settings    map[string]any  `json:"settings,omitempty"`
+	// Workflow is quarto, jupyter, or scripts; empty uses the person's default.
+	Workflow string `json:"workflow,omitempty"`
+	// GitHub, when creating a project, also scaffolds it in a new repository.
+	// The server ignores it when resolving.
+	GitHub *NewRepository `json:"github,omitempty"`
+}
+
+// NewRepository is where POST /api/v2/projects scaffolds the project on
+// GitHub. An empty Name uses the project's slug.
+type NewRepository struct {
+	Owner   string `json:"owner"`
+	Name    string `json:"name,omitempty"`
+	Private bool   `json:"private"`
 }
 
 // DefaultsRevisionHeader names the response header that identifies the
@@ -130,6 +143,11 @@ type CreatedProject struct {
 	Language string `json:"language"`
 	URL      string `json:"url"`
 	Token    string `json:"token"`
+	// GitHub is set when the project is being scaffolded on GitHub.
+	GitHub *struct {
+		Repository     string `json:"repository"`
+		ScaffoldStatus string `json:"scaffold_status"`
+	} `json:"github"`
 }
 
 // CreateProject creates a project on Framework Cloud from choices, as the
