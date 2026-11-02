@@ -84,7 +84,16 @@ type Request struct {
 	Type        string
 	Dir         string // absolute target folder
 	Interactive bool   // false runs headless
+	// Workflow and Offline go to Python's new(). Workflow is quarto,
+	// jupyter, or scripts. Offline builds from saved defaults or built-ins
+	// without contacting Framework Cloud.
+	Workflow string
+	Offline  bool
 }
+
+// MinPython is the first framework-py release whose new() takes workflow
+// and offline, and that has adopt.
+const MinPython = "0.1.0.dev4"
 
 // Create returns the command that creates the project in language.
 func (f Finder) Create(language string, req Request) (Command, error) {
@@ -160,13 +169,36 @@ func (f Finder) createPython(req Request) (Command, error) {
 		if req.Type != "" {
 			moduleArgs = append(moduleArgs, "--type", req.Type)
 		}
+		if req.Workflow != "" {
+			moduleArgs = append(moduleArgs, "--workflow", req.Workflow)
+		}
+		if req.Offline {
+			moduleArgs = append(moduleArgs, "--offline")
+		}
 	}
 	if req.Interactive {
 		moduleArgs = append(moduleArgs, "--interactive")
 	}
+	return f.python(moduleArgs)
+}
+
+// AdoptPython returns the command that hands an existing folder to
+// framework-py's adopt.
+func (f Finder) AdoptPython(dir string, yes bool) (Command, error) {
+	args := []string{"-m", "framework", "adopt", "--path", dir}
+	if yes {
+		args = append(args, "--yes")
+	}
+	return f.python(args)
+}
+
+// python runs framework-py's module with args: through FW_PYTHON, uv with
+// framework-py MinPython or later, or a python3 whose framework-py has
+// adopt and new()'s offline option.
+func (f Finder) python(moduleArgs []string) (Command, error) {
 	pkg := f.Getenv("FW_PYTHON_PACKAGE")
 	if pkg == "" {
-		pkg = "framework-py"
+		pkg = "framework-py>=" + MinPython
 	}
 	viaUV := func(uv string) Command {
 		return Command{Program: uv, Args: append([]string{"run", "--no-project", "--with", pkg, "python"}, moduleArgs...), Dir: f.Home}
@@ -179,13 +211,14 @@ func (f Finder) createPython(req Request) (Command, error) {
 		return viaUV(uv), nil
 	}
 	if python := f.find("", "python3"); python != "" {
-		check := Command{Program: python, Args: []string{"-c", "import framework; framework.project_create_from_layers; framework.new"}, Dir: f.Home}
+		check := Command{Program: python, Args: []string{"-c",
+			"import framework, inspect; framework.project_create_from_layers; framework.adopt; assert 'offline' in inspect.signature(framework.new).parameters"}, Dir: f.Home}
 		if f.Probe(check) {
 			return Command{Program: python, Args: moduleArgs, Dir: f.Home}, nil
 		}
 	}
 	return Command{}, &MissingError{
-		What: "Neither uv nor a Python with the framework-py package was found.",
+		What: "Neither uv nor a Python with framework-py " + MinPython + " or later was found.",
 		Steps: []string{
 			"# install uv from https://docs.astral.sh/uv/",
 			viaUV("uv").String(),

@@ -29,6 +29,7 @@ type newOptions struct {
 	print     bool
 	url       string
 	offline   bool
+	workflow  string
 	pieces    pieceOptions
 }
 
@@ -55,7 +56,9 @@ func newNewCmd(a *app) *cobra.Command {
 			"Cloud and saves them for offline use. When the server cannot be reached it\n" +
 			"uses the saved defaults and says from when. With none saved it asks at a\n" +
 			"terminal, and without one it stops unless --offline is given. --offline\n" +
-			"uses the saved defaults, or fw's built-ins, without contacting the server.\n\n" +
+			"uses the saved defaults, or fw's built-ins, without contacting the server.\n" +
+			"For Python projects fw passes --offline and --workflow to framework-py\n" +
+			"(0.1.0.dev4 or later), which applies the same rules.\n\n" +
 			"--from takes a layers file or the slug of one of your projects on Framework\n" +
 			"Cloud. A project from the cloud gets FW_PROJECT_TOKEN and FW_CLOUD_URL in its\n" +
 			".env. --pull-token creates a project from a project token instead of your\n" +
@@ -89,7 +92,8 @@ func newNewCmd(a *app) *cobra.Command {
 	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work")
 	f.BoolVar(&o.print, "print", false, "print the command instead of running it")
 	f.StringVar(&o.url, "url", "", "Framework Cloud server")
-	f.BoolVar(&o.offline, "offline", false, "build from your saved Framework Cloud defaults, or fw's built-ins, without contacting the server")
+	f.BoolVar(&o.offline, "offline", false, "build from your saved Framework Cloud defaults, or the built-ins, without contacting the server")
+	f.StringVar(&o.workflow, "workflow", "", "how notebooks are written: quarto, jupyter, or scripts (Stata uses scripts)")
 	addPieceFlags(cmd, &o.pieces)
 	cmd.MarkFlagsMutuallyExclusive("from", "pull-token")
 	return cmd
@@ -114,6 +118,10 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		return usageError("--type picks one of fw's built-in setups; with --blueprint or --structure, the cloud's pieces decide instead")
 	case pieces && o.headless:
 		return usageError("--headless works with a layers file, for automation. Drop it to build from cloud choices")
+	case o.workflow != "" && o.workflow != "quarto" && o.workflow != "jupyter" && o.workflow != "scripts":
+		return usageError("--workflow takes quarto, jupyter, or scripts")
+	case o.workflow != "" && (pieces || o.from != "" || o.pullToken):
+		return usageError("--workflow describes a project built from your defaults; with --from, --pull-token, or cloud choices the layers decide it")
 	case o.offline && (pieces || o.from != "" || o.pullToken):
 		return usageError("--offline builds from your saved defaults; --from, --pull-token, and cloud choices need the server")
 	case pieces && o.print && o.pieces.cloud:
@@ -212,6 +220,9 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	switch language {
 	case "r", "python":
 	case "stata":
+		if o.workflow != "" && o.workflow != "scripts" {
+			return usageError("Stata projects support only the Scripts-only workflow (--workflow scripts)")
+		}
 		if env == nil && o.kind == "" {
 			e, err := a.savedDefaults(cmd, o, name, language)
 			if err != nil {
@@ -236,13 +247,13 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		return fmt.Errorf("unknown language %q: use r, python, or stata", language)
 	}
 
-	if o.offline {
-		return usageError("--offline works only for Stata projects for now; R and Python apply their own offline rules")
+	if language == "r" && (o.offline || o.workflow != "") {
+		return usageError("--offline and --workflow for R projects need framework 2.0.0, which fw does not support yet. Pass them to framework::new() in R")
 	}
 
 	// Without layers, the language's new() builds the project from the user's
 	// own defaults. It may prompt, so it is interactive only at a terminal.
-	req := engine.Request{Name: name, Type: o.kind, Dir: dir, Interactive: !o.headless}
+	req := engine.Request{Name: name, Type: o.kind, Dir: dir, Interactive: !o.headless, Workflow: o.workflow, Offline: o.offline}
 	if env == nil {
 		req.Interactive = req.Interactive && a.interactive
 	}

@@ -164,3 +164,39 @@ func readTestFile(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+func TestPythonHandoff(t *testing.T) {
+	h := newHarness(t, nil)
+	f := &fakeEngines{}
+	f.install(h, "uv")
+
+	if _, errOut, err := h.run(t, "", "new", "Study", "--lang", "python", "--workflow", "jupyter", "--offline"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if got := f.ran[0].String(); !strings.Contains(got, "'framework-py>=0.1.0.dev4'") || !strings.HasSuffix(got, "--workflow jupyter --offline") {
+		t.Errorf("new: %s", got)
+	}
+
+	dir := filepath.Join(h.app.home, "old")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, "pyproject.toml"), "[project]\n")
+	if _, errOut, err := h.run(t, "", "adopt", dir, "--yes"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if got := f.ran[1].String(); !strings.HasSuffix(got, "python -m framework adopt --path "+dir+" --yes") {
+		t.Errorf("adopt: %s", got)
+	}
+
+	for name, args := range map[string][]string{
+		"stata quarto":    {"new", "S", "--lang", "stata", "--workflow", "quarto"},
+		"pieces workflow": {"new", "S", "--structure", "framework/project", "--workflow", "jupyter"},
+		"bad workflow":    {"new", "S", "--lang", "python", "--workflow", "notebooks"},
+		"r workflow":      {"new", "S", "--workflow", "quarto"},
+	} {
+		if _, _, err := h.run(t, "", args...); exitCode(err) != exitUsage {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

@@ -67,6 +67,12 @@ falls back to saved defaults.
 
 Without a login, and with `--type`, fw uses its built-in setups.
 
+Python projects follow the same rules inside framework-py 0.1.0.dev4 or
+later. fw passes `--offline` and `--workflow` (`quarto`, `jupyter`, or
+`scripts`) through to it. R projects get the same support with framework
+2.0.0; until fw supports that release, pass those options to
+`framework::new()` in R.
+
 ## Adopting an existing folder
 
 `fw adopt [DIR]` makes a folder you already work in a Framework project
@@ -83,8 +89,9 @@ Keep such folders out of git and away from AI assistants.
 For a Stata project fw writes `settings.do` and `.framework/spec.json` and
 nothing else. It stops without changing anything if the folder is already a
 project. The project stays on this machine, and `fw project push-spec` sends
-its spec to Framework Cloud. R and Python projects are adopted by their
-packages, with `framework::adopt()` and `framework.adopt()`.
+its spec to Framework Cloud. For Python projects fw runs framework-py's
+`adopt`, which writes `settings.yml` instead. R projects are adopted with
+`framework::adopt()` in R.
 
 `fw structures import [DIR]` maps a folder the same way and saves the layout
 as a structure on Framework Cloud, private to you, so new projects can use

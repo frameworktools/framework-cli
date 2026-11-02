@@ -210,7 +210,9 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"For a Stata project fw writes settings.do and .framework/spec.json and\n" +
 			"nothing else: it creates, moves, and overwrites no files, and stops if the\n" +
 			"folder is already a project. The project stays on this machine; run\n" +
-			"fw project push-spec to send its spec to Framework Cloud.\n\n" +
+			"fw project push-spec to send its spec to Framework Cloud. Python projects\n" +
+			"are adopted by framework-py (0.1.0.dev4 or later), which fw runs for you.\n" +
+			"R projects need framework::adopt() in R for now.\n\n" +
 			"fw detects the language from the files at the top of the folder (.do files\n" +
 			"for Stata, pyproject.toml for Python, renv.lock, DESCRIPTION, or an .Rproj\n" +
 			"file for R). --lang overrides it.",
@@ -244,7 +246,19 @@ func newAdoptCmd(a *app) *cobra.Command {
 			case "r":
 				return fmt.Errorf("fw adopt hands R projects to the framework R package, which needs version 2.0.0. Until fw supports it, run framework::adopt(%q) in R", dir)
 			case "python":
-				return fmt.Errorf("fw adopt hands Python projects to framework-py. Until fw supports it, run framework.adopt(%q) in Python", dir)
+				command, err := a.engines.AdoptPython(dir, yes)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "Adopting %s with framework-py\n", dir)
+				code, err := a.run(command)
+				if err != nil {
+					return err
+				}
+				if code != 0 {
+					return &exitError{code: code, err: fmt.Errorf("framework-py exited with status %d", code)}
+				}
+				return nil
 			}
 			return a.adoptStata(cmd, dir, yes)
 		},

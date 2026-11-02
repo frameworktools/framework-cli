@@ -401,7 +401,9 @@ The shared contract is in framework-cloud's
   Logged out, or with `--type`, fw uses its built-ins without asking.
 - R and Python run the same policy inside their own `new()`. fw will pass
   the choices and `--offline` through to them once released versions accept
-  those arguments, and until then `--offline` is Stata-only. R's arrive in
+  those arguments. framework-py 0.1.0.dev4 does: fw passes `--offline` and
+  `--workflow` to `python -m framework create`, runs `python -m framework
+  adopt` for `fw adopt`, and asks uv for `framework-py>=0.1.0.dev4`. R's arrive in
   framework 2.0.0 (`workflow`, `offline`, and the choices), so fw checks
   `packageVersion("framework") >= "2.0.0"` first. framework-py will name its
   minimum version when it ships them.
