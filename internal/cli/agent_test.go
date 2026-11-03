@@ -348,7 +348,7 @@ func TestPublish(t *testing.T) {
 	}
 	h.app.interactive = false
 
-	if _, _, err := h.run(t, "", "publish", "notes.qmd", "--yes"); err == nil || !strings.Contains(err.Error(), "Render") {
+	if _, _, err := h.run(t, "", "publish", "notes.qmd", "--yes"); err == nil || !strings.Contains(err.Error(), "render") {
 		t.Errorf("source file: %v", err)
 	}
 
