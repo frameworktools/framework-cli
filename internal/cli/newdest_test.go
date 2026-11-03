@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -143,7 +144,7 @@ func TestNewZipDownloadsTheBuiltProject(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(dir, "inputs", "raw")); err != nil || !info.IsDir() {
 		t.Error("empty folders were not created")
 	}
-	if info, err := os.Stat(filepath.Join(dir, "scripts", "run.sh")); err != nil || info.Mode().Perm()&0o100 == 0 {
+	if info, err := os.Stat(filepath.Join(dir, "scripts", "run.sh")); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0) {
 		t.Error("the executable bit was lost")
 	}
 	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "created-tok" || project.EnvValue(dir, "FW_CLOUD_URL") != srv.URL {

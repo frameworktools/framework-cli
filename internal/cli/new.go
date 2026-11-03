@@ -59,7 +59,7 @@ func newNewCmd(a *app) *cobra.Command {
 			"terminal, and without one it stops unless --offline is given. --offline\n" +
 			"uses the saved defaults, or fw's built-ins, without contacting the server.\n" +
 			"For Python projects fw passes --offline and --workflow to framework-py\n" +
-			"(0.1.0.dev5 or later), which applies the same rules.\n\n" +
+			"(0.1.0.dev6 or later), which applies the same rules.\n\n" +
 			"--from takes a layers file or the slug of one of your projects on Framework\n" +
 			"Cloud. A project from the cloud gets FW_PROJECT_TOKEN and FW_CLOUD_URL in its\n" +
 			".env. --pull-token creates a project from a project token instead of your\n" +

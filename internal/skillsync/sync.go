@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -176,6 +177,23 @@ func Scan(root string) ([]File, error) {
 	}
 	defer reader.Close()
 	files := []File{}
+	executablePaths := map[string]bool{}
+	if runtime.GOOS == "windows" {
+		raw, readErr := reader.ReadFile(".framework-skill.json")
+		if readErr == nil {
+			var metadata struct {
+				ExecutablePaths []string `json:"executable_paths"`
+			}
+			if err = json.Unmarshal(raw, &metadata); err != nil {
+				return nil, err
+			}
+			for _, name := range metadata.ExecutablePaths {
+				executablePaths[name] = true
+			}
+		} else if !os.IsNotExist(readErr) {
+			return nil, readErr
+		}
+	}
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -211,7 +229,11 @@ func Scan(root string) ([]File, error) {
 			return err
 		}
 		rel, _ := filepath.Rel(root, p)
-		files = append(files, File{filepath.ToSlash(rel), base64.StdEncoding.EncodeToString(data), info.Mode()&0111 != 0})
+		executable := info.Mode()&0111 != 0
+		if runtime.GOOS == "windows" {
+			executable = executablePaths[filepath.ToSlash(rel)]
+		}
+		files = append(files, File{filepath.ToSlash(rel), base64.StdEncoding.EncodeToString(data), executable})
 		return nil
 	})
 	if err != nil {
@@ -348,7 +370,6 @@ func install(root string, paths []string, files []File, expected string) (err er
 			if openErr != nil {
 				return openErr
 			}
-			defer reader.Close()
 			e = filepath.WalkDir(target, func(p string, d fs.DirEntry, e error) error {
 				if e != nil {
 					return e
@@ -378,8 +399,9 @@ func install(root string, paths []string, files []File, expected string) (err er
 				}
 				return os.WriteFile(dest, data, info.Mode().Perm())
 			})
-			if e != nil {
-				return e
+			closeErr := reader.Close()
+			if e != nil || closeErr != nil {
+				return errors.Join(e, closeErr)
 			}
 			old, _ := Scan(target)
 			keep := map[string]bool{}
@@ -422,6 +444,28 @@ func install(root string, paths []string, files []File, expected string) (err er
 			}
 			if e = os.Chmod(dest, mode); e != nil {
 				return e
+			}
+		}
+		if runtime.GOOS == "windows" {
+			executablePaths := []string{}
+			for _, f := range files {
+				if f.Executable {
+					executablePaths = append(executablePaths, f.Path)
+				}
+			}
+			modePath := filepath.Join(stage, ".framework-skill.json")
+			if len(executablePaths) > 0 {
+				raw, marshalErr := json.Marshal(map[string]any{"executable_paths": executablePaths})
+				if marshalErr != nil {
+					return marshalErr
+				}
+				if e = os.WriteFile(modePath, raw, 0600); e != nil {
+					return e
+				}
+			} else if _, statErr := os.Stat(modePath); statErr == nil {
+				if e = os.Remove(modePath); e != nil {
+					return e
+				}
 			}
 		}
 		staged, e := Scan(stage)

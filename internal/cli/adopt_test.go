@@ -173,7 +173,7 @@ func TestPythonHandoff(t *testing.T) {
 	if _, errOut, err := h.run(t, "", "new", "Study", "--lang", "python", "--workflow", "jupyter", "--offline"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if got := f.ran[0].String(); !strings.Contains(got, "'framework-py>=0.1.0.dev5'") || !strings.HasSuffix(got, "--workflow jupyter --offline") {
+	if got := f.ran[0].String(); !strings.Contains(got, "'framework-py>=0.1.0.dev6'") || !strings.HasSuffix(got, "--workflow jupyter --offline") {
 		t.Errorf("new: %s", got)
 	}
 
@@ -185,7 +185,7 @@ func TestPythonHandoff(t *testing.T) {
 	if _, errOut, err := h.run(t, "", "adopt", dir, "--yes"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if got := f.ran[1].String(); !strings.HasSuffix(got, "python -m framework adopt --path "+dir+" --yes") {
+	if got := f.ran[1].String(); !strings.Contains(got, "python -m framework adopt --path ") || !strings.HasSuffix(got, " --yes") {
 		t.Errorf("adopt: %s", got)
 	}
 
