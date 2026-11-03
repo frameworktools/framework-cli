@@ -21,7 +21,7 @@ linters:
     rules:
       # Project folders and files are shared through git, so they get the
       # usual 0755 and 0644. Secrets (.env, tokens) are written 0600.
-      - path: internal/stata/
+      - path: internal/(stata|skillsync)/
         linters: [gosec]
         text: "G301|G302|G306"
 

@@ -33,6 +33,7 @@ fw adopt [DIR]                      make an existing folder a Framework project
 fw structures import [DIR]          save a folder's layout as a structure
 fw project bootstrap                prepare a cloned project
 fw project push-spec                send the project's spec to Framework Cloud
+fw skills sync PATH                 synchronize a versioned skill directory
 fw publish PATH [--to github]       publish a rendered notebook or HTML file
 fw config path | sync               configuration folders
 fw doctor                           runtimes and settings fw would use
@@ -40,6 +41,18 @@ fw doctor                           runtimes and settings fw would use
 
 Run `fw help <command>` for details. The full documentation is at
 [cli.framework.pub](https://cli.framework.pub), built from `docs/site`.
+
+### Skill sync
+
+```sh
+fw skills sync .agents/skills/my-skill --variant python --dry-run
+fw skills sync .agents/skills/my-skill --variant python
+```
+
+Sync shares project state with R and Python. It preserves fork ancestry and
+stops on concurrent edits. Explicit `--resolve local` or `--resolve remote`
+selects a conflict result. Replaced local files remain in project backups.
+[Skill sync guide](https://framework.pub/docs/skill-sync).
 
 ### Scripts and AI agents
 

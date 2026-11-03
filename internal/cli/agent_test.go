@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -433,5 +435,125 @@ func TestPushSpecPrivatePath(t *testing.T) {
 	lastSpec = ""
 	if _, errOut, err := h.run(t, "y\n", "project", "push-spec"); err != nil || lastSpec == "" || !strings.Contains(errOut, "Warning:") {
 		t.Errorf("confirmed at a terminal: %v\n%s", err, errOut)
+	}
+}
+
+func TestFileArtifactUpload(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"plot.png", "table.csv", "model.bin"} {
+		write(t, dir, name, "original bytes")
+		path := filepath.Join(dir, name)
+		upload, files, err := planUpload(path, "")
+		if err != nil || upload.Name != name || upload.Bundle || string(upload.Data) != "original bytes" || len(files) != 1 {
+			t.Fatalf("%s: upload=%+v files=%v error=%v", name, upload, files, err)
+		}
+	}
+}
+
+func TestPublishArtifactDetails(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, "outputs/plot.png", "png bytes")
+	out, _, err := h.run(t, "", "publish", "outputs/plot.png", "--yes", "--to", "cloud",
+		"--slug", "effect", "--title", "Effect", "--description", "Adjusted estimate",
+		"--kind", "image", "--password", "review-password", "--visibility", "unlisted")
+	if err != nil {
+		t.Fatalf("publish: %v, %s", err, out)
+	}
+	for name, want := range map[string]string{"name": "plot.png", "data": "png bytes", "slug": "effect",
+		"title": "Effect", "description": "Adjusted estimate", "kind": "image", "password": "review-password", "visibility": "unlisted"} {
+		if lastUpload[name] != want {
+			t.Errorf("%s = %q, want %q", name, lastUpload[name], want)
+		}
+	}
+}
+
+func TestPublishCollection(t *testing.T) {
+	for _, mode := range []string{"success", "attach-failure", "missing", "public"} {
+		t.Run(mode, func(t *testing.T) {
+			uploads := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v2/collections":
+					visibility := "unlisted"
+					if mode == "public" {
+						visibility = "public"
+					}
+					if mode == "missing" {
+						fmt.Fprint(w, `{"collections":[]}`)
+					} else {
+						fmt.Fprintf(w, `{"collections":[{"id":7,"slug":"findings","title":"Findings","visibility":%q}]}`, visibility)
+					}
+				case "/api/v1/documents":
+					uploads++
+					fmt.Fprint(w, `{"id":14,"slug":"figure","version":2,"url":"https://x/d/figure"}`)
+				case "/api/v2/collections/7/items":
+					var body struct {
+						DocumentID int  `json:"document_id"`
+						Share      bool `json:"share_unlisted"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.DocumentID != 14 || !body.Share {
+						t.Errorf("attachment payload: %+v %v", body, err)
+					}
+					if mode == "attach-failure" {
+						w.WriteHeader(422)
+						fmt.Fprint(w, `{"message":"Denied"}`)
+					} else {
+						fmt.Fprint(w, `{"id":1}`)
+					}
+				default:
+					t.Errorf("unexpected route: %s", r.URL.Path)
+					w.WriteHeader(404)
+				}
+			}))
+			defer srv.Close()
+			h := newHarness(t, nil)
+			root := linkedProject(t, h, srv.URL)
+			write(t, root, "figure.png", "png")
+			out, errOut, err := h.run(t, "", "publish", "figure.png", "--yes", "--json", "--collection", "findings", "--share-unlisted", "--visibility", "unlisted")
+			if mode == "missing" || mode == "public" {
+				if err == nil || uploads != 0 {
+					t.Fatalf("preflight: %v uploads=%d", err, uploads)
+				}
+				return
+			}
+			if err != nil || uploads != 1 {
+				t.Fatalf("publish: %v uploads=%d", err, uploads)
+			}
+			var doc cloud.Document
+			decode(t, out, &doc)
+			if doc.CollectionAttached == nil || *doc.CollectionAttached != (mode == "success") {
+				t.Errorf("status: %s", out)
+			}
+			if mode == "attach-failure" && (!strings.Contains(errOut, "Artifact published at https://x/d/figure") || doc.CollectionWarning == "") {
+				t.Errorf("partial failure: %s %s", out, errOut)
+			}
+		})
+	}
+}
+
+func TestPublishClearsFieldsAndNamesFolders(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, "figure.png", "png")
+	if _, _, err := h.run(t, "", "publish", "figure.png", "--yes", "--password", "", "--description", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"password", "description"} {
+		if lastUpload[name+"_present"] != "true" || lastUpload[name] != "" {
+			t.Errorf("explicit clear %s: %+v", name, lastUpload)
+		}
+	}
+	for _, name := range []string{"book-a", "book-b"} {
+		write(t, root, name+"/index.html", "<p>book</p>")
+		if _, _, err := h.run(t, "", "publish", name, "--yes"); err != nil {
+			t.Fatal(err)
+		}
+		if lastUpload["slug"] != name {
+			t.Errorf("folder slug = %q, want %q", lastUpload["slug"], name)
+		}
 	}
 }

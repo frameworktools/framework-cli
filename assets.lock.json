@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "f526b1d",
-  "commit": "f526b1dd8cd753ee9919190c34cb84b3772c006d",
+  "ref": "561042ac06c06017b2841134611fb3ab4a77b774",
+  "commit": "561042ac06c06017b2841134611fb3ab4a77b774",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
@@ -13,15 +13,15 @@
     },
     "internal/spec/schema/layer.v1.json": {
       "source": "inst/schema/layer.v1.json",
-      "sha256": "10bc25ba31da0f19c8902a4c39b07221bda6adba78cbfa870e8d340cc80de48e"
+      "sha256": "74c6e41efd3b064adedfc774ecb3d9534bbd197906039659436d68d894e3cb8b"
     },
     "internal/spec/schema/layers.v1.json": {
       "source": "inst/schema/layers.v1.json",
-      "sha256": "ed7223a59101ab54cf17afa81f80e41d579d86fa0e89c616da6fa513f21a6a46"
+      "sha256": "8d7839d5602012459997d5a5e3df65ae5942ca7cd50ae9ad09a821f95dc800b9"
     },
     "internal/spec/schema/spec.v1.json": {
       "source": "inst/schema/spec.v1.json",
-      "sha256": "62d4071bbcd93a1fc9a6f78701f886011a22b1917a341354019200a6c6916d4b"
+      "sha256": "5323ccd0d20e1a3e1bd7e5af0c46565a02b5bfc7678642ff64f6f3448bd33bec"
     },
     "internal/spec/testdata/conformance/README.md": {
       "source": "inst/conformance/README.md",
@@ -73,7 +73,7 @@
     },
     "internal/spec/testdata/conformance/create/stata/project-scripts-codex-copilot.json": {
       "source": "inst/conformance/create/stata/project-scripts-codex-copilot.json",
-      "sha256": "3e96c89f2e3becd4ec0fd3c108b77dce6f18dfb1c665755d9288ba64a32943a3"
+      "sha256": "2aeb26edb35577abe517cab9f0af84263921024388abe831fd1116adc5675059"
     },
     "internal/spec/testdata/conformance/create/stata/project-scripts-no-agents.json": {
       "source": "inst/conformance/create/stata/project-scripts-no-agents.json",
@@ -81,11 +81,11 @@
     },
     "internal/spec/testdata/conformance/create/stata/project-scripts.json": {
       "source": "inst/conformance/create/stata/project-scripts.json",
-      "sha256": "f821a703225eb66c4079cf3cbc1896156fba2282d309325515dd1b2550994f12"
+      "sha256": "08d80a3bd38310e0033583d89eeed71d3634be7a12b70911e75b582704aa9abc"
     },
     "internal/spec/testdata/conformance/create/stata/project_sensitive-scripts.json": {
       "source": "inst/conformance/create/stata/project_sensitive-scripts.json",
-      "sha256": "eb4b59355a056a3b74e6581a421cd7e9970adb183425b5ca7b03d6d61d062b83"
+      "sha256": "8700fe3d2161ba01626d31eba7deafbc90d36d4e01aac05a5418516b214708ee"
     },
     "internal/spec/testdata/conformance/merge/atomic-entries.json": {
       "source": "inst/conformance/merge/atomic-entries.json",

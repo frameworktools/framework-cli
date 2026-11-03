@@ -31,7 +31,8 @@ var refCategories = []refCategory{
 // refCategoryOf assigns each command to a category. A test fails when a
 // command is missing.
 var refCategoryOf = map[string]string{
-	"login": "account", "logout": "account", "status": "account",
+	"skills sync": "cloud",
+	"login":       "account", "logout": "account", "status": "account",
 	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud",
 	"structures list": "cloud", "tools list": "cloud", "package-sets list": "cloud", "skills list": "cloud",
 	"new": "projects", "project link": "projects", "project status": "projects", "project bootstrap": "projects",
@@ -41,6 +42,7 @@ var refCategoryOf = map[string]string{
 
 // refSince records the release that added each command.
 var refSince = map[string]string{
+	"skills sync":   "0.4.0",
 	"projects list": "0.1.0", "login": "0.1.0", "logout": "0.1.0", "status": "0.1.0", "new": "0.1.0",
 	"project link": "0.1.0", "project status": "0.1.0", "project bootstrap": "0.1.0",
 	"config path": "0.1.0", "config sync": "0.1.0", "doctor": "0.1.0", "version": "0.1.0",

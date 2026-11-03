@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"github.com/frameworktools/framework-cli/internal/spec"
 )
 
@@ -123,6 +124,14 @@ type View struct {
 		Package bool              `json:"package"`
 		Content string            `json:"content"`
 		Files   map[string]string `json:"files"`
+		Bundle  []skillsync.File  `json:"bundle"`
+		Sync    *struct {
+			ID      string `json:"skill_id"`
+			Version int    `json:"version"`
+			Hash    string `json:"hash"`
+			Variant string `json:"variant"`
+			Server  string `json:"server"`
+		} `json:"sync"`
 	} `json:"skills"`
 
 	// CoreFiles is false for a bare structure: no starter .do files and no

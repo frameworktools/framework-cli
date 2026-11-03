@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -223,8 +224,8 @@ func planUpload(path, entrypoint string) (cloud.Upload, []string, error) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(path))
-	if ext != ".html" && ext != ".htm" {
-		return cloud.Upload{}, nil, fmt.Errorf("fw publishes HTML: a rendered Quarto document or another .html file. Render %s first", filepath.Base(path))
+	if ext == ".qmd" || ext == ".ipynb" || ext == ".rmd" {
+		return cloud.Upload{}, nil, fmt.Errorf("render %s to HTML before publishing", filepath.Base(path))
 	}
 	if entrypoint != "" {
 		return cloud.Upload{}, nil, usageError("--entrypoint is for publishing a folder")
@@ -234,7 +235,7 @@ func planUpload(path, entrypoint string) (cloud.Upload, []string, error) {
 	if err != nil {
 		return cloud.Upload{}, nil, err
 	}
-	if resources := resourceDirs(dir, data); len(resources) > 0 {
+	if resources := resourceDirs(dir, data); (ext == ".html" || ext == ".htm") && len(resources) > 0 {
 		// Quarto without embed-resources writes analysis.html next to
 		// analysis_files/. Send both, so the page keeps its styles and figures.
 		all := []string{name}
@@ -286,18 +287,18 @@ func sizeText(n int) string {
 }
 
 func newPublishCmd(a *app) *cobra.Command {
-	var urlFlag, slug, title, entrypoint, to string
-	var readable, includePrivate, yes bool
+	var urlFlag, slug, title, entrypoint, to, description, kind, password, visibility, collection string
+	var readable, includePrivate, yes, shareUnlisted bool
 	cmd := &cobra.Command{
 		Use:   "publish PATH",
-		Short: "Publish a rendered notebook or HTML file to Framework Cloud",
-		Long: "Uploads a rendered Quarto document or another HTML file to the current\n" +
+		Short: "Publish an artifact to Framework Cloud",
+		Long: "Uploads a plot, table, file, or rendered HTML document to the current\n" +
 			"project on Framework Cloud, as R's publish() does. It uses the project\n" +
 			"token in .env, so run fw project link first.\n\n" +
-			"PATH is an .html file or a folder of rendered output. When analysis.html\n" +
+			"PATH is a file or a folder of rendered HTML output. When analysis.html\n" +
 			"has an analysis_files/ folder next to it, both are sent. A folder is sent\n" +
 			"whole, opening at --entrypoint (default index.html).\n\n" +
-			"Every document gets a private link. --readable also gives it a readable\n" +
+			"Every artifact gets an unlisted link. --readable also gives it a readable\n" +
 			"address under your handle, and --readable=false takes that away.\n" +
 			"Publishing to the same slug again adds a new version.\n\n" +
 			"--to github publishes to the project's GitHub Pages site instead. fw\n" +
@@ -317,6 +318,9 @@ func newPublishCmd(a *app) *cobra.Command {
 			"  fw publish outputs/notebooks/results.html --to github --slug results",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if shareUnlisted && collection == "" {
+				return usageError("--share-unlisted requires --collection")
+			}
 			path := args[0]
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(a.cwd, path)
@@ -324,7 +328,7 @@ func newPublishCmd(a *app) *cobra.Command {
 			switch to {
 			case "cloud":
 			case "github":
-				for _, name := range []string{"title", "readable", "entrypoint"} {
+				for _, name := range []string{"title", "readable", "entrypoint", "description", "kind", "password", "visibility", "collection", "share-unlisted"} {
 					if cmd.Flags().Changed(name) {
 						return usageError("--" + name + " is for publishing to Framework Cloud, not with --to github")
 					}
@@ -337,6 +341,35 @@ func newPublishCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var selected *cloud.Collection
+			if collection != "" {
+				rows, err := client.Collections(cmd.Context())
+				if err != nil {
+					return explainProject(err)
+				}
+				for _, row := range rows {
+					if row.Slug == collection || strconv.Itoa(row.ID) == collection {
+						if selected != nil {
+							return usageError("collection is ambiguous in this project")
+						}
+						matched := row
+						selected = &matched
+					}
+				}
+				if selected == nil {
+					return usageError("collection was not found in this project")
+				}
+				known, public := visibility != "", visibility == "public"
+				if cmd.Flags().Changed("readable") {
+					known, public = true, readable
+				}
+				if selected.Visibility == "public" && known && !public {
+					return usageError("public collections require public artifacts; pass --visibility public")
+				}
+				if selected.Visibility == "unlisted" && known && !public && !shareUnlisted {
+					return usageError("pass --share-unlisted to share an unlisted artifact with collection readers")
+				}
+			}
 			upload, files, err := planUpload(path, entrypoint)
 			if err != nil {
 				return err
@@ -345,6 +378,14 @@ func newPublishCmd(a *app) *cobra.Command {
 				return fmt.Errorf("%s is %s, larger than the server's 50 MB limit", upload.Name, sizeText(len(upload.Data)))
 			}
 			upload.Slug, upload.Title = slug, title
+			if upload.Slug == "" {
+				if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+					upload.Slug = filepath.Base(filepath.Clean(path))
+				}
+			}
+			upload.PasswordSet, upload.DescriptionSet = cmd.Flags().Changed("password"), cmd.Flags().Changed("description")
+			upload.Description, upload.Kind = description, kind
+			upload.Password, upload.Visibility = password, visibility
 			if cmd.Flags().Changed("readable") {
 				upload.Readable = &readable
 			}
@@ -372,6 +413,23 @@ func newPublishCmd(a *app) *cobra.Command {
 			if err != nil {
 				return explainProject(err)
 			}
+			if selected != nil {
+				attached := false
+				doc.CollectionID, doc.CollectionAttached = selected.ID, &attached
+				var attachErr error
+				if doc.ID == 0 {
+					attachErr = errors.New("the server did not return an artifact ID")
+				} else {
+					attachErr = client.AttachCollection(cmd.Context(), selected.ID, doc.ID, shareUnlisted)
+				}
+				if attachErr != nil {
+					doc.CollectionWarning = fmt.Sprintf("Artifact published at %s, but collection attachment failed: %v. Attach it from the project Outputs page; publishing again creates another version.", doc.URL, attachErr)
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: "+doc.CollectionWarning)
+				} else {
+					attached = true
+					fmt.Fprintln(cmd.ErrOrStderr(), "Added to collection: "+selected.Title)
+				}
+			}
 			out := cmd.OutOrStdout()
 			if a.jsonOut {
 				return writeJSON(out, doc)
@@ -393,6 +451,12 @@ func newPublishCmd(a *app) *cobra.Command {
 	cmd.Flags().StringVar(&slug, "slug", "", "the document's name in the project (default: from the file name)")
 	cmd.Flags().StringVar(&to, "to", "cloud", "where to publish: cloud (Framework Cloud) or github (the project's GitHub Pages site)")
 	cmd.Flags().StringVar(&title, "title", "", "the document's title")
+	cmd.Flags().StringVar(&collection, "collection", "", "existing project collection ID or slug")
+	cmd.Flags().BoolVar(&shareUnlisted, "share-unlisted", false, "allow collection readers to access this unlisted artifact")
+	cmd.Flags().StringVar(&description, "description", "", "the artifact description")
+	cmd.Flags().StringVar(&kind, "kind", "", "artifact kind: html, image, table, model, text, pdf, or file (default detected)")
+	cmd.Flags().StringVar(&password, "password", "", "password required to view the artifact")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "artifact visibility: public or unlisted")
 	cmd.Flags().BoolVar(&readable, "readable", false, "give the document a readable address; --readable=false removes it")
 	cmd.Flags().StringVar(&entrypoint, "entrypoint", "", "with a folder: the HTML file to open (default index.html)")
 	cmd.Flags().BoolVar(&includePrivate, "include-private", false, "upload files whose path contains \"private\" without asking")

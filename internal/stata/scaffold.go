@@ -3,6 +3,7 @@ package stata
 import (
 	"bytes"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,12 +17,14 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/frameworktools/framework-cli/internal/skillsync"
 )
 
 //go:embed templates/*.tmpl
 var templateFiles embed.FS
 
-//go:embed skills
+//go:embed all:skills
 var skillFiles embed.FS
 
 var templates = template.Must(template.ParseFS(templateFiles, "templates/*.tmpl"))
@@ -379,6 +382,33 @@ func (s *scaffolder) ai() error {
 			}
 		}
 		for _, dir := range skillsDirs {
+			if entry.Package || entry.Sync != nil {
+				bundle := entry.Bundle
+				if len(bundle) == 0 {
+					for p, c := range files {
+						if p != ".framework-skill.json" {
+							bundle = append(bundle, skillsync.File{Path: p, Content: base64.StdEncoding.EncodeToString([]byte(c))})
+						}
+					}
+				}
+				canonical := ""
+				variant := "stata"
+				server := ""
+				var snapshot *skillsync.Snapshot
+				if entry.Package {
+					canonical = "framework:" + name
+				}
+				if entry.Sync != nil {
+					variant = entry.Sync.Variant
+					server = entry.Sync.Server
+					snapshot = &skillsync.Snapshot{ID: entry.Sync.ID, Version: entry.Sync.Version, Hash: entry.Sync.Hash}
+				}
+				if err := skillsync.InstallSource(s.o.Dir, dir+"/"+name, canonical, variant, bundle, snapshot, server); err != nil {
+					return err
+				}
+				s.res.Created = append(s.res.Created, dir+"/"+name+"/SKILL.md")
+				continue
+			}
 			for p, c := range files {
 				if err := s.write(dir+"/"+name+"/"+p, c, 0o644); err != nil {
 					return err

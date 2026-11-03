@@ -99,6 +99,9 @@ func newPiecesCmd(a *app, kind pieceKind) *cobra.Command {
 	var urlFlag, lang string
 	var sets bool
 	cmd := &cobra.Command{Use: kind.use, Short: kind.short}
+	if kind.use == "skills" {
+		cmd.AddCommand(newSkillSyncCmd(a))
+	}
 	cmd.PersistentFlags().StringVar(&urlFlag, "url", "", "Framework Cloud server")
 	list := &cobra.Command{
 		Use: "list", Short: kind.short, Long: kind.long, Example: kind.example,

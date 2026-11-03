@@ -96,25 +96,57 @@ func (c *Client) PushSpec(ctx context.Context, spec json.RawMessage) (SpecResult
 // Upload is a document to publish: one HTML file, or a zip bundle with the
 // path of its HTML entry point.
 type Upload struct {
-	Name       string // file name sent to the server
-	Data       []byte
-	Bundle     bool
-	Entrypoint string // with Bundle
-	Slug       string
-	Title      string
-	Readable   *bool // nil keeps the document's current setting
+	Name           string // file name sent to the server
+	Data           []byte
+	Bundle         bool
+	Entrypoint     string // with Bundle
+	Slug           string
+	Title          string
+	Description    string
+	Kind           string
+	PasswordSet    bool
+	DescriptionSet bool
+	Password       string
+	Visibility     string
+	Readable       *bool // nil keeps the document's current setting
 }
 
 // Document is the response of POST /api/v1/documents.
 type Document struct {
-	Slug        string  `json:"slug"`
-	Version     int     `json:"version"`
-	URL         string  `json:"url"`
-	PrivateURL  string  `json:"private_url"`
-	ReadableURL *string `json:"readable_url"`
-	VersionURL  string  `json:"version_url"`
-	RawURL      string  `json:"raw_url"`
-	Notice      *string `json:"notice"`
+	ID                 int     `json:"id"`
+	CollectionID       int     `json:"collection_id,omitempty"`
+	CollectionAttached *bool   `json:"collection_attached,omitempty"`
+	CollectionWarning  string  `json:"collection_warning,omitempty"`
+	Slug               string  `json:"slug"`
+	Version            int     `json:"version"`
+	URL                string  `json:"url"`
+	PrivateURL         string  `json:"private_url"`
+	ReadableURL        *string `json:"readable_url"`
+	VersionURL         string  `json:"version_url"`
+	RawURL             string  `json:"raw_url"`
+	Notice             *string `json:"notice"`
+}
+
+// Collection is a project collection available to this project token.
+type Collection struct {
+	ID         int    `json:"id"`
+	Slug       string `json:"slug"`
+	Title      string `json:"title"`
+	Visibility string `json:"visibility"`
+}
+
+func (c *Client) Collections(ctx context.Context) ([]Collection, error) {
+	var res struct {
+		Collections []Collection `json:"collections"`
+	}
+	err := c.Do(ctx, http.MethodGet, "/api/v2/collections", nil, &res)
+	return res.Collections, err
+}
+
+func (c *Client) AttachCollection(ctx context.Context, collectionID, documentID int, shareUnlisted bool) error {
+	var res map[string]any
+	return c.Do(ctx, http.MethodPost, fmt.Sprintf("/api/v2/collections/%d/items", collectionID),
+		map[string]any{"document_id": documentID, "share_unlisted": shareUnlisted}, &res)
 }
 
 // Publish uploads a document to the project the client's token belongs to.
@@ -133,7 +165,7 @@ func (c *Client) Publish(ctx context.Context, u Upload) (Document, error) {
 	if _, err := part.Write(u.Data); err != nil {
 		return Document{}, err
 	}
-	fields := map[string]string{"slug": u.Slug, "title": u.Title}
+	fields := map[string]string{"slug": u.Slug, "title": u.Title, "description": u.Description, "kind": u.Kind, "password": u.Password, "visibility": u.Visibility}
 	if u.Bundle {
 		fields["entrypoint"] = u.Entrypoint
 	}
@@ -145,7 +177,8 @@ func (c *Client) Publish(ctx context.Context, u Upload) (Document, error) {
 		}
 	}
 	for k, v := range fields {
-		if v == "" {
+		explicitEmpty := (k == "password" && u.PasswordSet) || (k == "description" && u.DescriptionSet)
+		if v == "" && !explicitEmpty {
 			continue
 		}
 		if err := form.WriteField(k, v); err != nil {

@@ -197,7 +197,15 @@ func fakeCloud(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			return
 		}
-		lastUpload = map[string]string{"slug": r.FormValue("slug"), "readable": r.FormValue("readable"), "entrypoint": r.FormValue("entrypoint")}
+		lastUpload = map[string]string{}
+		for _, name := range []string{"slug", "readable", "entrypoint", "title", "description", "kind", "password", "visibility"} {
+			lastUpload[name] = r.FormValue(name)
+		}
+		for _, name := range []string{"password", "description"} {
+			if _, ok := r.MultipartForm.Value[name]; ok {
+				lastUpload[name+"_present"] = "true"
+			}
+		}
 		for _, field := range []string{"file", "bundle"} {
 			if f, hdr, err := r.FormFile(field); err == nil {
 				data, _ := io.ReadAll(f)

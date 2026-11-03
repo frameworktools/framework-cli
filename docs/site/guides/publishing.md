@@ -1,12 +1,12 @@
 ---
 id: publishing
-title: Publishing documents
-description: Publish rendered Quarto notebooks and other HTML to Framework Cloud or GitHub Pages
+title: Publishing artifacts
+description: Publish figures, tables, files, and rendered reports to Framework Cloud
 section: guides
 position: 2
 ---
 
-`fw publish` uploads a rendered document to the current project on Framework
+`fw publish` uploads a file or rendered document to the current project on Framework
 Cloud. It uses the same service as R's `publish()`, so documents published
 either way appear together on the project page.
 
@@ -21,6 +21,7 @@ fw project link --from vaccine-study
 
 ## What fw sends
 
+- **A file.** Images, PDFs, CSV, JSON, text, and other files retain their original filename.
 - **One HTML file.** Framework's Quarto settings use `embed-resources`, so a
   rendered notebook is usually a single self-contained file.
 - **An HTML file with its resources.** Without `embed-resources`, Quarto
@@ -36,6 +37,18 @@ fw publish _book --entrypoint index.html
 
 The limit is 50 MB per document. fw refuses symbolic links in a bundle, so a
 bundle cannot pull in files from elsewhere.
+
+## Artifact details
+
+```sh
+fw publish outputs/effect.png --slug treatment-effect --title "Treatment effect"
+fw publish outputs/estimates.csv --slug estimates --description "Adjusted estimates"
+fw publish outputs/model.html --slug adjusted-model --kind model --password reviewer-password
+```
+
+`--visibility` accepts `public` or `unlisted`. Passwords require at least eight
+characters. Artifact details apply to Framework Cloud publishing. `--to cloud`
+is the default; `--to github` publishes rendered HTML to GitHub Pages.
 
 ## Private folders
 
@@ -53,7 +66,8 @@ machine.
 
 ## Links and versions
 
-Every document gets an unguessable private link. `--readable` also gives it
+Every artifact gets an unguessable unlisted link. Anyone with the link can open
+it unless you set a password. `--readable` also gives it
 a readable address under your handle, and `--readable=false` removes it.
 Leaving the flag out keeps the document's current setting.
 
@@ -103,3 +117,21 @@ live once that branch is merged.
 `fw project push-spec` sends `.framework/spec.json` to the project page. The
 spec describes the project's structure: folders, settings, packages, and
 templates. It holds no data, and the server refuses secret values in it.
+
+
+## Adding an artifact to a collection
+
+Select an existing collection in the current project by its ID or slug. The
+client resolves the collection before uploading and does not create collections.
+The collection follows the artifact's latest version.
+
+```sh
+fw publish outputs/effect.png --collection main-findings --share-unlisted --yes
+```
+
+Public collections require public artifacts. Sharing an unlisted artifact with
+readers of an unlisted collection requires explicit consent through
+`--share-unlisted`.
+If attachment fails after the artifact uploads, publishing returns its URL and
+warns that collection attachment failed. Attach the artifact from the project
+Outputs page; publishing again creates another version.
