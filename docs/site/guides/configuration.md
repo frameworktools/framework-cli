@@ -1,7 +1,7 @@
 ---
 id: configuration
 title: Servers, tokens, and environment variables
-description: Where fw finds its server and token, and the variables that change it
+description: Server selection, token storage, and environment variables
 section: guides
 position: 4
 ---
@@ -9,7 +9,7 @@ position: 4
 fw shares its login with the R and Python packages. All three find the same
 server and token, so logging in with any one of them works for the others.
 
-## Which server fw uses
+## Server selection
 
 For account commands such as `fw login` and `fw projects list`, fw uses the
 first of these:
@@ -26,7 +26,7 @@ from.
 
 Plain `http://` is allowed only for `localhost`.
 
-## Where the token is kept
+## Token storage
 
 `fw login` stores the token in the system keyring: Keychain on macOS,
 Credential Manager on Windows, and the Secret Service on Linux. The entry is
@@ -50,6 +50,10 @@ without overwriting anything.
 | `FW_UV` | The `uv` to run |
 | `FW_PYTHON` | The Python to run when uv is not used |
 | `FW_PYTHON_PACKAGE` | Where uv installs framework-py from, such as a local checkout |
+
+`FW_CLOUD_TOKEN` and `FW_TOKEN_FILE` hold one token for every server. fw
+sends it to whichever server it uses, as the R package does. Keyring logins
+are kept per server. Set these variables only for the server you mean.
 
 Project `.env` files hold `FW_PROJECT_TOKEN` and `FW_CLOUD_URL`, written by
 `fw project link`. fw refuses to write a token into a `.env` that git tracks.

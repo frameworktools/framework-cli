@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/frameworktools/framework-cli/internal/engine"
 )
 
 // oldStudy makes a Stata project folder that predates Framework.
@@ -113,8 +115,38 @@ func TestAdoptReviewAndLanguage(t *testing.T) {
 	if _, _, err := h.run(t, "", "adopt", empty, "--yes"); exitCode(err) != exitUsage || !strings.Contains(err.Error(), "--lang") {
 		t.Errorf("unknown language: %v", err)
 	}
-	if _, _, err := h.run(t, "", "adopt", empty, "--yes", "--lang", "r"); err == nil || !strings.Contains(err.Error(), "framework::adopt") {
-		t.Errorf("R: %v", err)
+}
+
+// fw adopt hands R projects to framework::adopt() once the installed R
+// package has it, whatever its version.
+func TestAdoptR(t *testing.T) {
+	h := newHarness(t, nil)
+	dir := oldStudy(t, h.app.home)
+	f := &fakeEngines{}
+	f.install(h, "Rscript")
+
+	// No terminal, no --yes: show the mapping and stop.
+	_, errOut, err := h.run(t, "", "adopt", dir, "--lang", "r")
+	if exitCode(err) != exitUsage || !strings.Contains(errOut, "Proposed mapping:") || !strings.Contains(errOut, "framework::adopt(") || len(f.ran) != 0 {
+		t.Errorf("no terminal: %v ran %v\n%s", err, f.ran, errOut)
+	}
+	// At a terminal, No cancels.
+	h.app.interactive = true
+	if _, _, err := h.run(t, "n\n", "adopt", dir, "--lang", "r"); err == nil || len(f.ran) != 0 {
+		t.Errorf("declined: %v ran %v", err, f.ran)
+	}
+	h.app.interactive = false
+	if _, _, err := h.run(t, "", "adopt", dir, "--lang", "r", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.ran) != 1 || !strings.Contains(f.ran[0].Args[1], "framework::adopt(a[1], yes = TRUE)") || f.ran[0].Args[2] != dir {
+		t.Errorf("ran %v", f.ran)
+	}
+
+	// An R package without adopt(): say to update it.
+	h.app.engines.Probe = func(c engine.Command) bool { return !strings.Contains(c.Args[1], "adopt") }
+	if _, _, err := h.run(t, "", "adopt", dir, "--lang", "r", "--yes"); err == nil || !strings.Contains(err.Error(), "has no adopt()") {
+		t.Errorf("old R package: %v", err)
 	}
 }
 
@@ -193,7 +225,6 @@ func TestPythonHandoff(t *testing.T) {
 		"stata quarto":    {"new", "S", "--lang", "stata", "--workflow", "quarto"},
 		"pieces workflow": {"new", "S", "--structure", "framework/project", "--workflow", "jupyter"},
 		"bad workflow":    {"new", "S", "--lang", "python", "--workflow", "notebooks"},
-		"r workflow":      {"new", "S", "--workflow", "quarto"},
 	} {
 		if _, _, err := h.run(t, "", args...); exitCode(err) != exitUsage {
 			t.Errorf("%s: %v", name, err)

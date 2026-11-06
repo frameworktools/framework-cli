@@ -6,10 +6,10 @@ section: getting_started
 position: 2
 ---
 
-This walks through the most common path: log in, create a project you
+This guide covers the most common workflow: log in, create a project you
 started on Framework Cloud, prepare it, and publish a rendered notebook.
 
-## Log in
+## Logging in
 
 ```sh
 fw login
@@ -26,7 +26,7 @@ Check the login:
 fw status
 ```
 
-## Create a project
+## Creating a project
 
 List your projects and create one locally:
 
@@ -46,7 +46,7 @@ To start a project without the cloud, give a name and a language:
 fw new survey-analysis --lang python --type project
 ```
 
-## Prepare a cloned project
+## Preparing a cloned project
 
 After cloning a project someone else created, run:
 
@@ -56,10 +56,10 @@ fw project bootstrap
 ```
 
 It restores packages, creates `.env` from `.env.example`, and creates the
-folders git does not keep. See [Creating and preparing projects](guide:projects) for what happens in each
+folders git does not keep. See [Project creation and setup](guide:projects) for what happens in each
 language.
 
-## Publish a notebook
+## Publishing a notebook
 
 Render the notebook, then publish the HTML:
 
@@ -68,6 +68,6 @@ quarto render notebooks/results.qmd
 fw publish outputs/notebooks/results.html --slug results
 ```
 
-fw shows what it will upload and asks first. The document gets a private
+fw shows what it will upload and asks first. The document gets an unlisted
 link, and `--readable` also gives it a readable address under your handle.
-See [Publishing documents](guide:publishing).
+See [Publishing artifacts](guide:publishing).

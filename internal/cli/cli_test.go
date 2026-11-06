@@ -38,6 +38,15 @@ func fakeCloud(t *testing.T) *httptest.Server {
 			_, _ = w.Write([]byte(`{"message":"Unauthenticated."}`))
 		}
 	})
+	mux.HandleFunc("DELETE /api/v1/token", func(w http.ResponseWriter, r *http.Request) {
+		if tok := auth(r); tok == "user-tok" || tok == "proj-tok" {
+			revoked = append(revoked, tok)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"Unauthenticated."}`))
+	})
 	mux.HandleFunc("GET /api/v1/projects", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -263,6 +272,9 @@ var fakeMePages *any
 // minted counts pull tokens the fake cloud has issued.
 var minted int
 
+// revoked lists the tokens DELETE /api/v1/token revoked.
+var revoked []string
+
 // stataLayers makes the fake cloud's project a Stata project.
 var stataLayers bool
 
@@ -337,13 +349,72 @@ func TestLoginStatusProjectsLogout(t *testing.T) {
 		t.Errorf("projects list: %v\n%s", err, out)
 	}
 
-	out, _, err = h.run(t, "", "logout")
-	if err != nil || !strings.Contains(out, "Logged out") {
-		t.Errorf("logout: %v\n%s", err, out)
+	revoked = nil
+	out, errOut, err = h.run(t, "", "logout")
+	if err != nil || !strings.Contains(out, "Logged out") || errOut != "" {
+		t.Errorf("logout: %v\n%s\n%s", err, out, errOut)
+	}
+	if len(revoked) != 1 || revoked[0] != "user-tok" {
+		t.Errorf("logout revoked %v", revoked)
 	}
 	out, _, err = h.run(t, "", "status")
 	if err == nil || !strings.Contains(out, "Not logged in") {
 		t.Errorf("status after logout: %v\n%s", err, out)
+	}
+}
+
+func TestLogoutRevocation(t *testing.T) {
+	srv := fakeCloud(t)
+
+	// An already invalid token is removed without a warning
+	h := newHarness(t, nil)
+	service := "framework-cloud:" + strings.TrimPrefix(srv.URL, "http://")
+	_ = h.mem.Set(service, "token", "stale-tok")
+	out, errOut, err := h.run(t, "", "logout", "--url", srv.URL)
+	if err != nil || !strings.Contains(out, "Logged out") || errOut != "" {
+		t.Errorf("stale token: %v\n%s\n%s", err, out, errOut)
+	}
+
+	// An unreachable server still removes the local copy, with one line
+	// naming the tokens page
+	h = newHarness(t, nil)
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	downService := "framework-cloud:" + strings.TrimPrefix(down.URL, "http://")
+	_ = h.mem.Set(downService, "token", "user-tok")
+	out, errOut, err = h.run(t, "", "logout", "--url", down.URL)
+	if err != nil || !strings.Contains(out, "Logged out") || errOut != "Could not revoke the token on "+strings.TrimPrefix(down.URL, "http://")+". Revoke it at "+down.URL+"/tokens.\n" {
+		t.Errorf("unreachable: %v\n%s\n%q", err, out, errOut)
+	}
+	if v, _ := h.mem.Get(downService, "token"); v != "" {
+		t.Error("unreachable server kept the local token")
+	}
+
+	// FW_CLOUD_TOKEN is not revoked, since logout does not remove it
+	revoked = nil
+	h = newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok"})
+	if _, _, err := h.run(t, "", "logout", "--url", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if len(revoked) != 0 {
+		t.Errorf("revoked the environment token: %v", revoked)
+	}
+
+	// FW_TOKEN_FILE is revoked and removed
+	revoked = nil
+	file := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(file, []byte("user-tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h = newHarness(t, map[string]string{"FW_TOKEN_FILE": file})
+	if _, _, err := h.run(t, "", "logout", "--url", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if len(revoked) != 1 {
+		t.Errorf("FW_TOKEN_FILE revoked %v", revoked)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Error("FW_TOKEN_FILE was not removed")
 	}
 }
 
@@ -420,5 +491,35 @@ func TestStatusShowsProjectServer(t *testing.T) {
 	out, _, err := h.run(t, "", "status")
 	if err != nil || !strings.Contains(out, "linked to https://other.example.edu") {
 		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+func TestRootHelpVersionAndGroups(t *testing.T) {
+	h := newHarness(t, nil)
+	for _, args := range [][]string{{"help", "nosuch"}, {"help", "project", "nosuch"}, {"completion", "tcsh"}, {"project", "nosuch"}} {
+		if _, _, err := h.run(t, "", args...); exitCode(err) != exitUsage {
+			t.Errorf("%v: exit %d %v", args, exitCode(err), err)
+		}
+	}
+	for _, args := range [][]string{{"help", "publish"}, {"project"}, {"completion"}, {"help"}} {
+		if out, _, err := h.run(t, "", args...); err != nil || out == "" {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	out, _, err := h.run(t, "", "--version")
+	if err != nil || !strings.HasPrefix(out, "fw "+version) {
+		t.Errorf("--version: %v %q", err, out)
+	}
+	if v, _, _ := h.run(t, "", "version"); v != out {
+		t.Errorf("version %q and --version %q differ", v, out)
+	}
+}
+
+func TestConfigSyncSharedFolder(t *testing.T) {
+	h := newHarness(t, nil)
+	h.app.dirs.R = h.app.dirs.FW
+	out, _, err := h.run(t, "", "config", "sync")
+	if err != nil || !strings.Contains(out, "FW_CONFIG_HOME") {
+		t.Errorf("%v %s", err, out)
 	}
 }

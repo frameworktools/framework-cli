@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -34,7 +36,7 @@ func TestParseGitHubRemote(t *testing.T) {
 	if got := pagesSiteURL("Acme", "acme.github.io"); got != "https://acme.github.io/" {
 		t.Errorf("user site: %s", got)
 	}
-	for name, want := range map[string]string{"analysis.html": "analysis", "Final Report (v2).html": "final-report-v2", "_site": "_site"} {
+	for name, want := range map[string]string{"analysis.html": "analysis", "Final Report (v2).html": "final-report-v2", "_site": "site"} {
 		if got := pagesSlug(name); got != want {
 			t.Errorf("pagesSlug(%q) = %q, want %q", name, got, want)
 		}
@@ -111,7 +113,7 @@ func TestPublishToGitHub(t *testing.T) {
 	if got := remote("show", "main:published/analysis/analysis_files/figure.png"); got != "png" {
 		t.Errorf("pushed figure: %q", got)
 	}
-	if files := gitRoot("show", "--name-only", "--format=%s", "HEAD"); files != "Publish analysis\n\npublished/analysis/analysis_files/figure.png\npublished/analysis/index.html" {
+	if files := gitRoot("show", "--name-only", "--format=%s", "HEAD"); !strings.Contains(files, "published/analysis/v/1/artifact.json") || strings.Contains(files, "notes.txt") {
 		t.Errorf("commit:\n%s", files)
 	}
 	if staged := gitRoot("diff", "--cached", "--name-only"); staged != "notes.txt" {
@@ -140,7 +142,7 @@ func TestPublishToGitHub(t *testing.T) {
 	if !strings.Contains(out, `"url": "https://pages.example/study/analysis/"`) || !strings.Contains(out, `"pages_enabled": true`) {
 		t.Errorf("logged in: %s", out)
 	}
-	if files := remote("ls-tree", "-r", "--name-only", "main", "published/analysis"); files != "published/analysis/index.html" {
+	if files := remote("ls-tree", "-r", "--name-only", "main", "published/analysis"); strings.Contains(files, "published/analysis/analysis_files/figure.png") || !strings.Contains(files, "published/analysis/v/1/analysis_files/figure.png") || !strings.Contains(files, "published/analysis/v/2/artifact.json") {
 		t.Errorf("replaced folder holds:\n%s", files)
 	}
 
@@ -187,7 +189,7 @@ func TestPublishToGitHub(t *testing.T) {
 		t.Errorf("private path: %v", err)
 	}
 	for _, args := range [][]string{
-		{"publish", "notebooks/analysis.html", "--to", "github", "--title", "x"},
+		{"publish", "notebooks/analysis.html", "--to", "github", "--password", "x"},
 		{"publish", "notebooks/analysis.html", "--to", "ftp"},
 		{"publish", "notebooks/analysis.html", "--to", "github", "--slug", "../up"},
 	} {
@@ -212,5 +214,80 @@ func TestPublishToGitHubNeedsGitHubRemote(t *testing.T) {
 	gitT(t, root, "remote", "add", "origin", "https://gitlab.com/acme/study.git")
 	if _, _, err := h.run(t, "", "publish", "report.html", "--to", "github", "--yes"); err == nil || !strings.Contains(err.Error(), "Create the project on GitHub first") {
 		t.Errorf("GitLab remote: %v", err)
+	}
+}
+
+func TestPagesSiteAggregateSize(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "index.html", "index")
+	write(t, root, "first/index.html", "latest")
+	write(t, root, "first/v/1/index.html", "archive-one")
+	write(t, root, "first/v/2/index.html", "archive-two")
+	write(t, root, "second/index.html", "another-artifact")
+	got, e := pagesSiteSize(root)
+	want := int64(len("indexlatestarchive-onearchive-twoanother-artifact"))
+	if e != nil || got != want {
+		t.Fatal(got, want, e)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if e := os.Symlink(outside, filepath.Join(root, "escape")); e == nil {
+		if _, e = pagesSiteSize(root); e == nil {
+			t.Fatal("site symlink was accepted")
+		}
+	}
+}
+func TestPagesSiteSizeLimits(t *testing.T) {
+	// Mock aggregate sizes exercise exact boundaries without large files.
+	for _, test := range []struct {
+		size          int64
+		warn, blocked bool
+	}{{799_999_999, false, false}, {800_000_000, true, false}, {999_999_999, true, false}, {1_000_000_000, true, false}, {1_000_000_001, false, true}} {
+		var out bytes.Buffer
+		e := pagesSiteSizePolicy(test.size, &out)
+		if (e != nil) != test.blocked || strings.Contains(out.String(), "Warning:") != test.warn {
+			t.Fatalf("size %d: err=%v, stderr=%q", test.size, e, out.String())
+		}
+		if e != nil && !strings.Contains(e.Error(), "nothing was committed or pushed") {
+			t.Fatal(e)
+		}
+	}
+}
+
+// R and Python projects ignore *_files/. fw must still commit a Quarto
+// page's _files folder, and only the files it wrote.
+func TestPublishToGitHubCommitsIgnoredFiles(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, "notebooks/report.html", `<html><link href="report_files/site.css"><img src="report_files/fig.png"></html>`)
+	write(t, root, "notebooks/report_files/fig.png", "png")
+	write(t, root, "notebooks/report_files/site.css", "css")
+	remote := pagesRepo(t, root)
+	write(t, root, ".gitignore", ".env\n*_files/\n.DS_Store\n")
+	gitT(t, root, "add", ".gitignore")
+	gitT(t, root, "commit", "-q", "-m", "Ignore")
+	// An ignored file fw did not write stays out.
+	write(t, root, "published/report/.DS_Store", "junk")
+
+	if _, errOut, err := h.run(t, "", "publish", "notebooks/report.html", "--to", "github", "--yes"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	files := remote("ls-tree", "-r", "--name-only", "main", "published")
+	for _, want := range []string{
+		"published/report/index.html", "published/report/report_files/fig.png", "published/report/report_files/site.css",
+		"published/report/v/1/report_files/fig.png", "published/report/artifact.json", "published/index.json",
+	} {
+		if !strings.Contains(files, want) {
+			t.Errorf("pushed tree lacks %s:\n%s", want, files)
+		}
+	}
+	if strings.Contains(files, ".DS_Store") {
+		t.Errorf("committed a file fw did not write:\n%s", files)
+	}
+
+	g := gitRepo{dir: root}
+	missing, err := g.notStaged([]string{"published/report/index.html", "published/report/[x].html"})
+	if err != nil || len(missing) != 1 || missing[0] != "published/report/[x].html" {
+		t.Errorf("notStaged: %v %v", missing, err)
 	}
 }

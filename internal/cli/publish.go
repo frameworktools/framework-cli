@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,7 +20,11 @@ import (
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
 	"github.com/frameworktools/framework-cli/internal/project"
+	pub "github.com/frameworktools/framework-cli/internal/publish"
 )
+
+// artifactKinds are the kinds Framework Cloud accepts. file comes last.
+var artifactKinds = []string{"html", "image", "chart", "table", "data", "model", "test", "text", "pdf", "file"}
 
 // maxUpload is the server's limit for one document.
 const maxUpload = 50 << 20
@@ -108,7 +113,9 @@ func (a *app) checkPrivate(cmd *cobra.Command, root string, paths []string, incl
 	}
 	shown := make([]string, 0, 5)
 	for _, p := range found[:min(len(found), 5)] {
-		if rel, err := filepath.Rel(root, p); err == nil && !strings.HasPrefix(rel, "..") {
+		// Show the path inside the project, unless only a folder above the
+		// project matches; then the full path shows where "private" is.
+		if rel, err := filepath.Rel(root, p); err == nil && !strings.HasPrefix(rel, "..") && isPrivatePath(rel) {
 			p = rel
 		}
 		shown = append(shown, filepath.ToSlash(p))
@@ -291,27 +298,21 @@ func newPublishCmd(a *app) *cobra.Command {
 	var readable, includePrivate, yes, shareUnlisted bool
 	cmd := &cobra.Command{
 		Use:   "publish PATH",
-		Short: "Publish an artifact to Framework Cloud",
-		Long: "Uploads a plot, table, file, or rendered HTML document to the current\n" +
-			"project on Framework Cloud, as R's publish() does. It uses the project\n" +
-			"token in .env, so run fw project link first.\n\n" +
-			"PATH is a file or a folder of rendered HTML output. When analysis.html\n" +
-			"has an analysis_files/ folder next to it, both are sent. A folder is sent\n" +
-			"whole, opening at --entrypoint (default index.html).\n\n" +
-			"Every artifact gets an unlisted link. --readable also gives it a readable\n" +
-			"address under your handle, and --readable=false takes that away.\n" +
-			"Publishing to the same slug again adds a new version.\n\n" +
-			"--to github publishes to the project's GitHub Pages site instead. fw\n" +
-			"copies the document to published/SLUG/ in the repository, commits only\n" +
-			"that folder, and pushes; the workflow Framework Cloud added to the\n" +
-			"repository deploys it. GitHub Pages sites are public, even from a private\n" +
-			"repository. Turn Pages on for the project under Projects on Framework\n" +
-			"Cloud first.\n\n" +
-			"fw sends only what PATH names, and only when you run it. It shows what it\n" +
-			"will send and asks first; --yes skips the question. When a file's full\n" +
-			"path contains \"private\", fw warns and asks again. With --yes, --json, or\n" +
-			"no terminal, such an upload stops with exit code 6 unless you pass\n" +
-			"--include-private.",
+		Short: "Publish an artifact to a configured destination",
+		Long: "Publishes a file, rendered HTML document, or rendered folder. Framework builds\n" +
+			"an artifact bundle with checksums before delivery. --to selects a named\n" +
+			"destination in settings.yml, then publish.default, then Framework Cloud.\n\n" +
+			"Cloud uses the project token in .env. GitHub writes published/ in the\n" +
+			"project repository, commits the artifact and site index, and pushes.\n" +
+			"Folder and S3 destinations preserve version archives and an offline reader.\n" +
+			"S3 requires the AWS CLI and confirmed bucket access policy.\n\n" +
+			"GitHub Pages sites are public even from private repositories. Static\n" +
+			"destinations reject passwords and unlisted links. Folder visibility must\n" +
+			"be declared in its destination settings.\n\n" +
+			"Rendered folders open at --entrypoint (default index.html). Referenced\n" +
+			"Quarto _files folders accompany HTML files. Symbolic links are refused.\n\n" +
+			"fw shows a summary and asks first; --yes skips the question. Files with\n" +
+			"private in their paths require --include-private without a terminal.",
 		Example: "  fw publish notebooks/analysis.html\n" +
 			"  fw publish outputs/reports/summary.html --slug summary --readable --yes\n" +
 			"  fw publish _site --entrypoint index.html --json --yes\n" +
@@ -321,21 +322,57 @@ func newPublishCmd(a *app) *cobra.Command {
 			if shareUnlisted && collection == "" {
 				return usageError("--share-unlisted requires --collection")
 			}
+			if kind != "" && !slices.Contains(artifactKinds, kind) {
+				return usageError("--kind takes " + strings.Join(artifactKinds[:len(artifactKinds)-1], ", ") + ", or file")
+			}
 			path := args[0]
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(a.cwd, path)
 			}
-			switch to {
-			case "cloud":
-			case "github":
-				for _, name := range []string{"title", "readable", "entrypoint", "description", "kind", "password", "visibility", "collection", "share-unlisted"} {
+			root, err := a.requireProject()
+			if err != nil {
+				return err
+			}
+			destination, err := resolvePublish(root, to)
+			if err != nil {
+				return err
+			}
+			opts := staticPublishOptions{path: path, slug: slug, title: title, description: description, kind: kind, entrypoint: entrypoint, urlFlag: urlFlag, visibility: visibility, password: password, includePrivate: includePrivate, yes: yes}
+			if destination.Driver != "cloud" {
+				for _, name := range []string{"collection", "share-unlisted", "readable"} {
 					if cmd.Flags().Changed(name) {
-						return usageError("--" + name + " is for publishing to Framework Cloud, not with --to github")
+						return usageError("--" + name + " requires Framework Cloud")
 					}
 				}
-				return a.publishToGitHub(cmd, pagesOptions{path: path, slug: slug, urlFlag: urlFlag, includePrivate: includePrivate, yes: yes})
-			default:
-				return usageError("--to takes cloud or github")
+				if destination.Driver == "github" {
+					if destination.Expiry != "" {
+						return usageError("GitHub Pages does not support expiry")
+					}
+					if destination.Password != "" || cmd.Flags().Changed("password") || password != "" {
+						return usageError("GitHub Pages does not support passwords")
+					}
+					vis := visibility
+					if vis == "" {
+						vis = destination.Visibility
+					}
+					if vis != "" && vis != "public" {
+						return usageError("private GitHub Pages access has not been confirmed; publishing stopped")
+					}
+					return a.publishToGitHub(cmd, pagesOptions{path: path, slug: slug, urlFlag: urlFlag, includePrivate: includePrivate, yes: yes, artifact: &opts})
+				}
+				return a.publishStatic(cmd, destination, opts)
+			}
+			if visibility == "" {
+				visibility = destination.Visibility
+			}
+			if password == "" && !cmd.Flags().Changed("password") {
+				password, err = resolveEnvOption(destination.Password)
+				if err != nil {
+					return err
+				}
+			}
+			if destination.Expiry != "" {
+				return usageError("artifact expiry is not supported by this command")
 			}
 			client, root, err := a.projectClient(urlFlag)
 			if err != nil {
@@ -359,11 +396,15 @@ func newPublishCmd(a *app) *cobra.Command {
 				if selected == nil {
 					return usageError("collection was not found in this project")
 				}
+				// As on the server: an explicit --visibility wins, and
+				// --readable alone switches between public and unlisted.
 				known, public := visibility != "", visibility == "public"
-				if cmd.Flags().Changed("readable") {
+				if visibility == "" && cmd.Flags().Changed("readable") {
 					known, public = true, readable
 				}
-				if selected.Visibility == "public" && known && !public {
+				// Ask before uploading: the server would take the upload, then
+				// refuse to attach a non-public artifact.
+				if selected.Visibility == "public" && !public {
 					return usageError("public collections require public artifacts; pass --visibility public")
 				}
 				if selected.Visibility == "unlisted" && known && !public && !shareUnlisted {
@@ -379,10 +420,24 @@ func newPublishCmd(a *app) *cobra.Command {
 			}
 			upload.Slug, upload.Title = slug, title
 			if upload.Slug == "" {
-				if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
-					upload.Slug = filepath.Base(filepath.Clean(path))
+				base := filepath.Base(filepath.Clean(path))
+				if info, e := os.Stat(path); e == nil && !info.IsDir() {
+					base = strings.TrimSuffix(base, filepath.Ext(base))
 				}
+				upload.Slug = pub.Slug(base)
 			}
+			if upload.Slug == "" || pub.Slug(upload.Slug) != upload.Slug {
+				return usageError("--slug must use lowercase letters, digits, and single hyphens")
+			}
+
+			// Every destination builds the same offline bundle. Cloud keeps its
+			// existing multipart wire format for older-server compatibility.
+			opts.slug = upload.Slug
+			commonBundle, buildErr := buildStatic(opts)
+			if buildErr != nil {
+				return buildErr
+			}
+			defer os.RemoveAll(commonBundle.Dir)
 			upload.PasswordSet, upload.DescriptionSet = cmd.Flags().Changed("password"), cmd.Flags().Changed("description")
 			upload.Description, upload.Kind = description, kind
 			upload.Password, upload.Visibility = password, visibility
@@ -449,14 +504,14 @@ func newPublishCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&slug, "slug", "", "the document's name in the project (default: from the file name)")
-	cmd.Flags().StringVar(&to, "to", "cloud", "where to publish: cloud (Framework Cloud) or github (the project's GitHub Pages site)")
+	cmd.Flags().StringVar(&to, "to", "", "named publishing destination (default: publish.default, then cloud)")
 	cmd.Flags().StringVar(&title, "title", "", "the document's title")
 	cmd.Flags().StringVar(&collection, "collection", "", "existing project collection ID or slug")
 	cmd.Flags().BoolVar(&shareUnlisted, "share-unlisted", false, "allow collection readers to access this unlisted artifact")
 	cmd.Flags().StringVar(&description, "description", "", "the artifact description")
-	cmd.Flags().StringVar(&kind, "kind", "", "artifact kind: html, image, table, model, text, pdf, or file (default detected)")
+	cmd.Flags().StringVar(&kind, "kind", "", "artifact kind: "+strings.Join(artifactKinds[:len(artifactKinds)-1], ", ")+", or file (default detected)")
 	cmd.Flags().StringVar(&password, "password", "", "password required to view the artifact")
-	cmd.Flags().StringVar(&visibility, "visibility", "", "artifact visibility: public or unlisted")
+	cmd.Flags().StringVar(&visibility, "visibility", "", "artifact visibility (Cloud: public, unlisted, or private)")
 	cmd.Flags().BoolVar(&readable, "readable", false, "give the document a readable address; --readable=false removes it")
 	cmd.Flags().StringVar(&entrypoint, "entrypoint", "", "with a folder: the HTML file to open (default index.html)")
 	cmd.Flags().BoolVar(&includePrivate, "include-private", false, "upload files whose path contains \"private\" without asking")
@@ -538,7 +593,7 @@ func newPushSpecCmd(a *app) *cobra.Command {
 				return writeJSON(cmd.OutOrStdout(), res)
 			}
 			if res.Changed {
-				fmt.Fprintf(cmd.OutOrStdout(), "Sent. The cloud recorded spec version %d at %s.\n", res.SpecVersion, res.ReceivedAt)
+				fmt.Fprintf(cmd.OutOrStdout(), "Sent. The cloud recorded the new spec at %s.\n", res.ReceivedAt)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "No change: the cloud already has this spec (received %s).\n", res.ReceivedAt)
 			}

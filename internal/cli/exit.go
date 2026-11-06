@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -66,6 +67,17 @@ func markUsage(cmd *cobra.Command) {
 	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return &exitError{code: exitUsage, err: err}
 	})
+	// A group such as fw project only lists its commands. Cobra shows that
+	// list and exits 0 for an unknown command, as in fw completion tcsh.
+	if cmd.HasParent() && cmd.HasSubCommands() && cmd.Run == nil && cmd.RunE == nil {
+		cmd.Args = cobra.ArbitraryArgs
+		cmd.RunE = func(c *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return usageError(fmt.Sprintf("unknown command %q for %q. Run %s --help to list its commands", args[0], c.CommandPath(), c.CommandPath()))
+			}
+			return c.Help()
+		}
+	}
 	if args := cmd.Args; args != nil {
 		cmd.Args = func(c *cobra.Command, a []string) error {
 			if err := args(c, a); err != nil {

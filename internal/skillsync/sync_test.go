@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
@@ -124,8 +125,25 @@ func TestSyncRoundTripAndConflict(t *testing.T) {
 	}
 	opts.Resolve = "local"
 	result, err = Sync(context.Background(), client, opts)
-	if err != nil || result.Action != "push" || head.Version != 4 {
+	if err != nil || result.Action != "push" || head.Version != 4 || len(result.Backups) != 0 {
 		t.Fatalf("resolve %+v %v", result, err)
+	}
+
+	// --resolve remote replaces the local files and names the backup
+	check(t, os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("Second local change\n"), 0644))
+	remote = append([]File{}, head.Bundle...)
+	remote[0].Content = base64.StdEncoding.EncodeToString([]byte("Third web change\n"))
+	head.Bundle = remote
+	head.Version++
+	head.Hash, _ = Hash(remote)
+	opts.Resolve = "remote"
+	result, err = Sync(context.Background(), client, opts)
+	if err != nil || result.Action != "pull" || len(result.Backups) != 1 || !strings.HasPrefix(result.Backups[0], ".framework/skills-backups/") {
+		t.Fatalf("resolve remote %+v %v", result, err)
+	}
+	raw, _ = os.ReadFile(filepath.Join(root, filepath.FromSlash(result.Backups[0]), "SKILL.md"))
+	if string(raw) != "Second local change\n" {
+		t.Errorf("backup holds %q", raw)
 	}
 }
 func TestInstallBinaryAndDeletion(t *testing.T) {
@@ -159,5 +177,32 @@ func TestInstallBinaryAndDeletion(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(folder, ".env")); err != nil {
 		t.Fatal("excluded local material was deleted")
+	}
+}
+
+func TestSyncDryRunWritesNothingAndErrorsNameFiles(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "skills", "x")
+	check(t, os.MkdirAll(target, 0755))
+	check(t, os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("---\nname: x\n---\n"), 0644))
+	head := Snapshot{ID: "me:x", Version: 3, Bundle: []File{{Path: "SKILL.md", Content: base64.StdEncoding.EncodeToString([]byte("remote\n"))}}}
+	head.Hash, _ = Hash(head.Bundle)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		check(t, json.NewEncoder(w).Encode(head))
+	}))
+	defer server.Close()
+	client := cloud.NewClient(server.URL, "token")
+	for _, opts := range []Options{{Root: root, Path: "skills/x", ID: "me:x", DryRun: true}, {Root: root, Path: "skills/x", ID: "me:x", Direction: "status"}} {
+		result, err := Sync(context.Background(), client, opts)
+		if err != nil || result.Version != 3 || result.ID != "me:x" {
+			t.Errorf("%+v: %+v %v", opts, result, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".framework")); !os.IsNotExist(err) {
+		t.Error("a dry run or status check created .framework")
+	}
+	check(t, os.WriteFile(filepath.Join(target, "my notes.md"), []byte("x"), 0644))
+	if _, err := Scan(target); err == nil || !strings.Contains(err.Error(), `"my notes.md"`) {
+		t.Errorf("error does not name the file: %v", err)
 	}
 }

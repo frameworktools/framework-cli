@@ -1,16 +1,15 @@
 ---
 id: agents
-title: Using fw from AI agents and scripts
-description: JSON output, exit codes, and a login a person approves
+title: AI agents and scripts
+description: JSON output, exit codes, and browser-approved login
 section: guides
 position: 1
 ---
 
-fw is built to be driven by AI coding agents and scripts as well as by
-people. Commands that report information take `--json`, failures have
+AI coding agents and scripts can run fw as well as people. Commands that report information take `--json`, failures have
 distinct exit codes, and the login keeps the token away from the agent.
 
-## A typical session
+## Example session
 
 ```sh
 fw login --yes --json                 # a person approves the link
@@ -23,18 +22,18 @@ fw publish outputs/notebooks/results.html --slug results --yes --json
 fw publish outputs/notebooks/results.html --to github --yes --json
 ```
 
-## Logging in without a terminal
+## Login without a terminal
 
 When fw has no terminal, `fw login` needs `--yes`, given after reading the
 notice it prints. It then prints a code and a link on stderr and waits. A
 person opens the link in a browser where they are signed in and approves
-it. fw stores the token in the keyring; the agent never sees it.
+it. fw stores the token in the keyring. The agent never sees it.
 
 ```sh
 fw login --yes --json
 ```
 
-With `--json`, the code arrives on stderr as one line, ready to show the
+With `--json`, the code arrives on stderr as one line. Show it to the
 person:
 
 ```json
@@ -84,7 +83,7 @@ Exit code 6 also carries `"reason": "private_path"`. Show the person which
 files have "private" in their path, and rerun with `--include-private` only
 if they confirm the upload.
 
-## Questions fw asks
+## Confirmation prompts
 
 fw asks before it connects a machine (`fw login`) and before it uploads
 (`fw publish`). Without a terminal it cannot ask, so these need `--yes`.
@@ -93,10 +92,10 @@ person. `fw project push-spec` asks only when the project's path contains
 "private". `fw new` with cloud choices such as `--blueprint` never creates
 the project on Framework Cloud without a terminal unless you pass `--cloud`.
 `fw new NAME --lang stata` while logged in stops with exit 1 when the server
-cannot be reached and no defaults are saved; pass `--offline` to use fw's
+cannot be reached and no defaults are saved. Pass `--offline` to use fw's
 built-in defaults instead. Nothing else prompts when there is no terminal.
 
-## What never leaves the machine
+## Uploads and private paths
 
 fw never uploads anything on its own. Data files and project code go to the
 cloud only when you run `fw publish` or `fw project push-spec`, and

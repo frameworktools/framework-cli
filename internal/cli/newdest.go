@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -61,6 +62,9 @@ func (d destOptions) flag() string {
 // with the other options.
 func checkDestFlags(cmd *cobra.Command, o newOptions) error {
 	dest := o.dest.flag()
+	if cmd.Flags().Changed("github") && strings.TrimSpace(o.dest.github) == "" {
+		return usageError("--github takes OWNER or OWNER/REPO")
+	}
 	if (o.dest.public || o.dest.noClone) && dest != destGitHub {
 		return usageError("--public and --no-clone go with --github")
 	}
@@ -336,6 +340,18 @@ func (a *app) newOnCloud(cmd *cobra.Command, o newOptions, name, dest string) er
 	if dest == destGitHub {
 		owner, repo, _ := strings.Cut(o.dest.github, "/")
 		choices.GitHub = &cloud.NewRepository{Owner: owner, Name: repo, Private: !o.dest.public}
+	}
+
+	if dest == destZip {
+		// Ask first, so a server without downloads is not left with a
+		// project nobody downloaded. Servers from before downloads answer 404.
+		d, err := client.Destinations(cmd.Context())
+		if err != nil && cloud.StatusOf(err) != http.StatusNotFound {
+			return explain(err, client.URL)
+		}
+		if err != nil || !d.Download.Available {
+			return fmt.Errorf("%s is not set up to build downloads, so fw created nothing. Drop --zip to build the project here", host)
+		}
 	}
 
 	created, err := client.CreateProject(cmd.Context(), choices)

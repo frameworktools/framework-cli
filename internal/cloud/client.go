@@ -195,6 +195,11 @@ func (c *Client) Me(ctx context.Context) (Me, error) {
 	return me, err
 }
 
+// RevokeToken revokes the client's own token with DELETE /api/v1/token.
+func (c *Client) RevokeToken(ctx context.Context) error {
+	return c.Do(ctx, http.MethodDelete, "/api/v1/token", nil, nil)
+}
+
 // Project is one entry of GET /api/v1/projects.
 type Project struct {
 	Name        string `json:"name"`

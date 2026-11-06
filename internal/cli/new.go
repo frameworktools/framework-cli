@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,8 +59,11 @@ func newNewCmd(a *app) *cobra.Command {
 			"uses the saved defaults and says from when. With none saved it asks at a\n" +
 			"terminal, and without one it stops unless --offline is given. --offline\n" +
 			"uses the saved defaults, or fw's built-ins, without contacting the server.\n" +
-			"For Python projects fw passes --offline and --workflow to framework-py\n" +
-			"(0.1.0.dev6 or later), which applies the same rules.\n\n" +
+			"For Python and R projects fw passes --offline and --workflow to\n" +
+			"framework-py (0.1.0.dev6 or later) or the framework R package, which apply\n" +
+			"the same rules. Logged in, they also register the project on Framework\n" +
+			"Cloud and write FW_PROJECT_TOKEN to its .env. --offline keeps it on this\n" +
+			"machine.\n\n" +
 			"--from takes a layers file or the slug of one of your projects on Framework\n" +
 			"Cloud. A project from the cloud gets FW_PROJECT_TOKEN and FW_CLOUD_URL in its\n" +
 			".env. --pull-token creates a project from a project token instead of your\n" +
@@ -100,7 +104,7 @@ func newNewCmd(a *app) *cobra.Command {
 	f.StringVar(&o.from, "from", "", "a layers file, or the slug of your project on Framework Cloud")
 	f.BoolVar(&o.pullToken, "pull-token", false, "create the project from a project token (asked for, or read from stdin)")
 	f.StringVar(&o.language, "lang", "r", "language for a project without --from: r, python, or stata")
-	f.StringVar(&o.kind, "type", "", "project type for a project without --from: project, project_sensitive, course, presentation, or bare")
+	f.StringVar(&o.kind, "type", "", "project type for a project without --from: project (the Standard Project, the default), project_sensitive, or bare; R and Python also take course and presentation")
 	f.StringVar(&o.dir, "dir", "", "folder to create the project in (default: ./<name>)")
 	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work")
 	f.BoolVar(&o.print, "print", false, "print the command instead of running it")
@@ -119,10 +123,10 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	fromCloud := o.pullToken || (o.from != "" && !isLayersPath(o.from))
 
 	if (o.from != "" || o.pullToken) && (name != "" || cmd.Flags().Changed("lang") || o.kind != "") {
-		return errors.New("NAME, --lang, and --type describe a new project; with --from or --pull-token they come from the layers")
+		return usageError("NAME, --lang, and --type describe a new project; with --from or --pull-token they come from the layers")
 	}
 	if o.headless && fromCloud {
-		return errors.New("--headless works with a layers file, for automation. Fetch the layers first, or drop --headless")
+		return usageError("--headless works with a layers file, for automation. Fetch the layers first, or drop --headless")
 	}
 	if err := checkDestFlags(cmd, o); err != nil {
 		return err
@@ -210,7 +214,7 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	}
 	if name == "" {
 		if !a.interactive {
-			return errors.New("give a project name: fw new NAME")
+			return usageError("give a project name: fw new NAME")
 		}
 		fmt.Fprint(errOut, "Project name: ")
 		var err error
@@ -282,15 +286,31 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		return fmt.Errorf("unknown language %q: use r, python, or stata", language)
 	}
 
-	if language == "r" && (o.offline || o.workflow != "") {
-		return usageError("--offline and --workflow for R projects need framework 2.0.0, which fw does not support yet. Pass them to framework::new() in R")
-	}
-
 	// Without layers, the language's new() builds the project from the user's
 	// own defaults. It may prompt, so it is interactive only at a terminal.
 	req := engine.Request{Name: name, Type: o.kind, Dir: dir, Interactive: !o.headless, Workflow: o.workflow, Offline: o.offline}
 	if env == nil {
 		req.Interactive = req.Interactive && a.interactive
+	}
+	// Logged in, R's new() asks the server for your defaults. Rscript cannot
+	// ask you anything, so when the server is down fw asks at a terminal,
+	// the same as for Stata, and otherwise names --offline if R stops.
+	offlineHint := ""
+	if language == "r" && env == nil && !o.offline && !o.print {
+		if reason := a.cloudUnreachable(cmd, o.url); reason != "" {
+			if !a.interactive {
+				offlineHint = reason
+			} else {
+				yes, err := a.askYes(cmd, reason+". Create the project offline, from your saved defaults or Framework's built-in ones?")
+				if err != nil {
+					return err
+				}
+				if !yes {
+					return errors.New("canceled; no project was created")
+				}
+				req.Offline = true
+			}
+		}
 	}
 	keepLayers := o.print
 	if env != nil {
@@ -330,7 +350,11 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	if code, err := a.run(command); err != nil {
 		return err
 	} else if code != 0 {
-		return &exitError{code: code, err: fmt.Errorf("%s exited with status %d; the project was not created", filepath.Base(command.Program), code)}
+		err := fmt.Errorf("%s exited with status %d; the project was not created", filepath.Base(command.Program), code)
+		if offlineHint != "" {
+			err = fmt.Errorf("%w. fw %s. Try again when it is available, or add --offline to use your saved defaults or Framework's built-in ones", err, offlineHint)
+		}
+		return &exitError{code: code, err: err}
 	}
 
 	if link != nil {
@@ -341,8 +365,29 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	return nil
 }
 
+// cloudUnreachable says why the user's server cannot be reached, or returns
+// "" when it answers or the user is not logged in.
+func (a *app) cloudUnreachable(cmd *cobra.Command, flag string) string {
+	client, err := a.userClient(flag)
+	if err != nil {
+		return ""
+	}
+	if _, err := client.Me(cmd.Context()); cloud.IsOffline(err) {
+		host := cloud.Host(client.URL)
+		if status := cloud.StatusOf(err); status != 0 {
+			return fmt.Sprintf("%s answered HTTP %d", host, status)
+		}
+		return "cannot reach " + host
+	}
+	return ""
+}
+
 func linkProject(cmd *cobra.Command, link *cloudLink, dir string) error {
 	token, url := link.token, link.url
+	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "" {
+		fmt.Fprintln(cmd.OutOrStdout(), "Kept the FW_PROJECT_TOKEN already in .env; fw did not link the project again.")
+		return nil
+	}
 	if link.slug != "" {
 		hostname, _ := os.Hostname()
 		minted, err := link.client.NewPullToken(cmd.Context(), link.slug, "fw on "+hostname)
@@ -384,6 +429,9 @@ func (a *app) readProjectToken(cmd *cobra.Command) (string, error) {
 		token, err = a.readSecret()
 	} else {
 		token, err = a.readLine()
+		if errors.Is(err, io.EOF) {
+			return "", usageError("no project token on stdin. Pipe one in, as in: fw new --pull-token < token.txt")
+		}
 	}
 	token = strings.TrimSpace(token)
 	if err == nil && token == "" {
@@ -392,13 +440,14 @@ func (a *app) readProjectToken(cmd *cobra.Command) (string, error) {
 	return token, err
 }
 
-// isLayersPath reports whether --from names a file rather than a slug.
+// isLayersPath reports whether --from names a file rather than a slug. A
+// folder with the slug's name, as fw new SLUG --cloud leaves, is not a file.
 func isLayersPath(from string) bool {
 	if strings.HasSuffix(from, ".json") || strings.ContainsAny(from, `/\`) {
 		return true
 	}
-	_, err := os.Stat(from)
-	return err == nil
+	info, err := os.Stat(from)
+	return err == nil && !info.IsDir()
 }
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)

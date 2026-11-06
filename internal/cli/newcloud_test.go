@@ -155,7 +155,6 @@ func TestNewStataFromSavedDefaults(t *testing.T) {
 	h.app.interactive = false
 
 	for name, args := range map[string][]string{
-		"r":      {"new", "X", "--offline"},
 		"pieces": {"new", "X", "--lang", "stata", "--structure", "framework/project", "--offline"},
 		"from":   {"new", "--from", "vaccine-study", "--offline"},
 	} {

@@ -45,6 +45,9 @@ func newLoginCmd(a *app) *cobra.Command {
 			"  fw login --yes --json",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if withToken && paste {
+				return usageError("--with-token and --paste are two ways to give a token. Use one")
+			}
 			ctx := cmd.Context()
 			errOut := cmd.ErrOrStderr()
 			server, err := a.server(urlFlag, cloud.UserScope)
@@ -80,6 +83,9 @@ func newLoginCmd(a *app) *cobra.Command {
 			case !paste:
 				token, err = browserLogin(cmd, a, client)
 				if errors.Is(err, cloud.ErrDeviceUnsupported) {
+					if !a.interactive {
+						return usageError(fmt.Sprintf("%s does not offer browser login, and there is no terminal to paste a token in. Create a token at %s/tokens, then run: fw login --with-token --yes < token.txt", host, server.URL))
+					}
 					fmt.Fprintf(errOut, "%s does not offer browser login. Paste a token instead.\n", host)
 					token, err = pasteToken(cmd, a, server.URL)
 				}
@@ -127,7 +133,6 @@ func newLoginCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVar(&paste, "paste", false, "paste a token instead of approving in a browser")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm connecting without a prompt")
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp+"; the browser code goes to stderr as JSON")
-	cmd.MarkFlagsMutuallyExclusive("with-token", "paste")
 	return cmd
 }
 
@@ -173,14 +178,26 @@ func newLogoutCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logout",
 		Short: "Remove this machine's stored token for a server",
-		Long: "Removes the token from the system keyring and fw's token file. The keyring\n" +
-			"entry is shared, so this also logs out the R and Python packages on this\n" +
-			"machine. To revoke the token itself, delete it on the server's tokens page.",
+		Long: "Revokes the stored token on the server, then removes it from the system\n" +
+			"keyring and fw's token file. The keyring entry is shared, so this also logs\n" +
+			"out the R and Python packages on this machine. If the server cannot be\n" +
+			"reached, fw still removes the local copy. Revoke the token on the server's\n" +
+			"tokens page then. A token in FW_CLOUD_TOKEN is left alone.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			server, err := a.server(urlFlag, cloud.UserScope)
 			if err != nil {
 				return err
+			}
+			revokeFailed := false
+			for _, token := range a.tokens().Stored(server.URL) {
+				err := cloud.NewClient(server.URL, token).RevokeToken(cmd.Context())
+				if err != nil && cloud.StatusOf(err) != 401 {
+					revokeFailed = true
+				}
+			}
+			if revokeFailed {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Could not revoke the token on %s. Revoke it at %s/tokens.\n", cloud.Host(server.URL), server.URL)
 			}
 			result, err := a.tokens().Remove(server.URL)
 			if err != nil {

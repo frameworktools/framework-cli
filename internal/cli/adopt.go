@@ -211,8 +211,9 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"nothing else: it creates, moves, and overwrites no files, and stops if the\n" +
 			"folder is already a project. The project stays on this machine; run\n" +
 			"fw project push-spec to send its spec to Framework Cloud. Python projects\n" +
-			"are adopted by framework-py (0.1.0.dev6 or later), which fw runs for you.\n" +
-			"R projects need framework::adopt() in R for now.\n\n" +
+			"are adopted by framework-py (0.1.0.dev6 or later), and R projects by the\n" +
+			"framework R package's adopt(). fw runs them for you. To change a folder's\n" +
+			"role in an R project, run framework::adopt() in R instead.\n\n" +
 			"fw detects the language from the files at the top of the folder (.do files\n" +
 			"for Stata, pyproject.toml for Python, renv.lock, DESCRIPTION, or an .Rproj\n" +
 			"file for R). --lang overrides it.",
@@ -244,7 +245,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 			}
 			switch lang {
 			case "r":
-				return fmt.Errorf("fw adopt hands R projects to the framework R package, which needs version 2.0.0. Until fw supports it, run framework::adopt(%q) in R", dir)
+				return a.adoptR(cmd, dir, yes)
 			case "python":
 				command, err := a.engines.AdoptPython(dir, yes)
 				if err != nil {
@@ -268,6 +269,56 @@ func newAdoptCmd(a *app) *cobra.Command {
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping without asking")
 	f.BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
+}
+
+// adoptR shows the proposed mapping, which fw and R make from the same
+// rules, and has the framework R package's adopt() write the project. R
+// reviews a mapping only in an R session, so changing a folder's role needs
+// framework::adopt() in R.
+func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool) error {
+	command, err := a.engines.AdoptR(dir)
+	if err != nil {
+		return err
+	}
+	if !yes {
+		rules := adopt.Shared()
+		folders, err := rules.Scan(dir)
+		if err != nil {
+			return err
+		}
+		errOut := cmd.ErrOrStderr()
+		m := rules.Map(folders, "r")
+		if m.Empty() {
+			return errors.New("no folders found to map. Nothing was changed")
+		}
+		for _, w := range m.Warnings {
+			fmt.Fprintf(errOut, "Warning: %s\n", w.Text())
+		}
+		fmt.Fprintln(errOut, "Proposed mapping:")
+		for i, row := range rules.Rows(m) {
+			fmt.Fprintf(errOut, "  %2d. %-30s %s\n", i+1, row[0], row[1])
+		}
+		fmt.Fprintf(errOut, "To change a folder's role, run framework::adopt(%q) in R.\n", dir)
+		if !a.interactive {
+			return usageError("no terminal to review the mapping from. After reading it above, rerun with --yes to accept it")
+		}
+		ok, err := a.askYes(cmd, "Accept this mapping?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errors.New("canceled; nothing was changed")
+		}
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Adopting %s with the framework R package\n", dir)
+	code, err := a.run(command)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return &exitError{code: code, err: fmt.Errorf("framework::adopt() exited with status %d", code)}
+	}
+	return nil
 }
 
 func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool) error {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/frameworktools/framework-cli/internal/skillsync"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed templates/*.tmpl
@@ -71,7 +72,7 @@ func Scaffold(r Resolved, o Options) (Result, error) {
 	}
 	v := r.View
 
-	steps := []func() error{s.directories, s.settingsDo}
+	steps := []func() error{s.directories, s.settingsDo, s.publishSettings}
 	if v.CoreFiles {
 		steps = append(steps, s.masterDo, s.envFile)
 	}
@@ -488,6 +489,19 @@ func (s *scaffolder) specFiles() error {
 	return nil
 }
 
+// publishSettings writes only explicitly configured publishing destinations.
+func (s *scaffolder) publishSettings() error {
+	value, ok := s.r.Doc["publish"]
+	if !ok || value == nil {
+		return nil
+	}
+	data, err := yaml.Marshal(map[string]any{"default": map[string]any{"publish": value}})
+	if err != nil {
+		return err
+	}
+	return s.write("settings.yml", string(data), 0644)
+}
+
 func (s *scaffolder) record() error {
 	data, err := json.MarshalIndent(s.r.Doc, "", "  ")
 	if err != nil {
@@ -525,11 +539,21 @@ func (s *scaffolder) git() error {
 			return werr
 		}
 	}
+	// git takes the identity from GIT_AUTHOR_* and GIT_COMMITTER_*, then
+	// from user.name and user.email.
 	name, _ := run("config", "user.name")
 	email, _ := run("config", "user.email")
-	if name == "" || email == "" {
-		s.res.Notes = append(s.res.Notes, "git user.name or user.email is not set, so fw made the repository without a first commit.")
-		return nil
+	or := func(env, fallback string) string {
+		if v := os.Getenv(env); v != "" {
+			return v
+		}
+		return fallback
+	}
+	for _, v := range []string{or("GIT_AUTHOR_NAME", name), or("GIT_AUTHOR_EMAIL", email), or("GIT_COMMITTER_NAME", name), or("GIT_COMMITTER_EMAIL", email)} {
+		if v == "" {
+			s.res.Notes = append(s.res.Notes, "git user.name or user.email is not set, so fw made the repository without a first commit.")
+			return nil
+		}
 	}
 	if out, err := run("add", "-A"); err != nil {
 		return fmt.Errorf("git add: %w: %s", err, out)

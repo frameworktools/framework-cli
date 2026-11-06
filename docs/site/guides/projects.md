@@ -1,7 +1,7 @@
 ---
 id: projects
-title: Creating and preparing projects
-description: How fw creates R, Python, and Stata projects and runs them in their own environment
+title: Project creation and setup
+description: Project creation, adoption, and bootstrap for R, Python, and Stata
 section: guides
 position: 3
 ---
@@ -9,7 +9,7 @@ position: 3
 fw creates projects through each language's own Framework package, so a
 project made with fw is the same as one made in R or Python.
 
-## Creating a project
+## Project sources
 
 `fw new` takes a project from one of four places:
 
@@ -18,7 +18,8 @@ project made with fw is the same as one made in R or Python.
 - A name and pieces on Framework Cloud: a blueprint, a project structure,
   tools, package sets, skills, and settings.
 - A name, `--lang`, and `--type`: a new project from the language's own
-  defaults, without the cloud.
+  defaults, without the cloud. Without `--type`, the type is `project`, the
+  Standard Project. Pass `--type bare` for a bare project.
 
 ```sh
 fw new --from vaccine-study
@@ -31,10 +32,10 @@ At a terminal, `fw new` with no name walks you through it. It asks for the
 project's name and language and, when you are logged in, a blueprint. Flags
 you give answer their questions, and without a terminal fw never asks.
 
-## Where the project goes
+## Build location
 
-Logged in, fw asks how you want the project when the server offers more
-than one way:
+When you are logged in and the server offers more than one build location,
+fw asks which to use:
 
 - **Build it here.** fw runs the language's package on this computer. This
   is the default and needs R, Python, or nothing for Stata.
@@ -46,7 +47,7 @@ than one way:
 
 Each of these is also a flag, for scripts and agents:
 
-| Flag | Where the project goes |
+| Flag | Effect |
 |---|---|
 | `--local` | built here, without asking |
 | `--zip` | built on Framework Cloud and downloaded here |
@@ -62,7 +63,7 @@ fw new survey --lang python --zip
 fw new survey --blueprint framework/project --github my-lab/survey
 ```
 
-## Building from cloud pieces
+## Cloud pieces
 
 These flags build a project from pieces on Framework Cloud. Your defaults
 there (Settings > Defaults) fill whatever you leave out, and `--defaults`
@@ -77,7 +78,7 @@ uses only your defaults.
 | `--skill-set KEY`, `--skill KEY` | skills for AI assistants |
 | `--sensitive`, `--ai`, `--git` | settings; add `=false` to turn one off |
 
-The flags can be repeated where it makes sense, as in `--tool renv --tool
+Some flags can be repeated, as in `--tool renv --tool
 targets`. List what you can choose from with `fw blueprints list`,
 `fw structures list`, `fw tools list`, `fw package-sets list`, and
 `fw skills list`. Stata projects have no tools.
@@ -88,7 +89,7 @@ there is linked, as with `--from`. Without a terminal, fw creates it on the
 cloud only with `--cloud`. `--no-cloud` keeps it on this machine without
 asking.
 
-## Stata projects and your defaults
+## Stata projects and saved defaults
 
 When you are logged in, `fw new NAME --lang stata` builds the project from
 your defaults on Framework Cloud and saves them on this machine, in
@@ -102,13 +103,19 @@ falls back to saved defaults.
 
 Without a login, and with `--type`, fw uses its built-in setups.
 
-Python projects follow the same rules inside framework-py 0.1.0.dev4 or
-later. fw passes `--offline` and `--workflow` (`quarto`, `jupyter`, or
-`scripts`) through to it. R projects get the same support with framework
-2.0.0; until fw supports that release, pass those options to
-`framework::new()` in R.
+Python and R projects follow the same rules inside framework-py 0.1.0.dev6
+or later and the framework R package. fw passes `--offline` and
+`--workflow` (`quarto`, `jupyter`, or `scripts`) through to them. fw checks
+that the installed R package takes them, and says to update it when it does
+not. Rscript cannot ask questions, so when you are logged in and the server
+cannot be reached, fw asks at a terminal before building an R project
+offline. Without a terminal, add `--offline`.
 
-## Adopting an existing folder
+Logged in, framework-py and the R package also register a project built
+from your defaults on Framework Cloud and write `FW_PROJECT_TOKEN` to its
+`.env`. `--offline` keeps it on this machine.
+
+## Existing folders
 
 `fw adopt [DIR]` makes a folder you already work in a Framework project
 without moving anything. fw looks at folder names only, never file names or
@@ -125,8 +132,9 @@ For a Stata project fw writes `settings.do` and `.framework/spec.json` and
 nothing else. It stops without changing anything if the folder is already a
 project. The project stays on this machine, and `fw project push-spec` sends
 its spec to Framework Cloud. For Python projects fw runs framework-py's
-`adopt`, which writes `settings.yml` instead. R projects are adopted with
-`framework::adopt()` in R.
+`adopt`, which writes `settings.yml` instead. For R projects fw shows the
+proposal and runs `framework::adopt()` to accept it. To change a folder's
+role in an R project, run `framework::adopt()` in R.
 
 `fw structures import [DIR]` maps a folder the same way and saves the layout
 as a structure on Framework Cloud, private to you, so new projects can use
@@ -147,7 +155,7 @@ When R, Python, or uv is missing, fw prints the exact command to run once it
 is installed, and keeps the layers file for it. `--print` shows that command
 without running anything.
 
-## Inside a project
+## Project environments
 
 fw finds the project from the current folder and runs code in the project's
 own environment, so its pinned package versions apply:

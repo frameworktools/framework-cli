@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"text/tabwriter"
 
@@ -43,7 +44,9 @@ func newStatusCmd(a *app) *cobra.Command {
 		Long: "Shows which server fw uses and where that setting came from, and who the\n" +
 			"stored token belongs to. Inside a project linked to a different server,\n" +
 			"it shows that server too. Exits with status 3 when not logged in or when\n" +
-			"the server rejects the stored token.",
+			"the server rejects the stored token.\n\n" +
+			"FW_CLOUD_TOKEN and FW_TOKEN_FILE hold one token for every server, so fw\n" +
+			"sends it to whichever server --url names. Keyring logins are per server.",
 		Example: "  fw status\n  fw status --json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -238,7 +241,7 @@ func newProjectShowCmd(a *app) *cobra.Command {
 }
 
 func newBlueprintsCmd(a *app) *cobra.Command {
-	var urlFlag string
+	var urlFlag, lang string
 	cmd := &cobra.Command{
 		Use:   "blueprints",
 		Short: "Work with project blueprints on Framework Cloud",
@@ -249,9 +252,14 @@ func newBlueprintsCmd(a *app) *cobra.Command {
 		Short: "List the blueprints you can start a project from",
 		Long: "Lists Framework's blueprints, your own, and the ones shared with you. Use\n" +
 			"a blueprint's key on Framework Cloud when you create a project.",
-		Example: "  fw blueprints list\n  fw blueprints list --json",
+		Example: "  fw blueprints list\n  fw blueprints list --lang stata --json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			switch lang {
+			case "", "r", "python", "stata":
+			default:
+				return usageError("--lang takes r, python, or stata")
+			}
 			client, err := a.userClient(urlFlag)
 			if err != nil {
 				return err
@@ -259,6 +267,15 @@ func newBlueprintsCmd(a *app) *cobra.Command {
 			blueprints, err := client.Blueprints(cmd.Context())
 			if err != nil {
 				return explain(err, client.URL)
+			}
+			if lang != "" {
+				kept := blueprints[:0]
+				for _, b := range blueprints {
+					if l := blueprintLanguages(b); len(l) == 0 || slices.Contains(l, lang) {
+						kept = append(kept, b)
+					}
+				}
+				blueprints = kept
 			}
 			out := cmd.OutOrStdout()
 			if a.jsonOut {
@@ -275,18 +292,27 @@ func newBlueprintsCmd(a *app) *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "KEY\tNAME\tLANGUAGE\tTYPE\tVERSION")
+			fmt.Fprintln(w, "KEY\tNAME\tLANGUAGES\tTYPE\tVERSION")
 			for _, b := range blueprints {
-				language := b.Language
-				if language == "" {
-					language = "-"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", b.Key, b.Name, language, b.Type, strconv.Itoa(b.Version))
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", b.Key, b.Name, listText(blueprintLanguages(b), 3), b.Type, strconv.Itoa(b.Version))
 			}
 			return w.Flush()
 		},
 	}
+	list.Flags().StringVar(&lang, "lang", "", "only blueprints for this language: r, python, or stata")
 	list.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	cmd.AddCommand(list)
 	return cmd
+}
+
+// blueprintLanguages lists the languages a blueprint supports. Older
+// servers send one language only.
+func blueprintLanguages(b cloud.Blueprint) []string {
+	if len(b.Languages) > 0 {
+		return b.Languages
+	}
+	if b.Language != "" {
+		return []string{b.Language}
+	}
+	return nil
 }

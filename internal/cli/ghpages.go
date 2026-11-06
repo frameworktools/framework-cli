@@ -7,17 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
 	"github.com/frameworktools/framework-cli/internal/project"
+	pub "github.com/frameworktools/framework-cli/internal/publish"
 )
 
 // fw publish --to github copies a rendered document into the repository's
@@ -29,9 +32,12 @@ const pagesPublicNote = "GitHub Pages sites are public, even when the repository
 
 // pagesResult is fw publish --to github --json.
 type pagesResult struct {
-	URL    string  `json:"url"`
-	Commit *string `json:"commit"`
-	Pushed bool    `json:"pushed"`
+	Driver     string  `json:"driver"`
+	Version    int     `json:"version"`
+	VersionURL string  `json:"version_url"`
+	URL        string  `json:"url"`
+	Commit     *string `json:"commit"`
+	Pushed     bool    `json:"pushed"`
 	// PagesEnabled is null when fw cannot ask Framework Cloud.
 	PagesEnabled *bool `json:"pages_enabled"`
 }
@@ -122,24 +128,11 @@ func defaultBranch(g gitRepo, remote string) string {
 	return ""
 }
 
-var pagesSlugRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+var pagesSlugRe = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // pagesSlug turns a file name into a folder name for published/.
 func pagesSlug(name string) string {
-	name = strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
-	var b strings.Builder
-	dash := false
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '.':
-			b.WriteRune(r)
-			dash = false
-		case !dash && b.Len() > 0:
-			b.WriteByte('-')
-			dash = true
-		}
-	}
-	return strings.Trim(b.String(), "-.")
+	return pub.Slug(strings.TrimSuffix(name, filepath.Ext(name)))
 }
 
 // pagesFiles lists what to copy into published/<slug>/: a source path and
@@ -277,6 +270,7 @@ func (a *app) cloudPagesURL(ctx context.Context, root, flag string) (pagesURL *s
 type pagesOptions struct {
 	path, slug, urlFlag string
 	includePrivate, yes bool
+	artifact            *staticPublishOptions
 }
 
 func (a *app) publishToGitHub(cmd *cobra.Command, opts pagesOptions) error {
@@ -306,9 +300,30 @@ func (a *app) publishToGitHub(cmd *cobra.Command, opts pagesOptions) error {
 	if !pagesSlugRe.MatchString(slug) {
 		return usageError(fmt.Sprintf("%q cannot name a folder in published/. Use lowercase letters, digits, dashes, dots, and underscores, as in --slug results", slug))
 	}
-	files, sources, err := pagesFiles(opts.path)
-	if err != nil {
-		return err
+	var files map[string]string
+	var sources []string
+	var artifact *pub.Bundle
+	if opts.artifact != nil {
+		artifact, err = buildStatic(*opts.artifact)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(artifact.Dir)
+		slug = artifact.Manifest.Slug
+		sources = artifact.Sources
+		files = map[string]string{}
+		rels, e := bundleFiles(artifact.Dir)
+		if e != nil {
+			return e
+		}
+		for _, rel := range rels {
+			files[filepath.Join(artifact.Dir, rel)] = filepath.ToSlash(rel)
+		}
+	} else {
+		files, sources, err = pagesFiles(opts.path)
+		if err != nil {
+			return err
+		}
 	}
 
 	errOut := cmd.ErrOrStderr()
@@ -325,15 +340,42 @@ func (a *app) publishToGitHub(cmd *cobra.Command, opts pagesOptions) error {
 		}
 	}
 
-	if err := replaceDir(filepath.Join(g.dir, "published", slug), files); err != nil {
+	var delivered pub.Receipt
+	if artifact != nil {
+		delivered, err = pub.Folder(artifact, filepath.Join(g.dir, "published"), "")
+		if err != nil {
+			return err
+		}
+	} else if err := replaceDir(filepath.Join(g.dir, "published", slug), files); err != nil {
 		return err
 	}
-	if _, err := g.run("add", "-A", "--", rel); err != nil {
+	// Measure the complete resulting site, including every retained archive
+	// and other artifact, before staging, committing, or pushing anything.
+	siteBytes, sizeErr := pagesSiteSize(filepath.Join(g.dir, "published"))
+	if sizeErr != nil {
+		return sizeErr
+	}
+	if err := pagesSiteSizePolicy(siteBytes, errOut); err != nil {
 		return err
 	}
-	res := pagesResult{}
-	if _, err := g.run("diff", "--cached", "--quiet", "--", rel); err != nil {
-		if _, err := g.run("commit", "-m", "Publish "+slug, "--", rel); err != nil {
+	if _, err := g.run("add", "-A", "--", rel, "published/index.html", "published/index.json"); err != nil {
+		return err
+	}
+	// R and Python projects ignore *_files/, which holds a Quarto page's
+	// styles and figures. Force-add exactly the files fw wrote, then check
+	// that git has every one before committing.
+	wrote := pagesWritten(g.dir, rel, files, artifact, delivered.Version)
+	if err := g.addForce(wrote); err != nil {
+		return err
+	}
+	if missing, err := g.notStaged(wrote); err != nil {
+		return err
+	} else if len(missing) > 0 {
+		return fmt.Errorf("git did not stage %d published files, such as %s; nothing was committed or pushed. Check the repository's .gitignore and git settings", len(missing), missing[0])
+	}
+	res := pagesResult{Driver: "github", Version: delivered.Version}
+	if _, err := g.run("diff", "--cached", "--quiet", "--", rel, "published/index.html", "published/index.json"); err != nil {
+		if _, err := g.run("commit", "-m", "Publish "+slug, "--", rel, "published/index.html", "published/index.json"); err != nil {
 			return err
 		}
 		sha, err := g.run("rev-parse", "HEAD")
@@ -367,6 +409,14 @@ func (a *app) publishToGitHub(cmd *cobra.Command, opts pagesOptions) error {
 		}
 	}
 	res.URL = site + slug + "/"
+	if artifact != nil {
+		delivered.Driver = "github"
+		delivered.URL = res.URL
+		delivered.VersionURL = fmt.Sprintf("%sv/%d/", res.URL, delivered.Version)
+		res.VersionURL = delivered.VersionURL
+		delivered.Commit = res.Commit
+		a.trackExternal(cmd, artifact, delivered, opts.urlFlag, "public")
+	}
 
 	out := cmd.OutOrStdout()
 	if a.jsonOut {
@@ -380,6 +430,111 @@ func (a *app) publishToGitHub(cmd *cobra.Command, opts pagesOptions) error {
 	fmt.Fprintf(out, "Link: %s\n", res.URL)
 	if res.Commit != nil {
 		fmt.Fprintln(out, "GitHub Pages takes a minute or two to deploy it.")
+	}
+	return nil
+}
+
+// pagesWritten lists the files fw wrote for one publish, relative to the
+// repository with forward slashes: the latest copy, its v/N archive, and
+// the site index. Paths missing on disk are left out.
+func pagesWritten(top, rel string, files map[string]string, artifact *pub.Bundle, version int) []string {
+	var paths []string
+	if artifact != nil {
+		names := []string{"artifact.json"}
+		for _, f := range artifact.Manifest.Files {
+			names = append(names, f.Path)
+		}
+		for _, name := range names {
+			paths = append(paths, rel+"/"+name, fmt.Sprintf("%s/v/%d/%s", rel, version, name))
+		}
+		paths = append(paths, "published/index.html", "published/index.json")
+	} else {
+		for _, name := range files {
+			paths = append(paths, rel+"/"+name)
+		}
+	}
+	kept := paths[:0]
+	for _, p := range paths {
+		if info, err := os.Lstat(filepath.Join(top, filepath.FromSlash(p))); err == nil && info.Mode().IsRegular() {
+			kept = append(kept, p)
+		}
+	}
+	sort.Strings(kept)
+	return kept
+}
+
+// literal stops git from reading glob characters in file names.
+func literal(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = ":(literal)" + p
+	}
+	return out
+}
+
+// addForce stages paths even when .gitignore matches them, in batches.
+func (g gitRepo) addForce(paths []string) error {
+	for start := 0; start < len(paths); start += 200 {
+		batch := paths[start:min(start+200, len(paths))]
+		if _, err := g.run(append([]string{"add", "-f", "--"}, literal(batch)...)...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// notStaged returns the paths that are not in git's index.
+func (g gitRepo) notStaged(paths []string) ([]string, error) {
+	staged := map[string]bool{}
+	for start := 0; start < len(paths); start += 200 {
+		batch := paths[start:min(start+200, len(paths))]
+		out, err := g.run(append([]string{"ls-files", "--cached", "-z", "--"}, literal(batch)...)...)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range strings.Split(out, "\x00") {
+			staged[name] = true
+		}
+	}
+	var missing []string
+	for _, p := range paths {
+		if !staged[p] {
+			missing = append(missing, p)
+		}
+	}
+	return missing, nil
+}
+
+const pagesWarnBytes int64 = 800_000_000
+const pagesLimitBytes int64 = 1_000_000_000
+
+func pagesSiteSize(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("GitHub Pages site contains a symbolic link: %s", path)
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
+}
+func pagesSiteSizePolicy(size int64, out io.Writer) error {
+	if size > pagesLimitBytes {
+		return fmt.Errorf("publishing would exceed the 1 GB GitHub Pages site limit (%d bytes, including retained versions); nothing was committed or pushed", size)
+	}
+	if size >= pagesWarnBytes {
+		fmt.Fprintf(out, "Warning: GitHub Pages site uses %.1f MB of its 1 GB limit, including retained versions.\n", float64(size)/1e6)
 	}
 	return nil
 }

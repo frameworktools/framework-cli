@@ -24,6 +24,8 @@ func TestNormalize(t *testing.T) {
 		"ftp://framework.pub",
 		"https://",
 		"",
+		"https://exa mple.org",
+		"https://example.org/\tx",
 	}
 	for _, in := range bad {
 		if got, err := Normalize(in); err == nil {

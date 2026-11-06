@@ -158,7 +158,7 @@ const exitCodesMarkdown = "| Code | Meaning |\n|------|---------|\n" +
 	"Exit code 6 adds `\"reason\": \"private_path\"`."
 
 // refCommands lists the documented commands: every runnable command except
-// help and shell completion.
+// help, shell completion, and groups, which only list their commands.
 func refCommands(root *cobra.Command) []*cobra.Command {
 	var out []*cobra.Command
 	var walk func(*cobra.Command)
@@ -167,7 +167,7 @@ func refCommands(root *cobra.Command) []*cobra.Command {
 			if sub.Hidden || sub.Name() == "help" || sub.Name() == "completion" {
 				continue
 			}
-			if sub.Runnable() {
+			if sub.Runnable() && !sub.HasSubCommands() {
 				out = append(out, sub)
 			}
 			walk(sub)

@@ -69,6 +69,9 @@ type Result struct {
 	LocalHash  string   `json:"local_hash,omitempty"`
 	RemoteHash string   `json:"remote_hash,omitempty"`
 	Paths      []string `json:"paths"`
+	// Backups lists where a pull moved the replaced folders, relative to
+	// the project.
+	Backups []string `json:"backups,omitempty"`
 }
 
 func excluded(s string) bool {
@@ -91,11 +94,11 @@ func Validate(files []File) error {
 	skill := false
 	for _, f := range files {
 		if len(f.Path) > 240 || !pathPattern.MatchString(f.Path) {
-			return fmt.Errorf("invalid skill path")
+			return fmt.Errorf("invalid skill path %q: file names in a skill use letters, digits, dots, dashes, and underscores", f.Path)
 		}
 		for _, part := range strings.Split(f.Path, "/") {
 			if part == "." || part == ".." || excluded(part) {
-				return fmt.Errorf("excluded skill path")
+				return fmt.Errorf("excluded skill path %q", f.Path)
 			}
 		}
 		lower := strings.ToLower(f.Path)
@@ -300,7 +303,14 @@ type swap struct {
 	existed               bool
 }
 
-func install(root string, paths []string, files []File, expected string) (err error) {
+func install(root string, paths []string, files []File, expected string) error {
+	return installInto(nil, root, paths, files, expected)
+}
+
+// installInto is install that also appends to backups where it moved each
+// replaced folder, relative to root. The list means nothing after an error,
+// since the backups are then moved back.
+func installInto(backups *[]string, root string, paths []string, files []File, expected string) (err error) {
 	if err = Validate(files); err != nil {
 		return
 	}
@@ -493,6 +503,10 @@ func install(root string, paths []string, files []File, expected string) (err er
 			if err = os.Rename(s.target, s.backup); err != nil {
 				return
 			}
+			if backups != nil {
+				rel, _ := filepath.Rel(root, s.backup)
+				*backups = append(*backups, filepath.ToSlash(rel))
+			}
 		}
 		if err = os.Rename(s.stage, s.target); err != nil {
 			return
@@ -519,17 +533,20 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 	if err != nil {
 		return result, err
 	}
-	lock, err := safePath(root, ".framework/skills.sync.lock")
-	if err != nil {
-		return result, err
+	// A dry run or status check writes nothing, not even the lock.
+	if !opts.DryRun && opts.Direction != "status" {
+		lock, err := safePath(root, ".framework/skills.sync.lock")
+		if err != nil {
+			return result, err
+		}
+		if err = os.MkdirAll(filepath.Dir(lock), 0755); err != nil {
+			return result, err
+		}
+		if err = os.Mkdir(lock, 0700); err != nil {
+			return result, fmt.Errorf("skill sync is locked; if the previous process stopped, remove .framework/skills.sync.lock and retry")
+		}
+		defer os.Remove(lock)
 	}
-	if err = os.MkdirAll(filepath.Dir(lock), 0755); err != nil {
-		return result, err
-	}
-	if err = os.Mkdir(lock, 0700); err != nil {
-		return result, fmt.Errorf("skill sync is locked; if the previous process stopped, remove .framework/skills.sync.lock and retry")
-	}
-	defer os.Remove(lock)
 	state, err := load(root)
 	if err != nil {
 		return result, err
@@ -636,7 +653,7 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 	if (opts.Direction == "push" || opts.Direction == "pull") && (action == "push" || action == "pull") && opts.Direction != action {
 		action = "blocked"
 	}
-	result = Result{Action: action, ID: remote.ID, LocalHash: localHash, RemoteHash: remote.Hash, Paths: entry.Paths}
+	result = Result{Action: action, ID: remote.ID, Version: remote.Version, LocalHash: localHash, RemoteHash: remote.Hash, Paths: entry.Paths}
 	if opts.DryRun || opts.Direction == "status" || action == "conflict" || action == "blocked" || action == "missing" {
 		return result, nil
 	}
@@ -669,9 +686,11 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 			return result, fmt.Errorf("cloud skill verification failed")
 		}
 		if action == "pull" {
-			if err = install(root, entry.Paths, remote.Bundle, localHash); err != nil {
+			var backups []string
+			if err = installInto(&backups, root, entry.Paths, remote.Bundle, localHash); err != nil {
 				return result, err
 			}
+			result.Backups = backups
 		}
 		entry.Server, entry.ID, entry.Version, entry.Hash, entry.Pending = server, remote.ID, remote.Version, remote.Hash, nil
 		state.Skills[key] = entry

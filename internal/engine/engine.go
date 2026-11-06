@@ -84,7 +84,7 @@ type Request struct {
 	Type        string
 	Dir         string // absolute target folder
 	Interactive bool   // false runs headless
-	// Workflow and Offline go to Python's new(). Workflow is quarto,
+	// Workflow and Offline go to the language's new(). Workflow is quarto,
 	// jupyter, or scripts. Offline builds from saved defaults or built-ins
 	// without contacting Framework Cloud.
 	Workflow string
@@ -126,35 +126,76 @@ func rBool(b bool) string {
 }
 
 func (f Finder) createR(req Request) (Command, error) {
-	var expr string
+	var expr, need, lacks string
 	var args []string
 	if req.LayersFile != "" {
 		expr = "a <- commandArgs(TRUE); framework::project_create_from_layers(a[1], a[2], interactive = " + rBool(req.Interactive) + ")"
 		args = []string{req.LayersFile, req.Dir}
+		need, lacks = rHas("project_create_from_layers"), "cannot create projects from layers"
 	} else {
-		expr = "a <- commandArgs(TRUE); framework::new(name = a[1], location = a[2], type = if (nzchar(a[3])) a[3] else NULL, browse = FALSE)"
+		expr = "a <- commandArgs(TRUE); framework::new(name = a[1], location = a[2], type = if (nzchar(a[3])) a[3] else NULL, browse = FALSE"
 		args = []string{req.Name, req.Dir, req.Type}
+		need, lacks = rHas("new"), "has no new()"
+		if req.Offline || req.Workflow != "" {
+			expr += ", workflow = if (nzchar(a[4])) a[4] else NULL, offline = as.logical(a[5])"
+			args = append(args, req.Workflow, rBool(req.Offline))
+			need = rHas("new", "new_project") + ` || !all(c("offline", "workflow") %in% names(formals(get("new_project", envir = asNamespace("framework")))))`
+			lacks = "does not take --offline or --workflow"
+		}
+		expr += ")"
 	}
+	return f.rCommand(expr, args, need, lacks)
+}
 
-	rscript := f.find("FW_RSCRIPT", "Rscript")
+// AdoptR returns the command that hands an existing folder to the framework
+// R package's adopt(), accepting its proposed mapping. R reviews a mapping
+// only in an interactive R session, which Rscript is not.
+func (f Finder) AdoptR(dir string) (Command, error) {
+	return f.rCommand("a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE)", []string{dir}, rHas("adopt"), "has no adopt()")
+}
+
+// rHas is an R condition that is true when the framework package lacks one
+// of the functions. fw checks what the installed package can do, not its
+// version number.
+func rHas(functions ...string) string {
+	quoted := make([]string, len(functions))
+	for i, name := range functions {
+		quoted[i] = `"` + name + `"`
+	}
+	return `!all(vapply(c(` + strings.Join(quoted, ", ") + `), exists, logical(1), envir = asNamespace("framework"), inherits = FALSE))`
+}
+
+// rCommand finds Rscript and checks that the framework package is installed
+// and that need (an R condition, true when something is missing) is false.
+func (f Finder) rCommand(expr string, args []string, need, lacks string) (Command, error) {
 	command := func(program string) Command {
 		// Rscript passes everything after -e EXPR to commandArgs(TRUE). An
 		// explicit --args would arrive as the first argument.
 		return Command{Program: program, Args: append([]string{"-e", expr}, args...), Dir: f.Home}
 	}
 	install := `Rscript -e 'install.packages("pak"); pak::pak("frameworktools/framework")'`
+	if set := f.Getenv("FW_RSCRIPT"); set != "" {
+		if _, err := f.LookPath(set); err != nil {
+			return Command{}, &MissingError{
+				What:  "FW_RSCRIPT is set to " + set + ", which is not a program fw can run. Fix or unset it.",
+				Steps: []string{command("Rscript").String()},
+			}
+		}
+	}
+	rscript := f.find("FW_RSCRIPT", "Rscript")
 	if rscript == "" {
 		return Command{}, &MissingError{
 			What:  "R is not installed, or Rscript is not on your PATH.",
 			Steps: []string{"# install R from https://cloud.r-project.org", install, command("Rscript").String()},
 		}
 	}
-	check := `if (!requireNamespace("framework", quietly = TRUE) || !exists("project_create_from_layers", envir = asNamespace("framework"))) quit(status = 3)`
-	if !f.Probe(Command{Program: rscript, Args: []string{"-e", check}, Dir: f.Home}) {
-		return Command{}, &MissingError{
-			What:  "The framework R package (version 2 or later) is not installed.",
-			Steps: []string{install, command(rscript).String()},
+	installed := `if (!requireNamespace("framework", quietly = TRUE)) quit(status = 3)`
+	if !f.Probe(Command{Program: rscript, Args: []string{"-e", installed + "; if (" + need + ") quit(status = 4)"}, Dir: f.Home}) {
+		what := "The framework R package is not installed."
+		if f.Probe(Command{Program: rscript, Args: []string{"-e", installed}, Dir: f.Home}) {
+			what = "The framework R package here " + lacks + ". Update it."
 		}
+		return Command{}, &MissingError{What: what, Steps: []string{install, command(rscript).String()}}
 	}
 	return command(rscript), nil
 }

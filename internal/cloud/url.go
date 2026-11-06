@@ -17,6 +17,9 @@ var schemePrefix = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://`)
 // Plain http is allowed only for localhost, 127.0.0.1, and [::1].
 func Normalize(raw string) (string, error) {
 	url := strings.TrimSpace(raw)
+	if strings.IndexFunc(url, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0 {
+		return "", fmt.Errorf("not a server URL: %q has a space or control character in it", raw)
+	}
 	if !schemePrefix.MatchString(url) {
 		url = "https://" + url
 	}

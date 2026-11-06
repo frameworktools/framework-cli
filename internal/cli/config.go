@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -33,6 +34,10 @@ func newConfigCmd(a *app) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			dirs := a.dirs
+			if filepath.Clean(dirs.R) == filepath.Clean(dirs.FW) {
+				fmt.Fprintf(cmd.OutOrStdout(), "Nothing to copy. fw and the R package share %s, as FW_CONFIG_HOME sets.\n", dirs.FW)
+				return nil
+			}
 			result, err := dirs.Sync()
 			if err != nil {
 				return err

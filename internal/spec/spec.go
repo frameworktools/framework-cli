@@ -103,6 +103,10 @@ func ValidateDocsReference(data []byte) error {
 
 // ValidateResolved checks a resolved spec against spec.v1.
 func ValidateResolved(resolved map[string]any) error {
+	if e := ValidatePublishSecrets(resolved["publish"]); e != nil {
+		return e
+	}
+
 	// Round-trip through JSON so the validator sees plain JSON values
 	data, err := json.Marshal(resolved)
 	if err != nil {
@@ -145,6 +149,19 @@ func Parse(data []byte) (Envelope, error) {
 		return Envelope{}, err
 	}
 	var env Envelope
+	if root, ok := doc.(map[string]any); ok {
+		if layers, ok := root["layers"].([]any); ok {
+			for _, entry := range layers {
+				if item, ok := entry.(map[string]any); ok {
+					if layer, ok := item["layer"].(map[string]any); ok {
+						if e := ValidatePublishSecrets(layer["publish"]); e != nil {
+							return Envelope{}, e
+						}
+					}
+				}
+			}
+		}
+	}
 	if err := json.Unmarshal(data, &env); err != nil {
 		return Envelope{}, err
 	}

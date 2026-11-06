@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,44 @@ func TestLinkCloud(t *testing.T) {
 	}
 	if got := EnvValue(dir, "OTHER"); got != "1" {
 		t.Errorf("OTHER = %q", got)
+	}
+}
+
+func TestLinkCloudFillsDownloadPlaceholder(t *testing.T) {
+	// Framework Cloud's project download ends .env like this
+	download := "# Project settings\nDB_HOST=localhost\n\n" +
+		"# Framework Cloud. To connect this project, get a project token at\n" +
+		"# https://cloud.example.edu/projects/survey/computers\n" +
+		"# then remove the # in front of FW_PROJECT_TOKEN below and paste it after the =.\n" +
+		"FW_CLOUD_URL=https://cloud.example.edu\n" +
+		"# FW_PROJECT_TOKEN=\n" +
+		"\n"
+	want := "# Project settings\nDB_HOST=localhost\n\n" +
+		"FW_CLOUD_URL=https://cloud.example.edu\n" +
+		"FW_PROJECT_TOKEN=fw_tok\n" +
+		"\n"
+	for name, c := range map[string]struct{ in, want string }{
+		"placeholder": {download, want},
+		"crlf":        {strings.ReplaceAll(download, "\n", "\r\n"), strings.ReplaceAll(want, "\n", "\r\n")},
+		// Without the placeholder, the token is appended
+		"absent": {"FW_CLOUD_URL=https://cloud.example.edu\n", "FW_CLOUD_URL=https://cloud.example.edu\nFW_PROJECT_TOKEN=fw_tok\n"},
+		// A placeholder without the hint is still filled in place
+		"bare": {"FW_CLOUD_URL=x\n#FW_PROJECT_TOKEN=\nB=2\n", "FW_CLOUD_URL=x\nFW_PROJECT_TOKEN=fw_tok\nB=2\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(c.in), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			added, err := LinkCloud(dir, "fw_tok", "https://cloud.example.edu")
+			if err != nil || len(added) != 1 || added[0] != "FW_PROJECT_TOKEN" {
+				t.Fatalf("added %v, %v", added, err)
+			}
+			got, _ := os.ReadFile(filepath.Join(dir, ".env"))
+			if string(got) != c.want {
+				t.Errorf(".env:\n%q\nwant\n%q", got, c.want)
+			}
+		})
 	}
 }
 

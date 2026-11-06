@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -45,12 +46,41 @@ func newRootCmd(a *app) *cobra.Command {
 			"with Framework projects. The R and Python packages never need it.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       versionText(),
 	}
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(
 		newLoginCmd(a), newLogoutCmd(a), newStatusCmd(a), newNewCmd(a), newProjectsCmd(a), newProjectCmd(a),
 		newBlueprintsCmd(a), newPiecesCmd(a, structuresKind), newPiecesCmd(a, toolsKind),
 		newPiecesCmd(a, packageSetsKind), newPiecesCmd(a, skillsKind), newPublishCmd(a), newAdoptCmd(a), newConfigCmd(a), newDoctorCmd(a), newVersionCmd(),
 	)
+	root.SetHelpCommand(&cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		Long:  "Shows help for any command, as in: fw help publish",
+		ValidArgsFunction: func(_ *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			target, _, err := root.Find(args)
+			if err != nil {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			var names []cobra.Completion
+			for _, sub := range target.Commands() {
+				if sub.IsAvailableCommand() && strings.HasPrefix(sub.Name(), toComplete) {
+					names = append(names, cobra.CompletionWithDesc(sub.Name(), sub.Short))
+				}
+			}
+			return names, cobra.ShellCompDirectiveNoFileComp
+		},
+		RunE: func(_ *cobra.Command, args []string) error {
+			target, rest, err := root.Find(args)
+			if err != nil || len(rest) > 0 {
+				return usageError(fmt.Sprintf("unknown help topic %q. Run fw help to list the commands", strings.Join(args, " ")))
+			}
+			return target.Help()
+		},
+	})
+	// Add cobra's completion command now, so markUsage sees it.
+	root.InitDefaultCompletionCmd()
 	markUsage(root)
 	return root
 }

@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "c8bb65019fdad5eada84453e1ba88b1a35ddb113",
-  "commit": "c8bb65019fdad5eada84453e1ba88b1a35ddb113",
+  "ref": "6755b53da142a6deedada08f449c9ad5b7e6aa9a",
+  "commit": "6755b53da142a6deedada08f449c9ad5b7e6aa9a",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
@@ -9,19 +9,19 @@
     },
     "internal/spec/schema/docs-reference.v1.json": {
       "source": "inst/schema/docs-reference.v1.json",
-      "sha256": "e115abd1d68a5f15d46c5794f05f880623e9286197ffda6a4c1fe8dcb9309f5f"
+      "sha256": "fbf9d71cf95e563c2d96cf4085e53e0a24e5ab5ab98ac204a21aa3dfd21e7f6a"
     },
     "internal/spec/schema/layer.v1.json": {
       "source": "inst/schema/layer.v1.json",
-      "sha256": "74c6e41efd3b064adedfc774ecb3d9534bbd197906039659436d68d894e3cb8b"
+      "sha256": "40c6878cb147a9c3fd9c980f8fa88fe4cbcc55a2255a7c3b1be401de45336402"
     },
     "internal/spec/schema/layers.v1.json": {
       "source": "inst/schema/layers.v1.json",
-      "sha256": "8d7839d5602012459997d5a5e3df65ae5942ca7cd50ae9ad09a821f95dc800b9"
+      "sha256": "aa3df242985189da4f1bf889e06ebb61d4c0f3383920ce3cf329058695d1907d"
     },
     "internal/spec/schema/spec.v1.json": {
       "source": "inst/schema/spec.v1.json",
-      "sha256": "5323ccd0d20e1a3e1bd7e5af0c46565a02b5bfc7678642ff64f6f3448bd33bec"
+      "sha256": "767fddb1071e0ce2cd88eb0d9999921c5009ff97ef51193f079224648df56536"
     },
     "internal/spec/testdata/conformance/README.md": {
       "source": "inst/conformance/README.md",

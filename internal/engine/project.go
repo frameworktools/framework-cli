@@ -31,27 +31,7 @@ func exists(root, rel string) bool {
 // specs.
 func (f Finder) Detect(root string) Project {
 	p := Project{Root: root}
-	if data, err := os.ReadFile(filepath.Join(root, ".framework", "spec.json")); err == nil {
-		var doc struct {
-			Language string `json:"language"`
-		}
-		if json.Unmarshal(data, &doc) == nil {
-			p.Language, p.LanguageSource = doc.Language, ".framework/spec.json"
-			if p.Language == "" {
-				p.Language, p.LanguageSource = "r", ".framework/spec.json (no language means r)"
-			}
-		}
-	}
-	if p.Language == "" {
-		switch {
-		case exists(root, "master.do") && exists(root, "settings.do"):
-			p.Language, p.LanguageSource = "stata", "master.do and settings.do"
-		case exists(root, "pyproject.toml"):
-			p.Language, p.LanguageSource = "python", "pyproject.toml"
-		case exists(root, "settings.yml") || exists(root, "renv.lock"):
-			p.Language, p.LanguageSource = "r", "settings.yml"
-		}
-	}
+	p.Language, p.LanguageSource = DetectLanguage(root)
 
 	switch p.Language {
 	case "r":
@@ -62,8 +42,10 @@ func (f Finder) Detect(root string) Project {
 		}
 		p.Runner = []string{rscript}
 		switch {
-		case exists(root, "renv.lock"):
+		case exists(root, "renv.lock") && exists(root, ".Rprofile"):
 			p.Reason = "Rscript from the project folder; .Rprofile activates renv, so renv.lock's versions apply"
+		case exists(root, "renv.lock"):
+			p.Reason = "Rscript from the project folder, with your R library. renv.lock is there, but no .Rprofile activates renv"
 		case exists(root, ".Rprofile"):
 			p.Reason = "Rscript from the project folder, which runs its .Rprofile"
 		default:
@@ -90,14 +72,53 @@ func (f Finder) Detect(root string) Project {
 			}
 		}
 	case "stata":
-		p.Reason = "fw does not run Stata. Open Stata in the project folder and run: do master.do"
+		p.Reason = "fw does not run Stata. Open Stata in the project folder and run: do " + stataEntry(root)
 	}
 	return p
 }
 
+// stataEntry is the do-file to run first: master.do, or settings.do in an
+// adopted project, which has no master.do.
+func stataEntry(root string) string {
+	if exists(root, "master.do") || !exists(root, "settings.do") {
+		return "master.do"
+	}
+	return "settings.do"
+}
+
+// DetectLanguage returns the project's language and where it came from:
+// .framework/spec.json, or the files present for projects made before
+// specs. It returns "" when it cannot tell.
+func DetectLanguage(root string) (language, source string) {
+	if data, err := os.ReadFile(filepath.Join(root, ".framework", "spec.json")); err == nil {
+		var doc struct {
+			Language string `json:"language"`
+		}
+		if json.Unmarshal(data, &doc) == nil {
+			if doc.Language == "" {
+				return "r", ".framework/spec.json (no language means r)"
+			}
+			return doc.Language, ".framework/spec.json"
+		}
+	}
+	switch {
+	case exists(root, "master.do") && exists(root, "settings.do"):
+		return "stata", "master.do and settings.do"
+	case exists(root, "pyproject.toml"):
+		return "python", "pyproject.toml"
+	case exists(root, "settings.yml") || exists(root, "renv.lock"):
+		return "r", "settings.yml"
+	}
+	return "", ""
+}
+
 // UnavailableError means the project's language package has no bootstrap
-// yet, or fw cannot run the language at all.
-type UnavailableError struct{ Msg string }
+// yet, or fw cannot run the language at all. NotNeeded means the project
+// needs no bootstrap, which is not a failure.
+type UnavailableError struct {
+	Msg       string
+	NotNeeded bool
+}
 
 func (e *UnavailableError) Error() string { return e.Msg }
 
@@ -106,13 +127,13 @@ func (e *UnavailableError) Error() string { return e.Msg }
 // environment from its root.
 func (f Finder) Bootstrap(p Project) (Command, error) {
 	if p.Language == "stata" {
-		return Command{}, &UnavailableError{"Stata projects need no bootstrap. Open Stata in the project folder and run: do master.do. settings.do creates the folders git does not keep."}
+		return Command{}, &UnavailableError{Msg: "Stata projects need no bootstrap. Open Stata in the project folder and run: do " + stataEntry(p.Root) + ". settings.do creates the folders git does not keep.", NotNeeded: true}
 	}
 	if p.Language == "" {
-		return Command{}, &UnavailableError{"fw cannot tell this project's language (no .framework/spec.json, settings.yml, or pyproject.toml)"}
+		return Command{}, &UnavailableError{Msg: "fw cannot tell this project's language (no .framework/spec.json, settings.yml, or pyproject.toml)"}
 	}
 	if len(p.Runner) == 0 {
-		return Command{}, &UnavailableError{"cannot run this " + p.Language + " project: " + p.Reason}
+		return Command{}, &UnavailableError{Msg: "cannot run this " + p.Language + " project: " + p.Reason}
 	}
 	run := func(args ...string) Command {
 		return Command{Program: p.Runner[0], Args: append(append([]string{}, p.Runner[1:]...), args...), Dir: p.Root}
@@ -126,11 +147,11 @@ func (f Finder) Bootstrap(p Project) (Command, error) {
 		probe = run("-m", "framework", "bootstrap", "--help")
 		cmd = run("-m", "framework", "bootstrap")
 	default:
-		return Command{}, &UnavailableError{"unknown language " + p.Language}
+		return Command{}, &UnavailableError{Msg: "unknown language " + p.Language}
 	}
 	if !f.Probe(probe) {
 		pkg := map[string]string{"r": "framework R package", "python": "framework-py package"}[p.Language]
-		return Command{}, &UnavailableError{"fw could not find bootstrap in this project's environment. Either the environment could not be set up, or the " + pkg + " there has no bootstrap yet. To see which, run: " + probe.String()}
+		return Command{}, &UnavailableError{Msg: "fw could not find bootstrap in this project's environment. Either the environment could not be set up, or the " + pkg + " there has no bootstrap yet. To see which, run: " + probe.String()}
 	}
 	return cmd, nil
 }

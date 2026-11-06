@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,5 +103,29 @@ func TestCreateStructure(t *testing.T) {
 	want := `{"directories":{"inputs_raw":"data/raw"},"extra_directories":{"codebooks":{"label":"codebooks","path":"docs/codebooks"}},"name":"Survey layout"}`
 	if data, _ := json.Marshal(body); string(data) != want {
 		t.Errorf("body %s", data)
+	}
+}
+
+// The server's /api/v2/skills ignores ?language=, so fw filters too.
+func TestPiecesFilterByLanguage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"skills":[{"key":"stata-only","language":["stata"]},{"key":"r-py","language":["r","python"]},{"key":"any"},{"key":"one","language":"r"}]}`))
+	}))
+	defer srv.Close()
+	keys := func(lang string) string {
+		pieces, err := NewClient(srv.URL, "t").Pieces(context.Background(), "skills", "skills", lang)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, p := range pieces {
+			out = append(out, p.Key)
+		}
+		return strings.Join(out, ",")
+	}
+	for lang, want := range map[string]string{"": "stata-only,r-py,any,one", "python": "r-py,any", "stata": "stata-only,any", "r": "r-py,any,one"} {
+		if got := keys(lang); got != want {
+			t.Errorf("--lang %q: got %s, want %s", lang, got, want)
+		}
 	}
 }

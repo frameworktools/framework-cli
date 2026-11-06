@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
 )
 
 // Piece is one entry of the lists of blueprint pieces: project structures,
@@ -47,7 +48,9 @@ func (l *Languages) UnmarshalJSON(data []byte) error {
 
 // Pieces lists one kind of piece, such as "structures" or "package-sets".
 // field is the response's key, such as "package_sets". language filters
-// when it is not empty.
+// when it is not empty. Some servers ignore ?language= for some kinds, so
+// fw also drops pieces that name other languages only. A piece that names
+// no language works with all of them.
 func (c *Client) Pieces(ctx context.Context, path, field, language string) ([]Piece, error) {
 	p := "/api/v2/" + path
 	if language != "" {
@@ -64,6 +67,9 @@ func (c *Client) Pieces(ctx context.Context, path, field, language string) ([]Pi
 			return nil, err
 		}
 		piece.Raw = raw
+		if language != "" && len(piece.Language) > 0 && !slices.Contains(piece.Language, language) {
+			continue
+		}
 		pieces = append(pieces, piece)
 	}
 	return pieces, nil

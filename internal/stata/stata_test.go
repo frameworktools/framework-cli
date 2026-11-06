@@ -326,3 +326,48 @@ func TestWorkflows(t *testing.T) {
 		}
 	}
 }
+
+func TestPublishingSettingsFromLayers(t *testing.T) {
+	doc := `{"spec_version":1,"name":"Published Study","layers":[{"kind":"settings","layer":{"language":"stata","publish":{"default":"pages","destinations":{"pages":{"driver":"github"}}},"git":{"use_git":false},"ai":{"enabled":false}}}]}`
+	dir, _ := scaffold(t, doc, true)
+	settings := read(t, dir, "settings.yml")
+	if !strings.Contains(settings, "publish:") || !strings.Contains(settings, "default: pages") || !strings.Contains(settings, "driver: github") {
+		t.Fatal(settings)
+	}
+	recorded := read(t, dir, ".framework/spec.json")
+	var specDoc map[string]any
+	if e := json.Unmarshal([]byte(recorded), &specDoc); e != nil {
+		t.Fatal(e)
+	}
+	if specDoc["publish"] == nil {
+		t.Fatal("publishing settings lost from resolved spec")
+	}
+}
+
+// GIT_AUTHOR_* and GIT_COMMITTER_* give git an identity without user.name.
+func TestScaffoldGitIdentityFromEnvironment(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	_ = os.WriteFile(cfg, []byte("[init]\n\tdefaultBranch = main\n"), 0o644)
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	doc := `{"spec_version":1,"name":"G","layers":[{"kind":"project","layer":{"language":"stata"}}]}`
+	for name, env := range map[string]map[string]string{
+		"set":     {"GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.edu", "GIT_COMMITTER_NAME": "Ada", "GIT_COMMITTER_EMAIL": "ada@example.edu"},
+		"partial": {"GIT_AUTHOR_NAME": "Ada", "GIT_AUTHOR_EMAIL": "ada@example.edu", "GIT_COMMITTER_NAME": "", "GIT_COMMITTER_EMAIL": ""},
+	} {
+		for k, v := range env {
+			t.Setenv(k, v)
+		}
+		dir, res := scaffold(t, doc, false)
+		cmd := exec.Command("git", "rev-parse", "HEAD")
+		cmd.Dir = dir
+		committed := cmd.Run() == nil
+		skipped := strings.Contains(strings.Join(res.Notes, " "), "without a first commit")
+		if committed != (name == "set") || skipped == committed {
+			t.Errorf("%s: committed %v, notes %v", name, committed, res.Notes)
+		}
+	}
+}

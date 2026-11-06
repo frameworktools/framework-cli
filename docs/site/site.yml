@@ -5,7 +5,7 @@ repository: https://github.com/frameworktools/framework-cli
 install: brew install frameworktools/tap/fw
 sections:
   - id: getting_started
-    title: Getting Started
+    title: Getting started
   - id: guides
     title: Guides
   - id: reference

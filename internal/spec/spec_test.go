@@ -54,3 +54,33 @@ func TestMarshalRoundTrip(t *testing.T) {
 		t.Errorf("lost data:\n%s", out)
 	}
 }
+
+func TestPublishingLayerSchema(t *testing.T) {
+	valid := `{"spec_version":1,"name":"A","layers":[{"kind":"settings","layer":{"publish":{"default":"pages","destinations":{"pages":{"driver":"github"},"lab":{"driver":"folder","path":"/Volumes/lab"}}}}}]}`
+	env, e := Parse([]byte(valid))
+	if e != nil {
+		t.Fatal(e)
+	}
+	out, e := env.Marshal()
+	if e != nil || !strings.Contains(string(out), `"publish"`) {
+		t.Fatal(e, string(out))
+	}
+	for _, bad := range []string{strings.Replace(valid, `"driver":"github"`, `"driver":"ftp"`, 1), strings.Replace(valid, `"default":"pages"`, `"default":42`, 1)} {
+		if _, e := Parse([]byte(bad)); e == nil {
+			t.Fatal("invalid publishing configuration accepted", bad)
+		}
+	}
+}
+
+func TestPublishingLayersRejectStoredSecrets(t *testing.T) {
+	for _, options := range []string{`"secret_key":"literal"`, `"credentials":{"token":"literal"}`, `"endpoint":"https://user:password@example.org"`} {
+		doc := `{"spec_version":1,"name":"A","layers":[{"kind":"settings","layer":{"publish":{"destinations":{"bucket":{"driver":"s3",` + options + `}}}}}]}`
+		if _, e := Parse([]byte(doc)); e == nil {
+			t.Fatal("saved secret accepted", options)
+		}
+	}
+	doc := `{"spec_version":1,"name":"A","layers":[{"kind":"settings","layer":{"publish":{"destinations":{"bucket":{"driver":"s3","secret_key":"env(\"BUCKET_SECRET\")"}}}}}]}`
+	if _, e := Parse([]byte(doc)); e != nil {
+		t.Fatal(e)
+	}
+}

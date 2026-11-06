@@ -118,6 +118,42 @@ func (t Tokens) removeLegacyFile(url string) {
 	}
 }
 
+// Stored returns the distinct tokens Remove would delete for url, so logout
+// can revoke them first. FW_CLOUD_TOKEN and R's token files are not
+// included, because Remove leaves them alone.
+func (t Tokens) Stored(url string) []string {
+	var tokens []string
+	add := func(token string) {
+		if token == "" {
+			return
+		}
+		for _, have := range tokens {
+			if have == token {
+				return
+			}
+		}
+		tokens = append(tokens, token)
+	}
+	if override := t.Getenv("FW_TOKEN_FILE"); override != "" {
+		add(readTokenFile(config.ExpandHome(override, t.Home)))
+		return tokens
+	}
+	services := []string{KeyringService(url)}
+	if IsDefault(url) {
+		services = append(services, LegacyKeyringService)
+	}
+	for _, service := range services {
+		if token, err := t.Keyring.Get(service, keyringAccount); err == nil {
+			add(token)
+		}
+	}
+	add(readTokenFile(filepath.Join(t.Dirs.FW, TokenFileName(url))))
+	if IsDefault(url) {
+		add(readTokenFile(t.legacyFile()))
+	}
+	return tokens
+}
+
 // Removal is what Remove deleted, and token files it left alone.
 type Removal struct {
 	Removed []string

@@ -25,7 +25,9 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Link this project to Framework Cloud",
 		Long: "Adds FW_PROJECT_TOKEN and FW_CLOUD_URL to the project's .env, so the R and\n" +
 			"Python packages can publish to the server the project came from. Values\n" +
-			"already in .env are kept.\n\n" +
+			"already in .env are kept. A project that already has FW_PROJECT_TOKEN is\n" +
+			"linked: fw changes nothing and gets no new token. To link it to another\n" +
+			"project, remove FW_PROJECT_TOKEN and FW_CLOUD_URL from .env first.\n\n" +
 			"--from SLUG uses your login to get a new project token for one of your\n" +
 			"projects. --pull-token takes a project token from the project's page; fw\n" +
 			"asks for it, or reads it from stdin.",
@@ -35,6 +37,15 @@ func newProjectCmd(a *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := a.requireProject()
 			if err != nil {
+				return err
+			}
+			if from == "" && !pullToken {
+				return usageError("give --from SLUG or --pull-token")
+			}
+			// Check before minting a token that would never be written.
+			if err := a.checkNotLinked(cmd, root, from); errors.Is(err, errAlreadyLinked) {
+				return nil
+			} else if err != nil {
 				return err
 			}
 			var l cloudLink
@@ -76,6 +87,33 @@ func newProjectCmd(a *app) *cobra.Command {
 	return cmd
 }
 
+// checkNotLinked stops fw project link when .env already has a project
+// token. Linking again to the same project is not an error.
+func (a *app) checkNotLinked(cmd *cobra.Command, root, slug string) error {
+	token := project.EnvValue(root, "FW_PROJECT_TOKEN")
+	if token == "" {
+		return nil
+	}
+	current := ""
+	if server, err := a.server("", cloud.ProjectScope); err == nil {
+		if me, err := cloud.NewClient(server.URL, token).Me(cmd.Context()); err == nil && me.Kind == "project" {
+			current = me.Project
+		}
+	}
+	if current != "" && current == slug {
+		fmt.Fprintf(cmd.OutOrStdout(), "Already linked to %s. Nothing changed.\n", current)
+		return errAlreadyLinked
+	}
+	what := "another project"
+	if current != "" {
+		what = current
+	}
+	return fmt.Errorf("this project is already linked to %s: .env has FW_PROJECT_TOKEN. Nothing changed. To link it to a different project, remove FW_PROJECT_TOKEN and FW_CLOUD_URL from .env, then run fw project link again", what)
+}
+
+// errAlreadyLinked ends fw project link successfully without linking.
+var errAlreadyLinked = errors.New("already linked")
+
 func (a *app) requireProject() (string, error) {
 	root := a.projectRoot()
 	if root == "" {
@@ -108,8 +146,11 @@ type cloudState struct {
 
 func newProjectStatusCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "status",
-		Short:   "Show this project's language, runtime, and cloud link",
+		Use:   "status",
+		Short: "Show this project's language, runtime, and cloud link",
+		Long: "Shows the project's language, how fw runs its code, and its link to\n" +
+			"Framework Cloud. Exits with status 3 when the server rejects the project\n" +
+			"token, and 1 when fw cannot check it. A project with no link exits 0.",
 		Example: "  fw project status\n  fw project status --json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -125,19 +166,23 @@ func newProjectStatusCmd(a *app) *cobra.Command {
 			if res.Runner == nil {
 				res.Runner = []string{}
 			}
+			code := exitOK
 			if token := project.EnvValue(root, "FW_PROJECT_TOKEN"); token != "" {
 				res.Cloud.Linked = true
 				server, serr := a.server("", cloud.ProjectScope)
 				if serr != nil {
 					res.Cloud.Problem = serr.Error()
+					code = exitFailure
 				} else {
 					res.Cloud.Server, res.Cloud.ServerSource = server.URL, server.Source
 					me, err := cloud.NewClient(server.URL, token).Me(cmd.Context())
 					switch {
 					case err != nil:
 						res.Cloud.Problem = "checking the project token failed: " + err.Error()
+						code = exitCode(err)
 					case me.Kind != "project":
 						res.Cloud.Problem = "FW_PROJECT_TOKEN is not a project token"
+						code = exitAuth
 					default:
 						res.Cloud.OK, res.Cloud.Project = true, me.Project
 					}
@@ -146,8 +191,14 @@ func newProjectStatusCmd(a *app) *cobra.Command {
 			if project.EnvTracked(root) {
 				res.Warnings = append(res.Warnings, "git tracks .env. Run git rm --cached .env, add .env to .gitignore, and rotate any tokens in it.")
 			}
+			done := func(err error) error {
+				if err == nil && code != exitOK {
+					return &exitError{code: code, silent: true}
+				}
+				return err
+			}
 			if a.jsonOut {
-				return writeJSON(cmd.OutOrStdout(), res)
+				return done(writeJSON(cmd.OutOrStdout(), res))
 			}
 
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
@@ -177,7 +228,7 @@ func newProjectStatusCmd(a *app) *cobra.Command {
 			for _, warning := range res.Warnings {
 				fmt.Fprintf(w, "Warning\t%s\n", warning)
 			}
-			return w.Flush()
+			return done(w.Flush())
 		},
 	}
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
@@ -193,7 +244,8 @@ func newProjectBootstrapCmd(a *app) *cobra.Command {
 			"framework::bootstrap() for R and python -m framework bootstrap for Python.\n" +
 			"It restores packages, creates .env from .env.example, creates the folders\n" +
 			"git does not keep, and installs the git hooks. It never contacts the cloud.\n" +
-			"Stata projects need no bootstrap.",
+			"Stata projects need no bootstrap. When the runtime or its bootstrap is\n" +
+			"missing, fw says so and exits 1.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := a.requireProject()
@@ -202,7 +254,7 @@ func newProjectBootstrapCmd(a *app) *cobra.Command {
 			}
 			command, err := a.engines.Bootstrap(a.engines.Detect(root))
 			var unavailable *engine.UnavailableError
-			if errors.As(err, &unavailable) {
+			if errors.As(err, &unavailable) && unavailable.NotNeeded {
 				fmt.Fprintln(cmd.OutOrStdout(), unavailable.Msg)
 				return nil
 			}

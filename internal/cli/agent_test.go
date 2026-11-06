@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
+	"github.com/frameworktools/framework-cli/internal/skillsync"
 )
 
 func TestExitCode(t *testing.T) {
@@ -216,10 +217,21 @@ func linkedProject(t *testing.T, h *harness, url string) string {
 
 func linkedProjectAt(t *testing.T, h *harness, url, name string) string {
 	t.Helper()
-	if isPrivatePath(h.app.home) {
-		t.Skip("the temporary folder's path contains \"private\", so every upload would warn")
+	// t.TempDir() names the folder after the test, so a test named
+	// TestXPrivate would warn on every upload. Use a neutral folder then.
+	base := h.app.home
+	if isPrivatePath(base) {
+		dir, err := os.MkdirTemp("", "fwtest-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+		if isPrivatePath(dir) {
+			t.Skip("the temporary folder's path contains \"private\", so every upload would warn")
+		}
+		base = dir
 	}
-	root := filepath.Join(h.app.home, name)
+	root := filepath.Join(base, name)
 	write(t, root, "settings.yml", "default: {}\n")
 	write(t, root, ".env", "FW_PROJECT_TOKEN=proj-tok\nFW_CLOUD_URL="+url+"\n")
 	h.app.cwd = root
@@ -390,7 +402,7 @@ func TestPushSpec(t *testing.T) {
 	spec := `{"spec_version":1,"name":"Study","language":"r","security":{"sensitive":true},"env":{}}`
 	write(t, root, ".framework/spec.json", spec)
 	out, errOut, err := h.run(t, "", "project", "push-spec")
-	if err != nil || !strings.Contains(out, "spec version 1") || lastSpec != spec ||
+	if err != nil || !strings.Contains(out, "recorded the new spec") || strings.Contains(out, "version") || lastSpec != spec ||
 		!strings.Contains(errOut, "5 sections") || !strings.Contains(errOut, "sensitive project") {
 		t.Errorf("push-spec: %v\n%s\n%s\nsent %s", err, out, errOut, lastSpec)
 	}
@@ -425,7 +437,7 @@ func TestPushSpecPrivatePath(t *testing.T) {
 	root := linkedProjectAt(t, h, srv.URL, "PRIVATE-study")
 	write(t, root, ".framework/spec.json", `{"spec_version":1}`)
 	lastSpec = ""
-	if _, _, err := h.run(t, "", "project", "push-spec"); exitCode(err) != exitPrivate || lastSpec != "" {
+	if _, _, err := h.run(t, "", "project", "push-spec"); exitCode(err) != exitPrivate || lastSpec != "" || !strings.Contains(err.Error(), "PRIVATE-study") {
 		t.Errorf("private path without a terminal: exit %d %v", exitCode(err), err)
 	}
 	if _, _, err := h.run(t, "", "project", "push-spec", "--include-private"); err != nil || lastSpec == "" {
@@ -470,7 +482,7 @@ func TestPublishArtifactDetails(t *testing.T) {
 }
 
 func TestPublishCollection(t *testing.T) {
-	for _, mode := range []string{"success", "attach-failure", "missing", "public"} {
+	for _, mode := range []string{"success", "attach-failure", "missing", "public", "public-no-visibility", "public-private-readable"} {
 		t.Run(mode, func(t *testing.T) {
 			uploads := 0
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -478,7 +490,7 @@ func TestPublishCollection(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/v2/collections":
 					visibility := "unlisted"
-					if mode == "public" {
+					if strings.HasPrefix(mode, "public") {
 						visibility = "public"
 					}
 					if mode == "missing" {
@@ -512,10 +524,23 @@ func TestPublishCollection(t *testing.T) {
 			h := newHarness(t, nil)
 			root := linkedProject(t, h, srv.URL)
 			write(t, root, "figure.png", "png")
-			out, errOut, err := h.run(t, "", "publish", "figure.png", "--yes", "--json", "--collection", "findings", "--share-unlisted", "--visibility", "unlisted")
-			if mode == "missing" || mode == "public" {
+			args := []string{"publish", "figure.png", "--yes", "--json", "--collection", "findings", "--share-unlisted", "--visibility", "unlisted"}
+			if mode == "public-no-visibility" {
+				// No --visibility: refused before uploading, not after.
+				args = args[:len(args)-2]
+			}
+			if mode == "public-private-readable" {
+				// Audit 2026-11-05: an explicit --visibility wins over --readable,
+				// as on the server, so a private artifact is refused before upload.
+				args = append(args[:len(args)-2], "--visibility", "private", "--readable")
+			}
+			out, errOut, err := h.run(t, "", args...)
+			if mode == "missing" || strings.HasPrefix(mode, "public") {
 				if err == nil || uploads != 0 {
 					t.Fatalf("preflight: %v uploads=%d", err, uploads)
+				}
+				if strings.HasPrefix(mode, "public") && !strings.Contains(err.Error(), "--visibility public") {
+					t.Errorf("public collection: %v", err)
 				}
 				return
 			}
@@ -554,6 +579,103 @@ func TestPublishClearsFieldsAndNamesFolders(t *testing.T) {
 		}
 		if lastUpload["slug"] != name {
 			t.Errorf("folder slug = %q, want %q", lastUpload["slug"], name)
+		}
+	}
+}
+
+func TestBlueprintsListLanguages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"blueprints":[{"key":"framework/project","name":"Project","language":"r","languages":["r","python","stata"],"type":"project","version":3},{"key":"me/py","name":"Py","language":"python","type":"project","version":1}]}`)
+	}))
+	defer srv.Close()
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
+	out, _, err := h.run(t, "", "blueprints", "list")
+	if err != nil || !strings.Contains(out, "LANGUAGES") || !strings.Contains(out, "r, python, stata") {
+		t.Errorf("text: %v\n%s", err, out)
+	}
+	out, _, err = h.run(t, "", "blueprints", "list", "--lang", "stata")
+	if err != nil || !strings.Contains(out, "framework/project") || strings.Contains(out, "me/py") {
+		t.Errorf("--lang stata: %v\n%s", err, out)
+	}
+	if _, _, err := h.run(t, "", "blueprints", "list", "--lang", "julia"); exitCode(err) != exitUsage {
+		t.Errorf("--lang julia: %v", err)
+	}
+}
+
+// A server without browser login, and no terminal: name --with-token
+// instead of trying to read a hidden token from a pipe.
+func TestLoginWithoutDeviceFlowOrTerminal(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	h := newHarness(t, nil)
+	h.app.readSecret = func() (string, error) {
+		t.Error("read a hidden token without a terminal")
+		return "", errors.New("operation not supported by device")
+	}
+	_, _, err := h.run(t, "", "login", "--url", srv.URL, "--yes")
+	if exitCode(err) != exitUsage || !strings.Contains(err.Error(), "fw login --with-token --yes") || !strings.Contains(err.Error(), "/tokens") {
+		t.Errorf("got exit %d: %v", exitCode(err), err)
+	}
+	_, _, err = h.run(t, "", "login", "--url", srv.URL, "--yes", "--with-token", "--paste")
+	if exitCode(err) != exitUsage || !strings.Contains(err.Error(), "Use one") {
+		t.Errorf("both token flags: %v", err)
+	}
+	if _, errOut, err := h.run(t, "", "login", "--yes", "--url", "https://exa mple.org"); err == nil || !strings.Contains(err.Error(), "space") || strings.Contains(errOut, "Logging in connects") {
+		t.Errorf("URL with a space: %v\n%s", err, errOut)
+	}
+}
+
+func TestSkillSyncPathsAndOutput(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "scripts")
+	for in, want := range map[string]string{"skills/x": "scripts/skills/x", "../skills/x/": "skills/x", "./../skills/./x": "skills/x", filepath.Join(root, "skills", "x"): "skills/x"} {
+		got, err := skillPath(root, sub, in)
+		if err != nil || got != want {
+			t.Errorf("skillPath(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"../..", "..", "../../elsewhere"} {
+		if _, err := skillPath(root, sub, in); exitCode(err) != exitUsage {
+			t.Errorf("skillPath(%q): %v", in, err)
+		}
+	}
+	for _, c := range []struct {
+		r    skillsync.Result
+		want string
+	}{
+		{skillsync.Result{Action: "push"}, "push: skills/x (new on Framework Cloud)"},
+		{skillsync.Result{Action: "conflict", ID: "me:x", Version: 4}, "conflict: skills/x (me:x, version 4)"},
+		{skillsync.Result{Action: "missing"}, "missing: skills/x"},
+	} {
+		if got := skillResultText(c.r, "skills/x"); got != c.want {
+			t.Errorf("got %q, want %q", got, c.want)
+		}
+	}
+
+	// The variant follows the project's language, and bad flags are usage errors.
+	var variant string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		variant = r.URL.Query().Get("variant")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"skill_id":"me:x","version":2,"hash":"bad","bundle":[]}`)
+	}))
+	defer srv.Close()
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
+	proj := filepath.Join(h.app.home, "study")
+	write(t, proj, ".framework/spec.json", `{"language":"stata"}`)
+	write(t, proj, "skills/x/SKILL.md", "---\nname: x\n---\n")
+	h.app.cwd = filepath.Join(proj, "skills")
+	_, _, _ = h.run(t, "", "skills", "sync", "x/", "--id", "me:x", "--dry-run")
+	if variant != "stata" {
+		t.Errorf("variant %q in a Stata project", variant)
+	}
+	if _, err := os.Stat(filepath.Join(proj, ".framework", "skills.sync.lock")); !os.IsNotExist(err) {
+		t.Error("dry run left a lock")
+	}
+	for _, args := range [][]string{{"--direction", "sideways"}, {"--variant", "julia"}, {"--resolve", "both"}} {
+		if _, _, err := h.run(t, "", append([]string{"skills", "sync", "x"}, args...)...); exitCode(err) != exitUsage {
+			t.Errorf("%v: %v", args, err)
 		}
 	}
 }

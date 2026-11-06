@@ -401,12 +401,12 @@ The shared contract is in framework-cloud's
   Logged out, or with `--type`, fw uses its built-ins without asking.
 - R and Python run the same policy inside their own `new()`. fw will pass
   the choices and `--offline` through to them once released versions accept
-  those arguments. framework-py 0.1.0.dev4 does: fw passes `--offline` and
+  those arguments. framework-py 0.1.0.dev6 does: fw passes `--offline` and
   `--workflow` to `python -m framework create`, runs `python -m framework
-  adopt` for `fw adopt`, and asks uv for `framework-py>=0.1.0.dev4`. R's arrive in
-  framework 2.0.0 (`workflow`, `offline`, and the choices), so fw checks
-  `packageVersion("framework") >= "2.0.0"` first. framework-py will name its
-  minimum version when it ships them.
+  adopt` for `fw adopt`, and asks uv for `framework-py>=0.1.0.dev6`. The R
+  package's `new()` takes `workflow` and `offline` too. fw checks that the
+  installed package's `new_project()` has those arguments, and that `adopt()`
+  exists, rather than comparing version numbers.
 
 ### Adopt and structure import
 
@@ -417,8 +417,9 @@ The shared contract is in framework-cloud's
   renv.lock, DESCRIPTION, or .Rproj); `--lang` overrides it. For Stata it
   writes `settings.do` and `.framework/spec.json` (a bare spec with exactly
   the mapped folders, no AI, no git) and refuses when the folder is already a
-  project. It stays local. R and Python will be handed to `adopt()` once
-  framework 2.0.0 and framework-py release it.
+  project. It stays local. R and Python are handed to their package's
+  `adopt()`. For R, fw shows the proposal and passes `yes = TRUE`, because
+  R reviews a mapping only in an interactive R session.
 - `fw structures import` (alias `fw structure import`) posts `{name,
   description?, directories, extra_directories?}` to `POST
   /api/v2/structures` and gets 201 `{key, name, url}`; the structure is

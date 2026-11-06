@@ -150,6 +150,9 @@ func TestNewZipDownloadsTheBuiltProject(t *testing.T) {
 	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "created-tok" || project.EnvValue(dir, "FW_CLOUD_URL") != srv.URL {
 		t.Error("the downloaded project was not linked")
 	}
+	if env, _ := os.ReadFile(filepath.Join(dir, ".env")); string(env) != "FW_CLOUD_URL="+srv.URL+"\nFW_PROJECT_TOKEN=created-tok\n" {
+		t.Errorf("the placeholder was not replaced in place: %q", env)
+	}
 	if !strings.Contains(out, "Downloaded Survey into") || !strings.Contains(out, "Positron") {
 		t.Errorf("output: %s", out)
 	}
@@ -314,5 +317,21 @@ func TestUnzipProjectRefusesUnsafePaths(t *testing.T) {
 	}
 	if err := unzipProject([]byte("not a zip"), filepath.Join(dir, "out2")); err == nil {
 		t.Error("extracted garbage")
+	}
+}
+
+// A server without downloads: --zip stops before creating a project that
+// would be left behind.
+func TestNewZipChecksDownloadsFirst(t *testing.T) {
+	for name, destinations := range map[string]string{
+		"off":          `{"download":{"available":false},"github":{"available":false}}`,
+		"older server": "",
+	} {
+		srv := newDestCloud(t, destinations)
+		h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
+		_, _, err := h.run(t, "", "new", "Survey", "--zip")
+		if err == nil || !strings.Contains(err.Error(), "fw created nothing") || len(srv.created) != 0 {
+			t.Errorf("%s: %v; created %d", name, err, len(srv.created))
+		}
 	}
 }

@@ -105,3 +105,35 @@ func TestAdoptPython(t *testing.T) {
 		t.Errorf("got %s %v", cmd, err)
 	}
 }
+
+func TestRCapabilityChecks(t *testing.T) {
+	// FW_RSCRIPT naming a missing program is named as such.
+	var missing *MissingError
+	_, err := finder(nil, true, map[string]string{"FW_RSCRIPT": "/no/Rscript"}).Create("r", Request{Name: "s", Dir: "/w"})
+	if !errors.As(err, &missing) || !strings.Contains(err.Error(), "FW_RSCRIPT is set to /no/Rscript") {
+		t.Errorf("FW_RSCRIPT missing: %v", err)
+	}
+
+	// Installed but lacking the capability: update it, not install it.
+	f := finder(map[string]string{"Rscript": "Rscript"}, true, nil)
+	f.Probe = func(c Command) bool { return !strings.Contains(c.Args[1], "offline") }
+	_, err = f.Create("r", Request{Name: "s", Dir: "/w", Offline: true})
+	if !errors.As(err, &missing) || !strings.Contains(err.Error(), "does not take --offline or --workflow. Update it") {
+		t.Errorf("old package: %v", err)
+	}
+	// The check asks about functions and arguments, not a version number.
+	var probes []string
+	f.Probe = func(c Command) bool { probes = append(probes, c.Args[1]); return true }
+	cmd, err := f.Create("r", Request{Name: "s", Dir: "/w", Workflow: "scripts"})
+	if err != nil || strings.Contains(strings.Join(probes, " "), "packageVersion") || !strings.Contains(probes[0], `names(formals(get("new_project"`) {
+		t.Errorf("probe %q: %v", probes, err)
+	}
+	if got := strings.Join(cmd.Args[len(cmd.Args)-2:], " "); got != "scripts FALSE" {
+		t.Errorf("args %q", cmd.Args)
+	}
+
+	cmd, err = f.AdoptR("/w/old")
+	if err != nil || !strings.Contains(cmd.Args[1], "framework::adopt(a[1], yes = TRUE)") || cmd.Args[2] != "/w/old" || !strings.Contains(probes[len(probes)-1], `"adopt"`) {
+		t.Errorf("adopt: %v %v", cmd, err)
+	}
+}
