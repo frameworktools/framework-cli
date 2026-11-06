@@ -83,7 +83,7 @@ func TestPollDeviceStops(t *testing.T) {
 func TestCreateStructure(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/v2/structures" {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/structures" {
 			t.Errorf("%s %s", r.Method, r.URL.Path)
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -106,7 +106,7 @@ func TestCreateStructure(t *testing.T) {
 	}
 }
 
-// The server's /api/v2/skills ignores ?language=, so fw filters too.
+// The server's /api/v1/skills ignores ?language=, so fw filters too.
 func TestPiecesFilterByLanguage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"skills":[{"key":"stata-only","language":["stata"]},{"key":"r-py","language":["r","python"]},{"key":"any"},{"key":"one","language":"r"}]}`))

@@ -61,7 +61,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		_, _ = w.Write([]byte(`{"token":"user-tok","url":"x"}`))
 	})
 	layers := `{"spec_version":1,"name":"Vaccine Study","layers":[{"kind":"base","key":"project","layer":{"type":"project"}},{"kind":"project","key":"vaccine-study","layer":{"language":"r"}}]}`
-	mux.HandleFunc("GET /api/v2/projects/{slug}/layers", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/projects/{slug}/layers", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -77,7 +77,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		}
 		_, _ = w.Write([]byte(body)) // #nosec G705 -- fixed test bodies
 	})
-	mux.HandleFunc("POST /api/v2/projects/{slug}/pull-tokens", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/v1/projects/{slug}/pull-tokens", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -86,7 +86,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"token":"minted-tok","url":"https://issuer.example.edu"}`))
 	})
-	mux.HandleFunc("GET /api/v2/projects/pull", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/projects/pull", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "proj-tok" {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message":"This endpoint requires a project token."}`))
@@ -94,7 +94,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		}
 		_, _ = w.Write([]byte(strings.Replace(layers, `"language":"r"`, `"language":"python"`, 1)))
 	})
-	mux.HandleFunc("GET /api/v2/projects/{slug}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/projects/{slug}", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"message":"This needs a user token."}`))
@@ -122,7 +122,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		"skill-sets":   `{"skill_sets":[{"key":"framework/ggplot2","name":"ggplot2","language":"r","skills":["ggplot2-exploring"],"packages":["ggplot2"],"version":1}]}`,
 		"skills":       `{"skills":[{"key":"framework/ggplot2-exploring","name":"Exploring with ggplot2","version":3}]}`,
 	}
-	mux.HandleFunc("GET /api/v2/{kind}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/{kind}", func(w http.ResponseWriter, r *http.Request) {
 		body, ok := pieces[r.PathValue("kind")]
 		if !ok || auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusNotFound)
@@ -176,7 +176,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 			_, _ = w.Write(out)
 		}
 	}
-	mux.HandleFunc("POST /api/v2/structures", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/v1/structures", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -186,9 +186,9 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"key":"ada/old-study","name":"Old Study","url":"https://x/structures/ada/old-study"}`))
 	})
-	mux.HandleFunc("POST /api/v2/resolve", choicesHandler(false))
-	mux.HandleFunc("POST /api/v2/projects", choicesHandler(true))
-	mux.HandleFunc("GET /api/v2/blueprints", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/v1/resolve", choicesHandler(false))
+	mux.HandleFunc("POST /api/v1/projects", choicesHandler(true))
+	mux.HandleFunc("GET /api/v1/blueprints", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -224,7 +224,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"slug":"analysis","version":2,"url":"https://x/d/abc","private_url":"https://x/d/abc","readable_url":null,"version_url":"https://x/d/abc/v2","raw_url":"https://x/d/abc/raw","notice":null}`))
 	})
-	mux.HandleFunc("PUT /api/v2/project/spec", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PUT /api/v1/project/spec", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "proj-tok" {
 			w.WriteHeader(http.StatusForbidden)
 			return

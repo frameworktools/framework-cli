@@ -6,7 +6,7 @@ import (
 	"net/url"
 )
 
-// Destinations is GET /api/v2/destinations: the ways the server can hand
+// Destinations is GET /api/v1/destinations: the ways the server can hand
 // over a new project besides building it on this computer.
 type Destinations struct {
 	Download struct {
@@ -31,14 +31,14 @@ type Destinations struct {
 // from before downloads answer 404.
 func (c *Client) Destinations(ctx context.Context) (Destinations, error) {
 	var d Destinations
-	err := c.Do(ctx, http.MethodGet, "/api/v2/destinations", nil, &d)
+	err := c.Do(ctx, http.MethodGet, "/api/v1/destinations", nil, &d)
 	return d, err
 }
 
 // DownloadProject returns the project built by the server, as a zip whose
 // files sit under a folder named after the project's slug.
 func (c *Client) DownloadProject(ctx context.Context, slug string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+"/api/v2/projects/"+url.PathEscape(slug)+"/download", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+"/api/v1/projects/"+url.PathEscape(slug)+"/download", nil)
 	if err != nil {
 		return nil, err
 	}

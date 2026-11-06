@@ -19,7 +19,7 @@ import (
 )
 
 // destCloud is a server that offers downloads and GitHub, as
-// /api/v2/destinations describes them.
+// /api/v1/destinations describes them.
 type destCloud struct {
 	*httptest.Server
 	created  []map[string]any
@@ -31,19 +31,19 @@ func newDestCloud(t *testing.T, destinations string) *destCloud {
 	t.Helper()
 	c := &destCloud{statuses: []string{"pending", "running", "done"}}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v2/destinations", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/v1/destinations", func(w http.ResponseWriter, _ *http.Request) {
 		if destinations == "" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		_, _ = w.Write([]byte(destinations))
 	})
-	mux.HandleFunc("GET /api/v2/blueprints", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/v1/blueprints", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"blueprints":[
 			{"key":"framework/project","name":"Standard","description":"An analysis project","version":3,"languages":["r","python","stata"]},
 			{"key":"framework/course","name":"Course","version":1,"languages":["r","python"]}]}`))
 	})
-	mux.HandleFunc("POST /api/v2/projects", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/v1/projects", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		c.created = append(c.created, body)
@@ -58,7 +58,7 @@ func newDestCloud(t *testing.T, destinations string) *destCloud {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(resp)
 	})
-	mux.HandleFunc("GET /api/v2/projects/survey/download", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/v1/projects/survey/download", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/zip")
 		_, _ = w.Write(testZip(t, map[string]string{
 			"survey/":               "",
@@ -69,7 +69,7 @@ func newDestCloud(t *testing.T, destinations string) *destCloud {
 			"survey/scripts/run.sh": "#!/bin/sh\n",
 		}))
 	})
-	mux.HandleFunc("GET /api/v2/projects/survey", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/v1/projects/survey", func(w http.ResponseWriter, _ *http.Request) {
 		status := c.statuses[min(c.polls, len(c.statuses)-1)]
 		c.polls++
 		_ = json.NewEncoder(w).Encode(map[string]any{"slug": "survey", "name": "Survey", "github": map[string]any{

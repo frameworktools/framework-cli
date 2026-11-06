@@ -52,7 +52,7 @@ func (l *Languages) UnmarshalJSON(data []byte) error {
 // fw also drops pieces that name other languages only. A piece that names
 // no language works with all of them.
 func (c *Client) Pieces(ctx context.Context, path, field, language string) ([]Piece, error) {
-	p := "/api/v2/" + path
+	p := "/api/v1/" + path
 	if language != "" {
 		p += "?language=" + url.QueryEscape(language)
 	}
@@ -96,7 +96,7 @@ type Choices struct {
 	GitHub *NewRepository `json:"github,omitempty"`
 }
 
-// NewRepository is where POST /api/v2/projects scaffolds the project on
+// NewRepository is where POST /api/v1/projects scaffolds the project on
 // GitHub. An empty Name uses the project's slug.
 type NewRepository struct {
 	Owner   string `json:"owner"`
@@ -112,7 +112,7 @@ const DefaultsRevisionHeader = "Framework-Defaults-Revision"
 // text explaining what the server did, such as setting a default aside.
 const NoticeHeader = "Framework-Notice"
 
-// Resolution is the response of POST /api/v2/resolve.
+// Resolution is the response of POST /api/v1/resolve.
 type Resolution struct {
 	Layers   json.RawMessage
 	Revision string   // the defaults revision
@@ -126,7 +126,7 @@ func (c *Client) Resolve(ctx context.Context, choices Choices) (Resolution, erro
 	if err != nil {
 		return Resolution{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/v2/resolve", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/v1/resolve", bytes.NewReader(data))
 	if err != nil {
 		return Resolution{}, err
 	}
@@ -141,7 +141,7 @@ func (c *Client) Resolve(ctx context.Context, choices Choices) (Resolution, erro
 	return r, nil
 }
 
-// CreatedProject is the response of POST /api/v2/projects. Token is a
+// CreatedProject is the response of POST /api/v1/projects. Token is a
 // project token for linking the local project.
 type CreatedProject struct {
 	Slug     string `json:"slug"`
@@ -160,7 +160,7 @@ type CreatedProject struct {
 // website does.
 func (c *Client) CreateProject(ctx context.Context, choices Choices) (CreatedProject, error) {
 	var p CreatedProject
-	err := c.Do(ctx, http.MethodPost, "/api/v2/projects", choices, &p)
+	err := c.Do(ctx, http.MethodPost, "/api/v1/projects", choices, &p)
 	return p, err
 }
 
@@ -170,7 +170,7 @@ type ExtraDirectory struct {
 	Path  string `json:"path"`
 }
 
-// NewStructure is the body of POST /api/v2/structures: a project structure
+// NewStructure is the body of POST /api/v1/structures: a project structure
 // made from an existing project's folders.
 type NewStructure struct {
 	Name             string                    `json:"name"`
@@ -179,7 +179,7 @@ type NewStructure struct {
 	ExtraDirectories map[string]ExtraDirectory `json:"extra_directories,omitempty"`
 }
 
-// CreatedStructure is the response of POST /api/v2/structures. The
+// CreatedStructure is the response of POST /api/v1/structures. The
 // structure starts private.
 type CreatedStructure struct {
 	Key  string `json:"key"`
@@ -190,6 +190,6 @@ type CreatedStructure struct {
 // CreateStructure saves a project structure on Framework Cloud.
 func (c *Client) CreateStructure(ctx context.Context, s NewStructure) (CreatedStructure, error) {
 	var out CreatedStructure
-	err := c.Do(ctx, http.MethodPost, "/api/v2/structures", s, &out)
+	err := c.Do(ctx, http.MethodPost, "/api/v1/structures", s, &out)
 	return out, err
 }

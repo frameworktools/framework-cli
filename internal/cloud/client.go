@@ -223,14 +223,14 @@ func (c *Client) Projects(ctx context.Context) ([]Project, error) {
 // envelope (raw JSON, validated by the caller).
 func (c *Client) ProjectLayers(ctx context.Context, slug string) (json.RawMessage, error) {
 	var raw json.RawMessage
-	err := c.Do(ctx, http.MethodGet, "/api/v2/projects/"+url.PathEscape(slug)+"/layers", nil, &raw)
+	err := c.Do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(slug)+"/layers", nil, &raw)
 	return raw, err
 }
 
 // PullLayers fetches the layers of the project a project token belongs to.
 func (c *Client) PullLayers(ctx context.Context) (json.RawMessage, error) {
 	var raw json.RawMessage
-	err := c.Do(ctx, http.MethodGet, "/api/v2/projects/pull", nil, &raw)
+	err := c.Do(ctx, http.MethodGet, "/api/v1/projects/pull", nil, &raw)
 	return raw, err
 }
 
@@ -244,6 +244,6 @@ type PullToken struct {
 // creates a new token, which the user can revoke on the project page.
 func (c *Client) NewPullToken(ctx context.Context, slug, name string) (PullToken, error) {
 	var token PullToken
-	err := c.Do(ctx, http.MethodPost, "/api/v2/projects/"+url.PathEscape(slug)+"/pull-tokens", map[string]string{"name": name}, &token)
+	err := c.Do(ctx, http.MethodPost, "/api/v1/projects/"+url.PathEscape(slug)+"/pull-tokens", map[string]string{"name": name}, &token)
 	return token, err
 }

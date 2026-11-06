@@ -538,7 +538,7 @@ func (a *app) trackExternal(cmd *cobra.Command, b *pub.Bundle, r pub.Receipt, fl
 		payload["version_url"] = r.VersionURL
 	}
 	var out map[string]any
-	if err = client.Do(cmd.Context(), http.MethodPost, "/api/v2/projects/"+url.PathEscape(me.Project)+"/artifacts/external", payload, &out); err != nil {
+	if err = client.Do(cmd.Context(), http.MethodPost, "/api/v1/projects/"+url.PathEscape(me.Project)+"/artifacts/external", payload, &out); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: Published successfully, but cloud tracking failed: %v\n", err)
 	}
 }

@@ -73,7 +73,7 @@ func TestExternalTrackingMetadataOnly(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/me":
 			_, _ = w.Write([]byte(`{"project":"study"}`))
-		case "/api/v2/projects/study/artifacts/external":
+		case "/api/v1/projects/study/artifacts/external":
 			if r.Method != "POST" {
 				t.Error(r.Method)
 			}

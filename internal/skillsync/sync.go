@@ -599,9 +599,9 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 	hasRemote := false
 	route := ""
 	if id != "" {
-		route = "/api/v2/skills/sync/" + url.PathEscape(id) + "?variant=" + entry.Variant
+		route = "/api/v1/skills/sync/" + url.PathEscape(id) + "?variant=" + entry.Variant
 	} else if entry.Origin != nil {
-		route = "/api/v2/skills/sync/" + url.PathEscape(entry.Origin.ID) + "?variant=" + entry.Variant + "&hash=" + entry.Origin.Hash
+		route = "/api/v1/skills/sync/" + url.PathEscape(entry.Origin.ID) + "?variant=" + entry.Variant + "&hash=" + entry.Origin.Hash
 	}
 	if route != "" {
 		if err = client.Do(ctx, "GET", route, nil, &remote); err != nil {
@@ -675,7 +675,7 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 			identity = remote.ID
 		}
 		body := map[string]any{"request_id": entry.Pending.RequestID, "skill_id": identity, "expected_version": expected, "variant": entry.Variant, "bundle": files, "client": map[string]string{"app": "framework-cli"}}
-		if err = client.Do(ctx, "POST", "/api/v2/skills/sync", body, &remote); err != nil {
+		if err = client.Do(ctx, "POST", "/api/v1/skills/sync", body, &remote); err != nil {
 			return result, err
 		}
 		hasRemote = true

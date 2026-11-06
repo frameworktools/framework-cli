@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// ProjectDetail is the response of GET /api/v2/projects/{slug}.
+// ProjectDetail is the response of GET /api/v1/projects/{slug}.
 type ProjectDetail struct {
 	Slug        string     `json:"slug"`
 	Name        string     `json:"name"`
@@ -43,11 +43,11 @@ type GitHub struct {
 // Project fetches one of the signed-in user's projects.
 func (c *Client) Project(ctx context.Context, slug string) (ProjectDetail, error) {
 	var p ProjectDetail
-	err := c.Do(ctx, http.MethodGet, "/api/v2/projects/"+url.PathEscape(slug), nil, &p)
+	err := c.Do(ctx, http.MethodGet, "/api/v1/projects/"+url.PathEscape(slug), nil, &p)
 	return p, err
 }
 
-// Blueprint is one entry of GET /api/v2/blueprints. A project's blueprint
+// Blueprint is one entry of GET /api/v1/blueprints. A project's blueprint
 // carries only Key and Version.
 type Blueprint struct {
 	Key         string `json:"key"`
@@ -74,11 +74,11 @@ func (c *Client) Blueprints(ctx context.Context) ([]Blueprint, error) {
 	var resp struct {
 		Blueprints []Blueprint `json:"blueprints"`
 	}
-	err := c.Do(ctx, http.MethodGet, "/api/v2/blueprints", nil, &resp)
+	err := c.Do(ctx, http.MethodGet, "/api/v1/blueprints", nil, &resp)
 	return resp.Blueprints, err
 }
 
-// SpecResult is the response of PUT /api/v2/project/spec.
+// SpecResult is the response of PUT /api/v1/project/spec.
 type SpecResult struct {
 	ReceivedAt  string `json:"received_at"`
 	SpecVersion int    `json:"spec_version"`
@@ -89,7 +89,7 @@ type SpecResult struct {
 // project's token.
 func (c *Client) PushSpec(ctx context.Context, spec json.RawMessage) (SpecResult, error) {
 	var res SpecResult
-	err := c.Do(ctx, http.MethodPut, "/api/v2/project/spec", map[string]json.RawMessage{"spec": spec}, &res)
+	err := c.Do(ctx, http.MethodPut, "/api/v1/project/spec", map[string]json.RawMessage{"spec": spec}, &res)
 	return res, err
 }
 
@@ -139,13 +139,13 @@ func (c *Client) Collections(ctx context.Context) ([]Collection, error) {
 	var res struct {
 		Collections []Collection `json:"collections"`
 	}
-	err := c.Do(ctx, http.MethodGet, "/api/v2/collections", nil, &res)
+	err := c.Do(ctx, http.MethodGet, "/api/v1/collections", nil, &res)
 	return res.Collections, err
 }
 
 func (c *Client) AttachCollection(ctx context.Context, collectionID, documentID int, shareUnlisted bool) error {
 	var res map[string]any
-	return c.Do(ctx, http.MethodPost, fmt.Sprintf("/api/v2/collections/%d/items", collectionID),
+	return c.Do(ctx, http.MethodPost, fmt.Sprintf("/api/v1/collections/%d/items", collectionID),
 		map[string]any{"document_id": documentID, "share_unlisted": shareUnlisted}, &res)
 }
 

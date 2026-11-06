@@ -488,7 +488,7 @@ func TestPublishCollection(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
-				case "/api/v2/collections":
+				case "/api/v1/collections":
 					visibility := "unlisted"
 					if strings.HasPrefix(mode, "public") {
 						visibility = "public"
@@ -501,7 +501,7 @@ func TestPublishCollection(t *testing.T) {
 				case "/api/v1/documents":
 					uploads++
 					fmt.Fprint(w, `{"id":14,"slug":"figure","version":2,"url":"https://x/d/figure"}`)
-				case "/api/v2/collections/7/items":
+				case "/api/v1/collections/7/items":
 					var body struct {
 						DocumentID int  `json:"document_id"`
 						Share      bool `json:"share_unlisted"`
