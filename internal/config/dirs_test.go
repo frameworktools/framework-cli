@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func envOf(m map[string]string) Env {
@@ -82,5 +83,42 @@ func TestSync(t *testing.T) {
 	}
 	if s := dirs.SavedServer(); s != "https://fw.example.edu" {
 		t.Errorf("SavedServer = %q; want fw's copy", s)
+	}
+}
+
+func TestSavedServerTakesTheNewestLogin(t *testing.T) {
+	root := t.TempDir()
+	dirs := Dirs{FW: filepath.Join(root, "fw"), R: filepath.Join(root, "r")}
+	for _, dir := range []string{dirs.FW, dirs.R} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fwFile, rFile := filepath.Join(dirs.FW, CloudFile), filepath.Join(dirs.R, CloudFile)
+	if err := os.WriteFile(fwFile, []byte("server: https://fw.example.edu\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rFile, []byte("server: https://r.example.edu\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, recent := time.Now().Add(-time.Hour), time.Now()
+
+	// R logged in last
+	_ = os.Chtimes(fwFile, old, old)
+	_ = os.Chtimes(rFile, recent, recent)
+	if s := dirs.SavedServer(); s != "https://r.example.edu" {
+		t.Errorf("SavedServer = %q; want R's newer login", s)
+	}
+
+	// fw logged in last
+	_ = os.Chtimes(fwFile, recent.Add(time.Minute), recent.Add(time.Minute))
+	if s := dirs.SavedServer(); s != "https://fw.example.edu" {
+		t.Errorf("SavedServer = %q; want fw's newer login", s)
+	}
+
+	// A tie goes to fw's folder
+	_ = os.Chtimes(rFile, recent.Add(time.Minute), recent.Add(time.Minute))
+	if s := dirs.SavedServer(); s != "https://fw.example.edu" {
+		t.Errorf("SavedServer = %q; want fw's copy on a tie", s)
 	}
 }
