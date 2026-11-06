@@ -211,7 +211,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"nothing else: it creates, moves, and overwrites no files, and stops if the\n" +
 			"folder is already a project. The project stays on this machine; run\n" +
 			"fw project push-spec to send its spec to Framework Cloud. Python projects\n" +
-			"are adopted by framework-py (0.1.0.dev6 or later), and R projects by the\n" +
+			"are adopted by framework-py (0.1.0.dev7 or later), and R projects by the\n" +
 			"framework R package's adopt(). fw runs them for you. To change a folder's\n" +
 			"role in an R project, run framework::adopt() in R instead.\n\n" +
 			"fw detects the language from the files at the top of the folder (.do files\n" +
