@@ -219,7 +219,7 @@ func TestPythonHandoff(t *testing.T) {
 	if _, errOut, err := h.run(t, "", "new", "Study", "--lang", "python", "--workflow", "jupyter", "--offline"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if got := f.ran[0].String(); !strings.Contains(got, "'framework-py>=0.1.0.dev10'") || !strings.HasSuffix(got, "--workflow jupyter --offline") {
+	if got := f.ran[0].String(); !strings.Contains(got, "'framework-py>=0.1.0.dev13'") || !strings.HasSuffix(got, "--workflow jupyter --offline") {
 		t.Errorf("new: %s", got)
 	}
 
@@ -344,7 +344,7 @@ func TestAdoptTypeAndSensitive(t *testing.T) {
 		t.Errorf("R: %v %v\n%s", err, f.ran, errOut)
 	}
 	_, errOut, err = h.run(t, "", "adopt", dir, "--lang", "python", "--sensitive", "--yes")
-	if err != nil || !strings.HasSuffix(f.ran[1].String(), "--yes --sensitive") {
+	if err != nil || !strings.HasSuffix(f.ran[1].String(), "--yes --sensitive --force") {
 		t.Errorf("python: %v %v\n%s", err, f.ran, errOut)
 	}
 	// Without --sensitive, private-looking folders get a hint.

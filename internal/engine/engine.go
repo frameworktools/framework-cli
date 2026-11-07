@@ -97,7 +97,7 @@ type Request struct {
 
 // MinPython is the first framework-py release whose new() takes workflow
 // and offline, and that has adopt.
-const MinPython = "0.1.0.dev10"
+const MinPython = "0.1.0.dev13"
 
 // Create returns the command that creates the project in language.
 func (f Finder) Create(language string, req Request) (Command, error) {
@@ -167,6 +167,9 @@ func (f Finder) createR(req Request) (Command, error) {
 type AdoptOptions struct {
 	Type      string
 	Sensitive bool
+	// Force adopts the folder in the named language even when its files
+	// suggest another. fw sets it when --lang was given explicitly.
+	Force bool
 }
 
 // AdoptR returns the command that hands an existing folder to the framework
@@ -272,6 +275,9 @@ func (f Finder) AdoptPython(dir string, yes bool, o AdoptOptions) (Command, erro
 	}
 	if o.Sensitive {
 		args = append(args, "--sensitive")
+	}
+	if o.Force {
+		args = append(args, "--force")
 	}
 	command, err := f.python(args)
 	if err != nil || o.Type == "" && !o.Sensitive {

@@ -69,7 +69,7 @@ func TestCreateRMissing(t *testing.T) {
 func TestCreatePython(t *testing.T) {
 	req := Request{LayersFile: "/l.json", Dir: "/w"}
 	cmd, err := finder(map[string]string{"uv": "/bin/uv", "python3": "/bin/python3"}, true, nil).Create("python", req)
-	if err != nil || cmd.String() != "/bin/uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev10' python -m framework create --from-layers /l.json --path /w" {
+	if err != nil || cmd.String() != "/bin/uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev13' python -m framework create --from-layers /l.json --path /w" {
 		t.Errorf("uv: %s %v", cmd, err)
 	}
 
@@ -103,19 +103,24 @@ func TestCreatePython(t *testing.T) {
 func TestCreatePythonFromDefaults(t *testing.T) {
 	f := finder(map[string]string{"uv": "uv"}, true, nil)
 	cmd, err := f.Create("python", Request{Name: "My Study", Type: "project", Dir: "/w/my-study", Workflow: "jupyter", Offline: true})
-	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev10' python -m framework create --name 'My Study' --path /w/my-study --type project --workflow jupyter --offline" {
+	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev13' python -m framework create --name 'My Study' --path /w/my-study --type project --workflow jupyter --offline" {
 		t.Errorf("got %s %v", cmd, err)
 	}
 }
 
 func TestAdoptPython(t *testing.T) {
 	cmd, err := finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true, AdoptOptions{})
-	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev10' python -m framework adopt --path /w/old --yes" {
+	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev13' python -m framework adopt --path /w/old --yes" {
 		t.Errorf("got %s %v", cmd, err)
 	}
 	cmd, err = finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true, AdoptOptions{Type: "project", Sensitive: true})
 	if err != nil || !strings.HasSuffix(cmd.String(), "adopt --path /w/old --yes --type project --sensitive") {
 		t.Errorf("got %s %v", cmd, err)
+	}
+	// An explicit --lang python passes --force, so framework-py adopts an R-looking folder.
+	cmd, err = finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true, AdoptOptions{Force: true})
+	if err != nil || !strings.HasSuffix(cmd.String(), "adopt --path /w/old --yes --force") {
+		t.Errorf("force: got %s %v", cmd, err)
 	}
 	// An older framework-py, whose adopt has no --type: say so, and run nothing.
 	if _, err := finder(map[string]string{"uv": "uv"}, false, nil).AdoptPython("/w/old", true, AdoptOptions{Sensitive: true}); err == nil || !strings.Contains(err.Error(), "does not take --type or --sensitive") {

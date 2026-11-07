@@ -249,7 +249,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 			".framework/spec.json, and adds lines that keep secrets and private\n" +
 			"folders out of git to .gitignore. It moves and overwrites no files, never\n" +
 			"changes a line already in .gitignore, and stops if the folder is already\n" +
-			"a project. Python projects are adopted by framework-py (0.1.0.dev10 or\n" +
+			"a project. Python projects are adopted by framework-py (0.1.0.dev13 or\n" +
 			"later), and R projects by the framework R package's adopt(). fw runs them\n" +
 			"for you. To change a folder's role in an R project, run framework::adopt()\n" +
 			"in R instead. An existing Framework project is not adopted: run\n" +
@@ -329,6 +329,9 @@ func newAdoptCmd(a *app) *cobra.Command {
 			case "r":
 				res, err = a.adoptR(cmd, dir, yes, o)
 			case "python":
+				// --lang python on a folder whose files say R or Stata is a
+				// deliberate choice, so framework-py should not refuse it.
+				o.Force = cmd.Flags().Changed("lang")
 				res, err = a.adoptPython(cmd, dir, yes, o)
 			default:
 				res, err = a.adoptStata(cmd, dir, yes, o, toCloud)
