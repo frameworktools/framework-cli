@@ -69,7 +69,7 @@ func TestCreateRMissing(t *testing.T) {
 func TestCreatePython(t *testing.T) {
 	req := Request{LayersFile: "/l.json", Dir: "/w"}
 	cmd, err := finder(map[string]string{"uv": "/bin/uv", "python3": "/bin/python3"}, true, nil).Create("python", req)
-	if err != nil || cmd.String() != "/bin/uv run --no-project --with 'framework-py>=0.1.0.dev9' python -m framework create --from-layers /l.json --path /w" {
+	if err != nil || cmd.String() != "/bin/uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev9' python -m framework create --from-layers /l.json --path /w" {
 		t.Errorf("uv: %s %v", cmd, err)
 	}
 
@@ -84,24 +84,33 @@ func TestCreatePython(t *testing.T) {
 		t.Errorf("python3 without the package: %v", err)
 	}
 
+	// A package of the user's choosing has no minimum version to refresh for
 	env := map[string]string{"FW_PYTHON_PACKAGE": "/src/framework-py"}
 	cmd, _ = finder(map[string]string{"uv": "uv"}, true, env).Create("python", req)
-	if !strings.Contains(cmd.String(), "--with /src/framework-py") {
+	if !strings.Contains(cmd.String(), "--with /src/framework-py") || strings.Contains(cmd.String(), "--refresh-package") {
 		t.Errorf("FW_PYTHON_PACKAGE: %s", cmd)
+	}
+
+	// uv refuses --refresh-package when it is told to stay offline
+	for value, refresh := range map[string]bool{"1": false, "true": false, "Yes": false, "0": true, "false": true} {
+		cmd, _ = finder(map[string]string{"uv": "uv"}, true, map[string]string{"UV_OFFLINE": value}).Create("python", req)
+		if strings.Contains(cmd.String(), "--refresh-package framework-py") != refresh {
+			t.Errorf("UV_OFFLINE=%s: %s", value, cmd)
+		}
 	}
 }
 
 func TestCreatePythonFromDefaults(t *testing.T) {
 	f := finder(map[string]string{"uv": "uv"}, true, nil)
 	cmd, err := f.Create("python", Request{Name: "My Study", Type: "project", Dir: "/w/my-study", Workflow: "jupyter", Offline: true})
-	if err != nil || cmd.String() != "uv run --no-project --with 'framework-py>=0.1.0.dev9' python -m framework create --name 'My Study' --path /w/my-study --type project --workflow jupyter --offline" {
+	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev9' python -m framework create --name 'My Study' --path /w/my-study --type project --workflow jupyter --offline" {
 		t.Errorf("got %s %v", cmd, err)
 	}
 }
 
 func TestAdoptPython(t *testing.T) {
 	cmd, err := finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true)
-	if err != nil || cmd.String() != "uv run --no-project --with 'framework-py>=0.1.0.dev9' python -m framework adopt --path /w/old --yes" {
+	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev9' python -m framework adopt --path /w/old --yes" {
 		t.Errorf("got %s %v", cmd, err)
 	}
 }

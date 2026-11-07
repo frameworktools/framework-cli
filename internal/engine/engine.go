@@ -118,6 +118,16 @@ func (f Finder) find(override, name string) string {
 	return path
 }
 
+// truthy reports whether an environment value turns a uv setting on, as uv
+// reads boolean variables.
+func truthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "t", "yes", "y", "on":
+		return true
+	}
+	return false
+}
+
 func rBool(b bool) string {
 	if b {
 		return "TRUE"
@@ -238,11 +248,20 @@ func (f Finder) AdoptPython(dir string, yes bool) (Command, error) {
 // adopt and new()'s offline option.
 func (f Finder) python(moduleArgs []string) (Command, error) {
 	pkg := f.Getenv("FW_PYTHON_PACKAGE")
+	uvArgs := []string{"run", "--no-project"}
 	if pkg == "" {
 		pkg = "framework-py>=" + MinPython
+		// uv may hold a package index from before the minimum version was
+		// released, and would then fail with "only framework-py<=... is
+		// available". Refreshing framework-py's index entry avoids that. uv
+		// refuses --refresh-package when UV_OFFLINE is set.
+		if !truthy(f.Getenv("UV_OFFLINE")) {
+			uvArgs = append(uvArgs, "--refresh-package", "framework-py")
+		}
 	}
 	viaUV := func(uv string) Command {
-		return Command{Program: uv, Args: append([]string{"run", "--no-project", "--with", pkg, "python"}, moduleArgs...), Dir: f.Home}
+		args := append(append([]string{}, uvArgs...), "--with", pkg, "python")
+		return Command{Program: uv, Args: append(args, moduleArgs...), Dir: f.Home}
 	}
 
 	if python := f.Getenv("FW_PYTHON"); python != "" {
