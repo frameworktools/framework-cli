@@ -323,7 +323,7 @@ func TestNewStataUnsupportedChoices(t *testing.T) {
 		t.Error("a rejected choice created files")
 	}
 	help, _, err := h.run(t, "", "new", "--help")
-	if err != nil || !strings.Contains(help, "stata      --type project (the default), project_sensitive, or bare;") || !strings.Contains(help, "--workflow scripts only") {
+	if err != nil || !strings.Contains(help, "stata      --type project (the default), project_sensitive, or bare;") || !strings.Contains(help, "--workflow scripts only") || !strings.Contains(help, "so fw has no --no-git") {
 		t.Errorf("help:\n%s", help)
 	}
 }

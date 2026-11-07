@@ -115,6 +115,23 @@ Logged in, framework-py and the R package also register a project built
 from your defaults on Framework Cloud and write `FW_PROJECT_TOKEN` to its
 `.env`. `--offline` keeps it on this machine.
 
+## Git repositories
+
+A project built here gets a git repository and a first commit, unless your
+defaults turn git off or the folder is already inside a repository.
+`--headless`, for automation, never prompts, and makes no repository in
+these cases:
+
+- with `--from` and a layers file, in every language
+- for Stata projects, which fw builds itself
+
+`--offline --headless` without `--from` still runs `git init` for R and
+Python projects. fw has no `--no-git` to pass on: neither the framework R
+package's `new()` (2.0.0) nor framework-py's `create` (0.1.0.dev9) has a
+setting that skips git. To build one without git, turn git off in your
+defaults, create it from a layers file with `--from` and `--headless`, or
+delete `.git` afterwards.
+
 ## Existing folders
 
 `fw adopt [DIR]` makes a folder you already work in a Framework project

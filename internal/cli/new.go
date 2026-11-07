@@ -85,6 +85,11 @@ func newNewCmd(a *app) *cobra.Command {
 			"creates the project in a new GitHub repository, private unless --public,\n" +
 			"waits for it, and clones it here (--no-clone leaves it on GitHub). Both\n" +
 			"create the project on Framework Cloud and need fw login.\n\n" +
+			"--headless never prompts. With --from, and for Stata projects, it also makes\n" +
+			"no git repository. R and Python projects built from your defaults still get\n" +
+			"git init and a first commit outside an existing repository: framework::new()\n" +
+			"(2.0.0) and framework-py's create (0.1.0.dev9) have no option to skip git,\n" +
+			"so fw has no --no-git. Turn git off in your defaults, or delete .git after.\n\n" +
 			"At a terminal, fw new with no name asks for the name, language, and\n" +
 			"blueprint. Logged in, fw asks how you want the project: built here,\n" +
 			"downloaded, or on GitHub. --local, --zip, and --github answer that\n" +
@@ -112,7 +117,7 @@ func newNewCmd(a *app) *cobra.Command {
 	f.StringVar(&o.language, "lang", "r", "language for a project without --from: r, python, or stata")
 	f.StringVar(&o.kind, "type", "", "project type for a project without --from: project (the Standard Project, the default), project_sensitive, or bare; R and Python also take course and presentation, Stata does not")
 	f.StringVar(&o.dir, "dir", "", "folder to create the project in (default: ./<name>)")
-	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work")
+	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work. Makes no git repository with --from or for Stata, but R and Python projects without --from still get git init")
 	f.BoolVar(&o.print, "print", false, "print the command instead of running it")
 	f.StringVar(&o.url, "url", "", "Framework Cloud server")
 	f.BoolVar(&o.offline, "offline", false, "build from your saved Framework Cloud defaults, or the built-ins, without contacting the server")
