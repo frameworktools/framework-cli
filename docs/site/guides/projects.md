@@ -151,8 +151,16 @@ adopted with no directories.
 
 A folder whose path inside the project contains "private" gets a warning.
 Keep such folders out of git and away from AI assistants. `--sensitive`
-turns on Framework's guards for private data, and `--type` sets the type:
-`project`, `project_sensitive`, or `bare`. fw passes both to the R and
+turns on Framework's guards for private data. fw infers the type from the
+folders, as R and Python do: `course` when two or more course folders
+(such as `slides/`, `modules/`, and `assignments/`) are at the top,
+`project_sensitive` when private and public data folders map, `project`
+when any folder maps, and `bare` otherwise. `--type` sets it: `project`,
+`project_sensitive`, `course`, `presentation`, or `bare` (Stata takes
+`project`, `project_sensitive`, and `bare`). Framework's `settings/` folder
+and Quarto's render folders (`*_files`, `_site`) are never project folders,
+and rendered-notebook folders such as `outputs/notebooks` become
+`render_dirs`. fw passes both to the R and
 Python packages, and says when the installed package is too old to take
 them.
 

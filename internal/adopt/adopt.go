@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -23,9 +24,24 @@ var rulesJSON []byte
 
 // Rules is rules.json.
 type Rules struct {
-	MaxDepth int      `json:"max_depth"`
-	Skip     []string `json:"skip"`
-	Rules    []Rule   `json:"rules"`
+	MaxDepth   int      `json:"max_depth"`
+	Skip       []string `json:"skip"`
+	Types      Types    `json:"types"`
+	Rules      []Rule   `json:"rules"`
+	RenderDirs []Rule   `json:"render_dirs"`
+}
+
+// Types says how a project's type is inferred: a course from enough
+// top-level course folders, and a sensitive project from a private or
+// public key.
+type Types struct {
+	Course struct {
+		Signals []string `json:"signals"`
+		Min     int      `json:"min"`
+	} `json:"course"`
+	ProjectSensitive struct {
+		KeyPattern string `json:"key_pattern"`
+	} `json:"project_sensitive"`
 }
 
 // Rule gives a key to the first folder that equals one of its patterns.
@@ -33,20 +49,14 @@ type Rule struct {
 	Key       string   `json:"key"`
 	Patterns  []string `json:"patterns"`
 	Languages []string `json:"languages,omitempty"`
+	Types     []string `json:"types,omitempty"`
 }
 
-// applies reports whether the rule is for language. A rule without
-// languages is for every language.
-func (r Rule) applies(language string) bool {
-	if len(r.Languages) == 0 {
-		return true
-	}
-	for _, l := range r.Languages {
-		if l == language {
-			return true
-		}
-	}
-	return false
+// applies reports whether the rule is for language and the project type.
+// A rule without languages or types is for all of them.
+func (r Rule) applies(language, kind string) bool {
+	return (len(r.Languages) == 0 || slices.Contains(r.Languages, language)) &&
+		(len(r.Types) == 0 || slices.Contains(r.Types, kind))
 }
 
 // Shared returns the rules fw ships with.
@@ -75,35 +85,42 @@ func (w Warning) Text() string {
 	return fmt.Sprintf("'%s' looks private. Keep it out of git and away from AI assistants.", w.Path)
 }
 
-// Mapping is the proposed layout of a project.
+// Mapping is the proposed layout of a project: its type, Framework keys,
+// other folders, and folders that hold rendered notebooks.
 type Mapping struct {
+	Type             string            `json:"type"`
 	Directories      map[string]string `json:"directories"`
 	ExtraDirectories map[string]Extra  `json:"extra_directories"`
+	RenderDirs       map[string]string `json:"render_dirs"`
 	Warnings         []Warning         `json:"warnings"`
 }
 
 // Empty reports whether no folder was mapped.
 func (m Mapping) Empty() bool {
-	return len(m.Directories)+len(m.ExtraDirectories) == 0
+	return len(m.Directories)+len(m.ExtraDirectories)+len(m.RenderDirs) == 0
 }
 
 func (r Rules) skipped(segment string) bool {
 	if strings.HasPrefix(segment, ".") {
 		return true
 	}
-	lower := strings.ToLower(segment)
 	for _, s := range r.Skip {
-		// A pattern such as *_files matches with path.Match, ignoring case
-		if strings.EqualFold(s, segment) {
+		if strings.EqualFold(s, segment) || strings.Contains(s, "*") && globMatch(s, segment) {
 			return true
-		}
-		if strings.ContainsAny(s, "*?[") {
-			if ok, _ := path.Match(strings.ToLower(s), lower); ok {
-				return true
-			}
 		}
 	}
 	return false
+}
+
+// globMatch matches a skip entry in which * stands for any characters
+// within one folder name, ignoring case. No other character is special.
+func globMatch(glob, name string) bool {
+	parts := strings.Split(strings.ToLower(glob), "*")
+	for i, p := range parts {
+		parts[i] = regexp.QuoteMeta(p)
+	}
+	re, err := regexp.Compile("^" + strings.Join(parts, ".*") + "$")
+	return err == nil && re.MatchString(strings.ToLower(name))
 }
 
 // Scan lists the folders under root as paths relative to it, with forward
@@ -154,9 +171,10 @@ func parent(p string) string {
 	return ""
 }
 
-// Map proposes directory keys for folders in a project of the given
-// language, following the shared algorithm.
-func (r Rules) Map(folders []string, language string) Mapping {
+// Map proposes a type and directory keys for folders in a project of the
+// given language, following the shared algorithm (conformance README,
+// adopt/). kind is the project type the caller gives, or "" to infer it.
+func (r Rules) Map(folders []string, language, kind string) Mapping {
 	// 1. Keep folders within the depth without skipped or hidden segments.
 	seen := map[string]bool{}
 	var kept []string
@@ -177,34 +195,75 @@ func (r Rules) Map(folders []string, language string) Mapping {
 	}
 	sort.Strings(kept)
 
-	// 2. Each rule's first matching pattern gives an unassigned folder its key.
-	m := Mapping{Directories: map[string]string{}, ExtraDirectories: map[string]Extra{}, Warnings: []Warning{}}
+	// 2. A course has enough course folders at the top level.
+	top := map[string]bool{}
+	for _, f := range kept {
+		if !strings.Contains(f, "/") {
+			top[strings.ToLower(f)] = true
+		}
+	}
+	signals := 0
+	for _, s := range r.Types.Course.Signals {
+		if top[strings.ToLower(s)] {
+			signals++
+		}
+	}
+	minSignals := r.Types.Course.Min
+	if minSignals == 0 {
+		minSignals = 2
+	}
+	course := signals >= minSignals
+	ruleType := kind
+	if ruleType == "" {
+		ruleType = "project"
+		if course {
+			ruleType = "course"
+		}
+	}
+
+	// 3 and 4. Each rule's first pattern that matches a folder neither
+	// assigned nor inside an assigned folder gives it the rule's key; then
+	// the render_dirs rules, the same way.
+	m := Mapping{Directories: map[string]string{}, ExtraDirectories: map[string]Extra{}, RenderDirs: map[string]string{}, Warnings: []Warning{}}
 	assigned := map[string]bool{}
-	taken := map[string]bool{}
-	for _, rule := range r.Rules {
-		if !rule.applies(language) {
-			continue
+	within := func(f, root string) bool { return strings.HasPrefix(f, root+"/") }
+	free := func(f string) bool {
+		if assigned[f] {
+			return false
 		}
-		taken[rule.Key] = true
-		if _, done := m.Directories[rule.Key]; done {
-			continue
+		for a := range assigned {
+			if within(f, a) {
+				return false
+			}
 		}
-	patterns:
-		for _, pattern := range rule.Patterns {
-			for _, f := range kept {
-				if !assigned[f] && strings.EqualFold(f, pattern) {
-					m.Directories[rule.Key] = f
-					assigned[f] = true
-					break patterns
+		return true
+	}
+	assign := func(rules []Rule, into map[string]string, check bool) {
+		for _, rule := range rules {
+			if check && !rule.applies(language, ruleType) {
+				continue
+			}
+			if _, done := into[rule.Key]; done {
+				continue
+			}
+		patterns:
+			for _, pattern := range rule.Patterns {
+				for _, f := range kept {
+					if strings.EqualFold(f, pattern) && free(f) {
+						into[rule.Key] = f
+						assigned[f] = true
+						break patterns
+					}
 				}
 			}
 		}
 	}
+	assign(r.Rules, m.Directories, true)
+	assign(r.RenderDirs, m.RenderDirs, false)
 
-	// 3 and 4. Folders inside an assigned folder are covered. Of the rest,
-	// one with no assigned folder inside it is an extra directory unless
-	// its parent is one too.
-	within := func(f, root string) bool { return strings.HasPrefix(f, root+"/") }
+	// 5. Folders inside an assigned folder are covered. Of the rest, one
+	// with no assigned folder inside it is an extra directory unless its
+	// parent is one too.
 	pure := map[string]bool{}
 	var pureList []string
 	for _, f := range kept {
@@ -221,16 +280,22 @@ func (r Rules) Map(folders []string, language string) Mapping {
 			pureList = append(pureList, f)
 		}
 	}
-	// 5. Keys from paths, numbered when taken.
+	// 6. Keys from paths, numbered when a rule for this language and type,
+	// or an earlier extra, has them.
+	taken := map[string]bool{}
+	for k := range m.Directories {
+		taken[k] = true
+	}
+	for _, rule := range r.Rules {
+		if rule.applies(language, ruleType) {
+			taken[rule.Key] = true
+		}
+	}
 	for _, f := range pureList {
 		if pure[parent(f)] {
 			continue
 		}
-		base := extraKey(f)
-		key := base
-		for i := 2; taken[key]; i++ {
-			key = fmt.Sprintf("%s_%d", base, i)
-		}
+		key := numbered(extraKey(f), taken)
 		taken[key] = true
 		m.ExtraDirectories[key] = Extra{Label: path.Base(f), Path: f}
 	}
@@ -240,7 +305,42 @@ func (r Rules) Map(folders []string, language string) Mapping {
 			m.Warnings = append(m.Warnings, Warning{Code: "private_path", Path: f})
 		}
 	}
+
+	// 7. The type: given, else course, project_sensitive, project, or bare.
+	m.Type = kind
+	if m.Type == "" {
+		m.Type = r.inferType(course, m.Directories)
+	}
 	return m
+}
+
+// inferType is step 7 of the algorithm.
+func (r Rules) inferType(course bool, directories map[string]string) string {
+	if course {
+		return "course"
+	}
+	if pattern := r.Types.ProjectSensitive.KeyPattern; pattern != "" {
+		if re, err := regexp.Compile(pattern); err == nil {
+			for k := range directories {
+				if re.MatchString(k) {
+					return "project_sensitive"
+				}
+			}
+		}
+	}
+	if len(directories) > 0 {
+		return "project"
+	}
+	return "bare"
+}
+
+// numbered returns base, or base_2, base_3, ... when taken has it.
+func numbered(base string, taken map[string]bool) string {
+	key := base
+	for i := 2; taken[key]; i++ {
+		key = fmt.Sprintf("%s_%d", base, i)
+	}
+	return key
 }
 
 // Rows lists the mapping for review: Framework keys in rule order, then the
@@ -252,6 +352,11 @@ func (r Rules) Rows(m Mapping) [][2]string {
 		if p, ok := m.Directories[rule.Key]; ok && !done[rule.Key] {
 			rows = append(rows, [2]string{p, rule.Key})
 			done[rule.Key] = true
+		}
+	}
+	for _, rule := range r.RenderDirs {
+		if p, ok := m.RenderDirs[rule.Key]; ok {
+			rows = append(rows, [2]string{p, "render_dirs." + rule.Key})
 		}
 	}
 	extras := make([]Extra, 0, len(m.ExtraDirectories))
@@ -266,11 +371,17 @@ func (r Rules) Rows(m Mapping) [][2]string {
 }
 
 // SetRole gives the folder at p a new role: a Framework key, "other" for an
-// extra directory, or "leave" to leave it out.
+// extra directory, or "leave" to leave it out. An extra directory's key is
+// numbered when a rule, a directory, or another extra has it, as in R.
 func (r Rules) SetRole(m Mapping, p, role string) Mapping {
 	for k, v := range m.Directories {
 		if v == p {
 			delete(m.Directories, k)
+		}
+	}
+	for k, v := range m.RenderDirs {
+		if v == p {
+			delete(m.RenderDirs, k)
 		}
 	}
 	for k, e := range m.ExtraDirectories {
@@ -281,28 +392,29 @@ func (r Rules) SetRole(m Mapping, p, role string) Mapping {
 	switch role {
 	case "leave":
 	case "other":
-		base := extraKey(p)
-		key := base
-		for i := 2; ; i++ {
-			_, extra := m.ExtraDirectories[key]
-			_, dir := m.Directories[key]
-			if !extra && !dir {
-				break
-			}
-			key = fmt.Sprintf("%s_%d", base, i)
+		taken := map[string]bool{}
+		for k := range m.Directories {
+			taken[k] = true
 		}
-		m.ExtraDirectories[key] = Extra{Label: path.Base(p), Path: p}
+		for k := range m.ExtraDirectories {
+			taken[k] = true
+		}
+		for _, rule := range r.Rules {
+			taken[rule.Key] = true
+		}
+		m.ExtraDirectories[numbered(extraKey(p), taken)] = Extra{Label: path.Base(p), Path: p}
 	default:
 		m.Directories[role] = p
 	}
 	return m
 }
 
-// Keys lists the Framework keys a project of the language can use.
-func (r Rules) Keys(language string) []string {
+// Keys lists the Framework keys a project of the language and type can
+// use, once each.
+func (r Rules) Keys(language, kind string) []string {
 	var keys []string
 	for _, rule := range r.Rules {
-		if rule.applies(language) {
+		if rule.applies(language, kind) && !slices.Contains(keys, rule.Key) {
 			keys = append(keys, rule.Key)
 		}
 	}

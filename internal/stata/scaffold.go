@@ -625,10 +625,11 @@ func CheckAdoptable(dir string) error {
 	return nil
 }
 
-// AdoptLayer is the layer fw adopt records for an existing Stata project: a
-// bare project with exactly its mapped folders, and no AI files or git, as
-// R's adopt() records.
-func AdoptLayer(directories map[string]string, extras map[string]any, sensitive bool) map[string]any {
+// AdoptLayer is the layer fw adopt records for an existing Stata project,
+// as R's adopt() records: exactly its mapped folders, resolved as bare so no
+// built-in folders are added, and no AI files. useGit is whether the folder
+// is a git repository (.git is a folder, or a file in a worktree).
+func AdoptLayer(directories map[string]string, extras map[string]any, sensitive, useGit bool) map[string]any {
 	dirs := map[string]any{}
 	for k, v := range directories {
 		dirs[k] = v
@@ -639,7 +640,7 @@ func AdoptLayer(directories map[string]string, extras map[string]any, sensitive 
 		"core_files":        false,
 		"directories":       dirs,
 		"extra_directories": extras,
-		"git":               map[string]any{"use_git": false},
+		"git":               map[string]any{"use_git": useGit},
 		"ai":                map[string]any{"enabled": false},
 		"security":          map[string]any{"sensitive": sensitive},
 	}

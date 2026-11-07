@@ -33,7 +33,7 @@ func TestConformance(t *testing.T) {
 			if c.Language == "" {
 				c.Language = "r"
 			}
-			got := rules.Map(c.Folders, c.Language)
+			got := rules.Map(c.Folders, c.Language, "")
 			if !reflect.DeepEqual(got, c.Expected) {
 				g, _ := json.MarshalIndent(got, "", "  ")
 				w, _ := json.MarshalIndent(c.Expected, "", "  ")
@@ -65,12 +65,19 @@ func TestScan(t *testing.T) {
 
 func TestSetRole(t *testing.T) {
 	r := Shared()
-	m := r.Map([]string{"data", "data/raw", "IRB"}, "r")
+	m := r.Map([]string{"data", "data/raw", "IRB", "archive", "Archive"}, "r", "")
 	m = r.SetRole(m, "IRB", "docs")
 	m = r.SetRole(m, "data/raw", "leave")
+	// data is a course rule's key, so it is numbered, as in R
 	m = r.SetRole(m, "data", "other")
-	if m.Directories["docs"] != "IRB" || m.Directories["inputs_raw"] != "" || len(m.ExtraDirectories) != 1 || m.ExtraDirectories["data"].Path != "data" {
+	if m.Directories["docs"] != "IRB" || m.Directories["inputs_raw"] != "" || len(m.ExtraDirectories) != 3 || m.ExtraDirectories["data_2"].Path != "data" {
 		t.Errorf("%+v", m)
+	}
+	// A folder set to other never replaces another extra (B26)
+	m = r.SetRole(m, "archive", "leave")
+	m = r.SetRole(m, "archive", "other")
+	if m.ExtraDirectories["archive"].Path != "Archive" || m.ExtraDirectories["archive_2"].Path != "archive" || len(m.ExtraDirectories) != 3 {
+		t.Errorf("%+v", m.ExtraDirectories)
 	}
 }
 
@@ -163,7 +170,7 @@ func TestScanSkipGlobs(t *testing.T) {
 	if err != nil || strings.Join(folders, ",") != "profiles,scripts" {
 		t.Errorf("scan: %v %v", folders, err)
 	}
-	m := rules.Map([]string{"settings", "nb_files", "scripts"}, "r")
+	m := rules.Map([]string{"settings", "nb_files", "scripts"}, "r", "")
 	if len(m.ExtraDirectories) != 0 || m.Directories["scripts"] != "scripts" {
 		t.Errorf("map: %+v", m)
 	}

@@ -92,7 +92,7 @@ func SettingsGlobals(text string) map[string]string {
 // directories in a rebuilt spec.
 func knownKeys() map[string]bool {
 	known := map[string]bool{}
-	for _, k := range adopt.Shared().Keys("stata") {
+	for _, k := range adopt.Shared().Keys("stata", "project") {
 		known[k] = true
 	}
 	for _, kind := range Types {

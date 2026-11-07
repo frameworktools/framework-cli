@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -88,7 +89,7 @@ func TestAdoptStata(t *testing.T) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Type != "bare" || doc.Directories["do"] != "do" || doc.Directories["inputs_raw"] != "data/raw" || doc.Extra["irb"]["path"] != "IRB" || doc.AI.Enabled ||
+	if doc.Type != "project" || doc.Directories["do"] != "do" || doc.Directories["inputs_raw"] != "data/raw" || doc.Extra["irb"]["path"] != "IRB" || doc.AI.Enabled ||
 		doc.Source["origin"] != "cli" || doc.Source["adopted"] != true || doc.Source["fw_version"] == nil ||
 		doc.Git["gitignore_content"] != readTestFile(t, filepath.Join(dir, ".gitignore")) {
 		t.Errorf("spec: %+v", doc)
@@ -422,5 +423,41 @@ func TestAdoptStataGitignore(t *testing.T) {
 	ignore := readTestFile(t, filepath.Join(dir, ".gitignore"))
 	if !strings.HasPrefix(ignore, "# mine\n*.dta\n.env\n\n# Added by fw adopt") || strings.Count(ignore, "\n.env\n") != 1 {
 		t.Errorf(".gitignore:\n%s", ignore)
+	}
+}
+
+// The proposal infers the type with the shared rules: a course for R, a
+// project for Stata, which has no course type; render folders are listed
+// for R and become other folders in Stata.
+func TestAdoptInfersType(t *testing.T) {
+	h := newHarness(t, nil)
+	dir := filepath.Join(h.app.home, "course")
+	for _, d := range []string{"slides", "modules/01", "assignments", "data/raw", "outputs/notebooks", "settings", "report_files"} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(d)), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposal := func(args ...string) map[string]any {
+		t.Helper()
+		out, errOut, err := h.run(t, "", append([]string{"adopt", dir, "--json"}, args...)...)
+		var res map[string]any
+		if err != nil || json.Unmarshal([]byte(out), &res) != nil {
+			t.Fatalf("%v\n%s%s", err, out, errOut)
+		}
+		return res
+	}
+	r := proposal("--lang", "r")
+	dirs := r["directories"].(map[string]any)
+	if r["type"] != "course" || dirs["slides"] != "slides" || dirs["notebooks"] != "modules" || dirs["data"] != "data" ||
+		r["render_dirs"].(map[string]any)["notebooks"] != "outputs/notebooks" || strings.Contains(fmt.Sprint(r), "settings") || strings.Contains(fmt.Sprint(r), "report_files") {
+		t.Errorf("r: %v", r)
+	}
+	st := proposal("--lang", "stata")
+	if st["type"] != "project" || st["directories"].(map[string]any)["inputs_raw"] != "data/raw" || len(st["render_dirs"].(map[string]any)) != 0 ||
+		st["extra_directories"].(map[string]any)["outputs_notebooks"] == nil {
+		t.Errorf("stata: %v", st)
+	}
+	if _, _, err := h.run(t, "", "adopt", dir, "--lang", "stata", "--type", "course", "--yes"); exitCode(err) != exitUsage {
+		t.Errorf("stata course: %v", err)
 	}
 }

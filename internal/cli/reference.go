@@ -82,8 +82,8 @@ var refSeeAlso = map[string][]string{
 var refReturns = map[string]string{
 	"structures import": "With `--json` and no `--yes`, the proposed mapping and nothing saved: `{\"name\", \"language\", \"saved\": false, \"directories\", \"extra_directories\", \"warnings\"}`. " +
 		"With `--yes`, the same with `\"saved\": true` and the new structure's `key`, `name`, and `url`. Each warning is `{\"code\": \"private_path\", \"path\": ...}`.",
-	"adopt": "With `--json` and no `--yes`, the proposal, and nothing changes: `{\"path\", \"language\", \"language_source\", \"adopted\": false, \"type\", \"sensitive\", \"directories\", \"extra_directories\", \"warnings\"}`, " +
-		"plus `gitignore_additions` for Stata. `type` is null when the R or Python package chooses. " +
+	"adopt": "With `--json` and no `--yes`, the proposal, and nothing changes: `{\"path\", \"language\", \"language_source\", \"adopted\": false, \"type\", \"sensitive\", \"directories\", \"extra_directories\", \"render_dirs\", \"warnings\"}`, " +
+		"plus `gitignore_additions` for Stata. `type` is `--type`, or the type inferred from the folders. " +
 		"With `--yes`, `{\"path\", \"language\", \"created\", \"type\", \"directories\", \"extra_directories\"}`, plus `sensitive`, `warnings`, and `gitignore_additions` for Stata; `created` lists the files the adopt wrote. " +
 		"With `--cloud`, `cloud` holds the result of `fw project link --create`. An existing project fails with `reason` `already_framework`, `found` (the file), and `hint` (`fw project upgrade`).",
 	"project link": "With `--create --json`, `{\"slug\", \"url\", \"type\", \"adopted\", \"created\", \"linked\", \"spec_changed\"}`. An already linked project gives `\"created\": false` and a `message`. " +

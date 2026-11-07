@@ -82,7 +82,7 @@ func (a *app) reviewMapping(cmd *cobra.Command, rules adopt.Rules, m adopt.Mappi
 		show()
 		return m, usageError("no terminal to review the mapping from. After reading it above, rerun with --yes to accept it")
 	}
-	keys := rules.Keys(language)
+	keys := rules.Keys(language, m.Type)
 	for {
 		rows := show()
 		fmt.Fprint(errOut, "Accept (a), change a folder (number), or cancel (c)? [a] ")
@@ -190,23 +190,23 @@ func newStructureImportCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			m := rules.Map(folders, lang)
+			m := mapFolders(rules, folders, lang, kind)
 			if m.Empty() {
 				return errors.New("no folders found to map. Nothing was saved")
 			}
 			if a.jsonOut && !yes {
-				return writeJSON(cmd.OutOrStdout(), map[string]any{"name": name, "language": lang, "saved": false,
+				return writeJSON(cmd.OutOrStdout(), map[string]any{"name": name, "language": lang, "saved": false, "type": m.Type,
 					"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings})
 			}
 			if m, err = a.reviewMapping(cmd, rules, m, lang, yes); err != nil {
 				return err
 			}
-			created, err := uploadStructure(cmd, client, name, description, kind, m)
+			created, err := uploadStructure(cmd, client, name, description, m.Type, m)
 			if err != nil {
 				return err
 			}
 			if a.jsonOut {
-				return writeJSON(cmd.OutOrStdout(), map[string]any{"key": created.Key, "name": created.Name, "url": created.URL, "saved": true,
+				return writeJSON(cmd.OutOrStdout(), map[string]any{"key": created.Key, "name": created.Name, "url": created.URL, "saved": true, "type": m.Type,
 					"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Saved the structure %s on %s, private to you: %s\nUse it with: fw new NAME --structure %s\n",
@@ -218,7 +218,7 @@ func newStructureImportCmd(a *app) *cobra.Command {
 	f.StringVar(&name, "name", "", "the structure's name (default: the folder's name)")
 	f.StringVar(&description, "description", "", "a description for the structure")
 	f.StringVar(&lang, "lang", "", "map folders for this language: r, python, or stata (default: detected, else r)")
-	f.StringVar(&kind, "type", "", "the project type the structure is for, such as bare or project_sensitive (default: project)")
+	f.StringVar(&kind, "type", "", "the project type the structure is for, such as bare or project_sensitive (default: inferred from the folders)")
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping and save it without asking")
 	f.BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
@@ -228,9 +228,9 @@ func newStructureImportCmd(a *app) *cobra.Command {
 // Framework Cloud lists them.
 var structureTypes = []string{"project", "project_sensitive", "course", "presentation", "shiny", "plumber", "shiny_python", "fastapi", "bare"}
 
-// adoptTypes are the project types fw adopt takes. course and presentation
-// projects are made new, not adopted.
-var adoptTypes = []string{"project", "project_sensitive", "bare"}
+// adoptTypes are the project types fw adopt takes; Stata projects take only
+// project, project_sensitive, and bare.
+var adoptTypes = []string{"project", "project_sensitive", "course", "presentation", "bare"}
 
 func newAdoptCmd(a *app) *cobra.Command {
 	var lang string
@@ -254,7 +254,11 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"for you. To change a folder's role in an R project, run framework::adopt()\n" +
 			"in R instead. An existing Framework project is not adopted: run\n" +
 			"fw project upgrade in it.\n\n" +
-			"--type sets the project type (project, project_sensitive, or bare), and\n" +
+			"fw infers the type from the folders: course when two or more course\n" +
+			"folders (slides, modules, assignments, ...) are at the top, project_sensitive\n" +
+			"when private and public data folders map, project when any folder maps,\n" +
+			"and bare otherwise. --type sets it (project, project_sensitive, course,\n" +
+			"presentation, or bare; Stata takes the first two and bare), and\n" +
 			"--sensitive turns on Framework's guards for private data. Both need an R\n" +
 			"or Python package recent enough to take them; fw says when it isn't.\n\n" +
 			"The project stays on this machine unless you pass --cloud, which then\n" +
@@ -279,7 +283,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 				return usageError("--lang takes r, python, or stata")
 			}
 			if o.Type != "" && !contains(adoptTypes, o.Type) {
-				return usageError("--type takes project, project_sensitive, or bare")
+				return usageError("--type takes project, project_sensitive, course, presentation, or bare")
 			}
 			if o.Type == "project_sensitive" {
 				o.Sensitive = true
@@ -314,6 +318,9 @@ func newAdoptCmd(a *app) *cobra.Command {
 				}
 				source = "your answer"
 			}
+			if lang == "stata" && (o.Type == "course" || o.Type == "presentation") {
+				return usageError("Stata projects take --type project, project_sensitive, or bare")
+			}
 			if a.jsonOut && !yes {
 				return a.adoptProposal(cmd, dir, lang, source, o)
 			}
@@ -345,7 +352,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&lang, "lang", "", "the project's language: r, python, or stata (default: detected)")
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping without asking")
-	f.StringVar(&o.Type, "type", "", "the project type: project, project_sensitive, or bare (default: the language package's choice; bare for Stata)")
+	f.StringVar(&o.Type, "type", "", "the project type: project, project_sensitive, course, presentation, or bare (default: inferred from the folders)")
 	f.BoolVar(&o.Sensitive, "sensitive", false, "the project holds sensitive data: turn on Framework's guards for private folders")
 	f.BoolVar(&toCloud, "cloud", false, "after adopting, create the project on Framework Cloud and link it, as fw project link --create does")
 	f.StringVar(&co.slug, "slug", "", "with --cloud: the project's slug on Framework Cloud (default: made from the folder's name)")
@@ -389,7 +396,7 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOpt
 	if err != nil {
 		return nil, err
 	}
-	m := rules.Map(folders, "r")
+	m := mapFolders(rules, folders, "r", o.Type)
 	if !yes {
 		errOut := cmd.ErrOrStderr()
 		if m.Empty() {
@@ -426,7 +433,7 @@ func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool, o engine.Ado
 	}
 	rules := adopt.Shared()
 	if folders, err := rules.Scan(dir); err == nil && yes {
-		sensitiveHint(cmd, rules.Map(folders, "python"), o)
+		sensitiveHint(cmd, mapFolders(rules, folders, "python", o.Type), o)
 	}
 	return a.runAdopt(cmd, command, dir, "python", "framework-py")
 }
@@ -495,10 +502,10 @@ func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string, o engi
 	if err != nil {
 		return err
 	}
-	m := rules.Map(folders, lang)
+	m := mapFolders(rules, folders, lang, o.Type)
 	res := map[string]any{
-		"path": dir, "language": lang, "language_source": source, "adopted": false, "type": proposedType(lang, o), "sensitive": o.Sensitive,
-		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings,
+		"path": dir, "language": lang, "language_source": source, "adopted": false, "type": m.Type, "sensitive": o.Sensitive || m.Type == "project_sensitive",
+		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "render_dirs": m.RenderDirs, "warnings": m.Warnings,
 	}
 	// fw writes Stata projects itself, so it knows what .gitignore gets
 	if lang == "stata" {
@@ -527,16 +534,22 @@ func nonNil(s []string) []string {
 	return s
 }
 
-// proposedType is the type a proposal shows: --type, or bare for Stata.
-// Without --type, the R and Python packages choose, so it is null.
-func proposedType(lang string, o engine.AdoptOptions) any {
-	switch {
-	case o.Type != "":
-		return o.Type
-	case lang == "stata":
-		return "bare"
+// mapFolders maps a project's folders with the shared rules. kind is the
+// type given with --type, or "" to infer it. Stata has no course type, so a
+// Stata folder that looks like a course maps as a project. In Stata, which
+// has no rendered notebooks, render folders become other folders.
+func mapFolders(rules adopt.Rules, folders []string, lang, kind string) adopt.Mapping {
+	m := rules.Map(folders, lang, kind)
+	if lang != "stata" {
+		return m
 	}
-	return nil
+	if m.Type == "course" || m.Type == "presentation" {
+		m = rules.Map(folders, lang, "project")
+	}
+	for _, p := range m.RenderDirs {
+		m = rules.SetRole(m, p, "other")
+	}
+	return m
 }
 
 // adoptStata writes a Stata project itself. toCloud skips the offer to save
@@ -550,11 +563,11 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	if err != nil {
 		return nil, err
 	}
-	m, err := a.reviewMapping(cmd, rules, rules.Map(folders, "stata"), "stata", yes)
+	m, err := a.reviewMapping(cmd, rules, mapFolders(rules, folders, "stata", o.Type), "stata", yes)
 	if err != nil {
 		return nil, err
 	}
-	sensitive := o.Sensitive
+	sensitive := o.Sensitive || m.Type == "project_sensitive"
 	if !sensitive && !yes && a.interactive && len(m.Warnings) > 0 {
 		if sensitive, err = a.askYes(cmd, "Does this project hold sensitive data? Framework will treat its outputs as private by default."); err != nil {
 			return nil, err
@@ -568,7 +581,8 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	if yes {
 		sensitiveHint(cmd, m, o)
 	}
-	layer, err := json.Marshal(stata.AdoptLayer(m.Directories, extras, sensitive))
+	gitInfo, gitErr := os.Stat(filepath.Join(dir, ".git"))
+	layer, err := json.Marshal(stata.AdoptLayer(m.Directories, extras, sensitive, gitErr == nil && gitInfo != nil))
 	if err != nil {
 		return nil, err
 	}
@@ -580,11 +594,9 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 		return nil, err
 	}
 	resolved.Doc["skills"] = map[string]any{}
-	// The layer resolves as bare, so no built-in folders are added; --type
-	// changes only the label.
-	if o.Type != "" {
-		resolved.Doc["type"], resolved.View.Type = o.Type, o.Type
-	}
+	// The layer resolves as bare, so no built-in folders are added; the
+	// given or inferred type is the label.
+	resolved.Doc["type"], resolved.View.Type = m.Type, m.Type
 	res, err := stata.Adopt(resolved, dir, stataIgnores(m))
 	if err != nil {
 		return nil, err
