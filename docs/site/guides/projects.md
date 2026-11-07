@@ -160,6 +160,16 @@ and the publishing destinations for `fw_publish`. It starts with an empty
 catalog and a commented example of a folder destination. `fw_project` reads
 both files.
 
+Types and workflows differ by language:
+
+| Language | `--type` | `--workflow` |
+|---|---|---|
+| R, Python | `project` (the default), `project_sensitive`, `course`, `presentation`, `bare` | `quarto`, `jupyter`, `scripts` |
+| Stata | `project` (the default), `project_sensitive`, `bare` | `scripts` |
+
+fw stops with a message naming these when a Stata project asks for another
+type or workflow.
+
 When R, Python, or uv is missing, fw prints the exact command to run once it
 is installed, and keeps the layers file for it. `--print` shows that command
 without running anything.

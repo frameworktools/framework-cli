@@ -298,6 +298,36 @@ func TestNewStata(t *testing.T) {
 	}
 }
 
+// Unsupported choices name what Stata projects take, before anything is made.
+func TestNewStataUnsupportedChoices(t *testing.T) {
+	h := newHarness(t, nil)
+	for args, want := range map[string][]string{
+		"--workflow quarto":   {"no quarto workflow", "--workflow scripts only", "project, project_sensitive, or bare", "R and Python"},
+		"--workflow jupyter":  {"no jupyter workflow", "--workflow scripts only"},
+		"--type presentation": {`no Stata "presentation" type`, "project, project_sensitive, or bare", "--workflow scripts", "R and Python"},
+		"--type course":       {`no Stata "course" type`, "R and Python"},
+		"--type survey":       {`no Stata "survey" type`, "project, project_sensitive, or bare"},
+	} {
+		_, _, err := h.run(t, "", append([]string{"new", "S", "--lang", "stata", "--offline"}, strings.Fields(args)...)...)
+		if exitCode(err) != exitUsage {
+			t.Errorf("%s: %v", args, err)
+			continue
+		}
+		for _, w := range want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %q lacks %q", args, err, w)
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(h.app.home, "s")); !os.IsNotExist(err) {
+		t.Error("a rejected choice created files")
+	}
+	help, _, err := h.run(t, "", "new", "--help")
+	if err != nil || !strings.Contains(help, "stata      --type project (the default), project_sensitive, or bare;") || !strings.Contains(help, "--workflow scripts only") {
+		t.Errorf("help:\n%s", help)
+	}
+}
+
 func TestNewStataFromSlugLinks(t *testing.T) {
 	srv := fakeCloud(t)
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})

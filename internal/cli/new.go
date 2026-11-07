@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,7 +52,12 @@ func newNewCmd(a *app) *cobra.Command {
 		Long: "Creates a Framework project. R projects are created by the framework R\n" +
 			"package and Python projects by framework-py. fw finds the runtime, runs it,\n" +
 			"and prints the command to run instead when the runtime is missing. fw builds\n" +
-			"Stata projects itself: folders, master.do, and settings.do.\n\n" +
+			"Stata projects itself: folders, master.do, settings.do, and settings.yml.\n\n" +
+			"Types and workflows by language:\n" +
+			"  r, python  --type project (the default), project_sensitive, course,\n" +
+			"             presentation, or bare; --workflow quarto, jupyter, or scripts\n" +
+			"  stata      --type project (the default), project_sensitive, or bare;\n" +
+			"             --workflow scripts only\n\n" +
 			"Without --from, fw creates an R project from your R defaults (author,\n" +
 			"directories, and packages), the same as framework::new().\n\n" +
 			"Logged in, fw new NAME --lang stata builds from your defaults on Framework\n" +
@@ -104,13 +110,13 @@ func newNewCmd(a *app) *cobra.Command {
 	f.StringVar(&o.from, "from", "", "a layers file, or the slug of your project on Framework Cloud")
 	f.BoolVar(&o.pullToken, "pull-token", false, "create the project from a project token (asked for, or read from stdin)")
 	f.StringVar(&o.language, "lang", "r", "language for a project without --from: r, python, or stata")
-	f.StringVar(&o.kind, "type", "", "project type for a project without --from: project (the Standard Project, the default), project_sensitive, or bare; R and Python also take course and presentation")
+	f.StringVar(&o.kind, "type", "", "project type for a project without --from: project (the Standard Project, the default), project_sensitive, or bare; R and Python also take course and presentation, Stata does not")
 	f.StringVar(&o.dir, "dir", "", "folder to create the project in (default: ./<name>)")
 	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work")
 	f.BoolVar(&o.print, "print", false, "print the command instead of running it")
 	f.StringVar(&o.url, "url", "", "Framework Cloud server")
 	f.BoolVar(&o.offline, "offline", false, "build from your saved Framework Cloud defaults, or the built-ins, without contacting the server")
-	f.StringVar(&o.workflow, "workflow", "", "how notebooks are written: quarto, jupyter, or scripts (Stata uses scripts)")
+	f.StringVar(&o.workflow, "workflow", "", "how notebooks are written: quarto, jupyter, or scripts for R and Python; scripts only for Stata")
 	addPieceFlags(cmd, &o.pieces)
 	addDestFlags(cmd, &o.dest)
 	cmd.MarkFlagsMutuallyExclusive("from", "pull-token")
@@ -213,6 +219,11 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		name = env.Name
 		language = env.Language()
 	}
+	if language == "stata" {
+		if err := checkStataChoices(o); err != nil {
+			return err
+		}
+	}
 	if name == "" {
 		if !a.interactive {
 			return usageError("give a project name: fw new NAME")
@@ -260,9 +271,6 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	switch language {
 	case "r", "python":
 	case "stata":
-		if o.workflow != "" && o.workflow != "scripts" {
-			return usageError("Stata projects support only the Scripts-only workflow (--workflow scripts)")
-		}
 		if env == nil && o.kind == "" {
 			e, err := a.savedDefaults(cmd, o, name, language)
 			if err != nil {
@@ -506,6 +514,23 @@ func packageName(language string) string {
 		return "framework-py"
 	}
 	return "framework R"
+}
+
+// checkStataChoices rejects a --type or --workflow that Stata projects do not
+// have, naming the ones they do.
+func checkStataChoices(o newOptions) error {
+	types := strings.Join(stata.Types[:len(stata.Types)-1], ", ") + ", or " + stata.Types[len(stata.Types)-1]
+	if o.workflow != "" && o.workflow != "scripts" {
+		return usageError(fmt.Sprintf("Stata projects have no %s workflow: they take --workflow scripts only, with --type %s. quarto and jupyter are for R and Python projects", o.workflow, types))
+	}
+	if o.kind != "" && !slices.Contains(stata.Types, o.kind) {
+		other := ""
+		if o.kind == "course" || o.kind == "presentation" {
+			other = ". course and presentation are for R and Python projects"
+		}
+		return usageError(fmt.Sprintf("fw has no Stata %q type: Stata projects take --type %s, with --workflow scripts%s", o.kind, types, other))
+	}
+	return nil
 }
 
 // newStata scaffolds a Stata project. fw builds these itself.
