@@ -173,11 +173,14 @@ it with `fw new --structure`. Only folder paths and their roles are sent.
 
 `settings.do` and `settings.yml` divide a Stata project's settings.
 `settings.do` sets the path globals that do-files use, such as
-`$inputs_raw`. `settings.yml` lists the same folders and holds what the
-framework-stata commands read: the data catalog for `fw_use` and `fw_save`,
-and the publishing destinations for `fw_publish`. It starts with an empty
-catalog and a commented example of a folder destination. `fw_project` reads
-both files.
+`$inputs_raw`. `settings.yml` lists the same folders and holds the project
+name, the data catalog for `fw_use` and `fw_save`, the publishing
+destinations for `fw_publish`, and, in `project_sensitive` projects,
+`security: sensitive: true`. It starts with an empty catalog and commented
+examples. Framework for Stata 0.2.0 or later reads both files; when they set
+a folder differently, `settings.yml` wins and `fw_project` notes it.
+`master.do` runs `fw_project` and stops with the install command when
+framework-stata 0.2.0 or later is missing.
 
 Types and workflows differ by language:
 
