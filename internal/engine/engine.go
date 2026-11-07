@@ -93,7 +93,7 @@ type Request struct {
 
 // MinPython is the first framework-py release whose new() takes workflow
 // and offline, and that has adopt.
-const MinPython = "0.1.0.dev7"
+const MinPython = "0.1.0.dev8"
 
 // Create returns the command that creates the project in language.
 func (f Finder) Create(language string, req Request) (Command, error) {
