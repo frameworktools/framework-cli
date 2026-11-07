@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -229,5 +230,41 @@ func TestPythonHandoff(t *testing.T) {
 		if _, _, err := h.run(t, "", args...); exitCode(err) != exitUsage {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// fw adopt stops on an existing project before scanning, with the file it
+// found and the command to run instead, for every language.
+func TestAdoptExistingProject(t *testing.T) {
+	h := newHarness(t, nil)
+	f := &fakeEngines{}
+	f.install(h, "Rscript", "uv")
+	dir := oldStudy(t, h.app.home)
+	writeTestFile(t, filepath.Join(dir, "settings.yml"), "default:\n  project_type: project\n")
+	writeTestFile(t, filepath.Join(dir, "x.Rproj"), "")
+	for _, args := range [][]string{{"adopt", dir}, {"adopt", dir, "--json"}, {"adopt", dir, "--lang", "python", "--yes"}, {"adopt", dir, "--lang", "stata", "--yes"}} {
+		out, errOut, err := h.run(t, "", args...)
+		if exitCode(err) != exitFailure || strings.Contains(errOut, "Proposed mapping") || out != "" || len(f.ran) != 0 {
+			t.Errorf("%v: %v ran %v\n%s%s", args, err, f.ran, out, errOut)
+		}
+		var exit *exitError
+		if !errors.As(err, &exit) || exit.found != "settings.yml" || exit.hint != "fw project upgrade" || exit.reason != "already_framework" ||
+			!strings.Contains(err.Error(), "fw project upgrade") {
+			t.Errorf("%v: %#v", args, err)
+		}
+	}
+	var buf strings.Builder
+	h.app.jsonOut = true
+	report(&buf, h.app, alreadyProject(dir, "settings.yml"))
+	var got map[string]any
+	if err := json.Unmarshal([]byte(buf.String()), &got); err != nil || got["found"] != "settings.yml" || got["hint"] != "fw project upgrade" {
+		t.Errorf("JSON error: %v %s", err, buf.String())
+	}
+
+	// A project's own config.yml is not Framework's.
+	own := oldStudy(t, t.TempDir())
+	writeTestFile(t, filepath.Join(own, "config.yml"), "repositories:\n  data:\n    name: x\n")
+	if _, errOut, err := h.run(t, "", "adopt", own, "--lang", "stata", "--yes"); err != nil {
+		t.Errorf("own config.yml: %v\n%s", err, errOut)
 	}
 }

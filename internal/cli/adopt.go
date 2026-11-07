@@ -228,6 +228,10 @@ func newAdoptCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Before any scan or proposal: an existing project is upgraded, not adopted.
+			if found := adopt.Existing(dir); found != "" {
+				return alreadyProject(dir, found)
+			}
 			if lang == "" {
 				lang = adopt.DetectLanguage(dir)
 			}
@@ -269,6 +273,17 @@ func newAdoptCmd(a *app) *cobra.Command {
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping without asking")
 	f.BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
+}
+
+// alreadyProject is fw adopt's error for a folder that is already a
+// Framework project. With --json it names the file found and the command to
+// run instead.
+func alreadyProject(dir, found string) error {
+	msg := fmt.Sprintf("%s is already a Framework project (found %s). Nothing was changed. To bring it to the current layout, run fw project upgrade in it", dir, found)
+	if found != ".framework/spec.json" {
+		msg = fmt.Sprintf("%s is already a Framework project, made before Framework 2 (found %s). Nothing was changed. Run fw project upgrade in it to bring it to the current layout", dir, found)
+	}
+	return &exitError{code: exitFailure, err: errors.New(msg), reason: "already_framework", found: found, hint: "fw project upgrade"}
 }
 
 // adoptR shows the proposed mapping, which fw and R make from the same

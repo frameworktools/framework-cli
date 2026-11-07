@@ -110,4 +110,6 @@ type jsonError struct {
 	Error  string `json:"error"`
 	Code   int    `json:"exit_code"`
 	Reason string `json:"reason,omitempty"`
+	Found  string `json:"found,omitempty"`
+	Hint   string `json:"hint,omitempty"`
 }

@@ -18,6 +18,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/frameworktools/framework-cli/internal/adopt"
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"gopkg.in/yaml.v3"
 )
@@ -604,15 +605,11 @@ func (s *scaffolder) git() error {
 	return nil
 }
 
-// adoptMarkers are files that show a folder is already a Framework project.
-var adoptMarkers = []string{"settings.do", ".framework/spec.json", "settings.yml", "settings.yaml", "config.yml"}
-
 // CheckAdoptable returns an error when dir is already a Framework project.
+// A config.yml counts only when it is Framework's own.
 func CheckAdoptable(dir string) error {
-	for _, rel := range adoptMarkers {
-		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
-			return fmt.Errorf("%s is already a Framework project (found %s). Nothing was changed", dir, rel)
-		}
+	if found := adopt.Existing(dir); found != "" {
+		return fmt.Errorf("%s is already a Framework project (found %s). Nothing was changed", dir, found)
 	}
 	return nil
 }

@@ -89,3 +89,40 @@ func TestDetectLanguage(t *testing.T) {
 		}
 	}
 }
+
+func TestExisting(t *testing.T) {
+	write := func(dir, rel, content string) {
+		t.Helper()
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, c := range map[string]struct {
+		files map[string]string
+		want  string
+	}{
+		"nothing":            {map[string]string{"README.md": "x"}, ""},
+		"settings.yml":       {map[string]string{"settings.yml": "default: {}\n"}, "settings.yml"},
+		"settings.yaml":      {map[string]string{"settings.yaml": "default: {}\n"}, "settings.yaml"},
+		"spec first":         {map[string]string{"settings.yml": "", ".framework/spec.json": "{}"}, ".framework/spec.json"},
+		"stata":              {map[string]string{"settings.do": ""}, "settings.do"},
+		"framework config":   {map[string]string{"config.yml": "default:\n  project_type: project\n  packages: [dplyr]\n"}, "config.yml"},
+		"own config":         {map[string]string{"config.yml": "repositories:\n  data:\n    name: x\n"}, ""},
+		"config package":     {map[string]string{"config.yml": "default:\n  db: postgres\n  data: inputs\n"}, ""},
+		"unparseable config": {map[string]string{"config.yml": "default: [\n"}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			for rel, content := range c.files {
+				write(dir, rel, content)
+			}
+			if got := Existing(dir); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
