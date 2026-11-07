@@ -45,7 +45,22 @@ func (a *app) projectDir(args []string) (string, error) {
 func (a *app) reviewMapping(cmd *cobra.Command, rules adopt.Rules, m adopt.Mapping, language string, yes bool) (adopt.Mapping, error) {
 	errOut := cmd.ErrOrStderr()
 	if m.Empty() {
-		return m, errors.New("no folders found to map. Nothing was changed")
+		// A project of loose files, such as one analysis.qmd, has no folders
+		fmt.Fprintln(errOut, "No folders to map: the project is recorded with no directories. Add folders to its settings later.")
+		if yes {
+			return m, nil
+		}
+		if !a.interactive {
+			return m, usageError("no terminal to confirm from. Rerun with --yes to adopt the project with no directories")
+		}
+		ok, err := a.askYes(cmd, "Adopt it with no directories?")
+		if err != nil {
+			return m, err
+		}
+		if !ok {
+			return m, errors.New("canceled; nothing was changed")
+		}
+		return m, nil
 	}
 	for _, w := range m.Warnings {
 		fmt.Fprintf(errOut, "Warning: %s\n", w.Text())
@@ -171,6 +186,9 @@ func newStructureImportCmd(a *app) *cobra.Command {
 				return err
 			}
 			m := rules.Map(folders, lang)
+			if m.Empty() {
+				return errors.New("no folders found to map. Nothing was saved")
+			}
 			if a.jsonOut && !yes {
 				return writeJSON(cmd.OutOrStdout(), map[string]any{"name": name, "language": lang, "saved": false,
 					"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings})
@@ -331,7 +349,7 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOpt
 	if !yes {
 		errOut := cmd.ErrOrStderr()
 		if m.Empty() {
-			return errors.New("no folders found to map. Nothing was changed")
+			fmt.Fprintln(errOut, "No folders to map: the project is recorded with no directories.")
 		}
 		for _, w := range m.Warnings {
 			fmt.Fprintf(errOut, "Warning: %s\n", w.Text())

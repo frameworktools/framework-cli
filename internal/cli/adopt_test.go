@@ -358,3 +358,28 @@ func TestAdoptTypeAndSensitive(t *testing.T) {
 		t.Error("adopt wrote master.do")
 	}
 }
+
+// A project of loose files, with no folders, can be adopted.
+func TestAdoptNoFolders(t *testing.T) {
+	h := newHarness(t, nil)
+	f := &fakeEngines{}
+	f.install(h, "Rscript")
+	dir := filepath.Join(h.app.home, "single")
+	writeTestFile(t, filepath.Join(dir, "analysis.qmd"), "```{r}\n1\n```\n")
+	_, errOut, err := h.run(t, "", "adopt", dir, "--yes")
+	if err != nil || len(f.ran) != 1 || !strings.Contains(errOut, "Language: r (from analysis.qmd)") {
+		t.Errorf("R: %v %v\n%s", err, f.ran, errOut)
+	}
+
+	stataDir := filepath.Join(h.app.home, "loose")
+	writeTestFile(t, filepath.Join(stataDir, "clean.do"), "use x\n")
+	if _, errOut, err := h.run(t, "", "adopt", stataDir); exitCode(err) != exitUsage {
+		t.Errorf("no --yes: %v\n%s", err, errOut)
+	}
+	if _, errOut, err := h.run(t, "", "adopt", stataDir, "--yes"); err != nil || !strings.Contains(errOut, "No folders to map") {
+		t.Errorf("stata: %v\n%s", err, errOut)
+	}
+	if !strings.Contains(readTestFile(t, filepath.Join(stataDir, "settings.do")), "global root") {
+		t.Error("no settings.do")
+	}
+}
