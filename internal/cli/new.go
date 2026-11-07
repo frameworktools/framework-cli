@@ -397,9 +397,14 @@ func (a *app) cloudUnreachable(cmd *cobra.Command, flag string) string {
 }
 
 func linkProject(cmd *cobra.Command, link *cloudLink, dir string) error {
+	return linkProjectTo(cmd, cmd.OutOrStdout(), link, dir)
+}
+
+// linkProjectTo is linkProject reporting to out.
+func linkProjectTo(cmd *cobra.Command, out io.Writer, link *cloudLink, dir string) error {
 	token, url := link.token, link.url
 	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "" {
-		fmt.Fprintln(cmd.OutOrStdout(), "Kept the FW_PROJECT_TOKEN already in .env; fw did not link the project again.")
+		fmt.Fprintln(out, "Kept the FW_PROJECT_TOKEN already in .env; fw did not link the project again.")
 		return nil
 	}
 	if link.slug != "" {
@@ -417,7 +422,6 @@ func linkProject(cmd *cobra.Command, link *cloudLink, dir string) error {
 		return fmt.Errorf("git tracks %s, so the project token would be committed. "+
 			"Run `git rm --cached .env`, add .env to .gitignore, then run fw project link in %s", filepath.Join(dir, ".env"), dir)
 	}
-	out := cmd.OutOrStdout()
 	ignored, err := project.IgnoreEnv(dir)
 	if err != nil {
 		return fmt.Errorf("could not add .env to .gitignore, so the project token was not written: %w", err)

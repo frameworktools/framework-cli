@@ -18,29 +18,50 @@ func newProjectCmd(a *app) *cobra.Command {
 		Use:   "project",
 		Short: "Work with the Framework project in the current folder",
 	}
-	var from, urlFlag string
-	var pullToken bool
+	var from string
+	var pullToken, create, private bool
+	var co createOptions
 	link := &cobra.Command{
 		Use:   "link",
-		Short: "Link this project to Framework Cloud",
+		Short: "Link this project to Framework Cloud, or create it there",
 		Long: "Adds FW_PROJECT_TOKEN and FW_CLOUD_URL to the project's .env, so the R and\n" +
 			"Python packages can publish to the server the project came from. Values\n" +
-			"already in .env are kept. A project that already has FW_PROJECT_TOKEN is\n" +
-			"linked: fw changes nothing and gets no new token. To link it to another\n" +
-			"project, remove FW_PROJECT_TOKEN and FW_CLOUD_URL from .env first.\n\n" +
+			"already in .env are kept, and fw adds .env to .gitignore. A project that\n" +
+			"already has FW_PROJECT_TOKEN is linked: fw changes nothing and gets no new\n" +
+			"token. To link it to another project, remove FW_PROJECT_TOKEN and\n" +
+			"FW_CLOUD_URL from .env first.\n\n" +
 			"--from SLUG uses your login to get a new project token for one of your\n" +
 			"projects. --pull-token takes a project token from the project's page; fw\n" +
-			"asks for it, or reads it from stdin.",
+			"asks for it, or reads it from stdin.\n\n" +
+			"--create makes the Framework Cloud project for a project that exists only\n" +
+			"here, such as one made with fw adopt, from its .framework/spec.json: its\n" +
+			"name, type, language, and folders. A project made by Framework uses the\n" +
+			"built-in structure for its type; an adopted one saves its own folders as\n" +
+			"a private structure first. fw then links the project and sends its spec.\n" +
+			"The slug comes from the name unless --slug gives one. When you already\n" +
+			"have a project with that slug, fw offers to link to it (--from) instead\n" +
+			"and creates nothing. Framework Cloud projects are private to your\n" +
+			"account. A project with no spec needs fw project upgrade --apply first.",
 		Example: "  fw project link --from vaccine-study\n" +
-			"  fw project link --pull-token --url https://framework.example.edu",
+			"  fw project link --pull-token --url https://framework.example.edu\n" +
+			"  fw project link --create\n" +
+			"  fw project link --create --slug old-study --name \"Old study\" --json",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := a.requireProject()
 			if err != nil {
 				return err
 			}
+			if create {
+				return a.linkCreate(cmd, root, co)
+			}
+			for _, flag := range []string{"slug", "name", "description", "private", "public", "include-private"} {
+				if cmd.Flags().Changed(flag) {
+					return usageError("--" + flag + " goes with --create")
+				}
+			}
 			if from == "" && !pullToken {
-				return usageError("give --from SLUG or --pull-token")
+				return usageError("give --from SLUG, --pull-token, or --create")
 			}
 			// Check before minting a token that would never be written.
 			if err := a.checkNotLinked(cmd, root, from); errors.Is(err, errAlreadyLinked) {
@@ -51,13 +72,13 @@ func newProjectCmd(a *app) *cobra.Command {
 			var l cloudLink
 			switch {
 			case from != "":
-				client, err := a.userClient(urlFlag)
+				client, err := a.userClient(co.url)
 				if err != nil {
 					return err
 				}
 				l = cloudLink{slug: from, client: client, url: client.URL}
 			case pullToken:
-				server, err := a.server(urlFlag, cloud.UserScope)
+				server, err := a.server(co.url, cloud.UserScope)
 				if err != nil {
 					return err
 				}
@@ -79,10 +100,20 @@ func newProjectCmd(a *app) *cobra.Command {
 			return linkProject(cmd, &l, root)
 		},
 	}
-	link.Flags().StringVar(&from, "from", "", "the slug of your project on Framework Cloud")
-	link.Flags().BoolVar(&pullToken, "pull-token", false, "use a project token (asked for, or read from stdin)")
-	link.Flags().StringVar(&urlFlag, "url", "", "Framework Cloud server")
-	link.MarkFlagsMutuallyExclusive("from", "pull-token")
+	lf := link.Flags()
+	lf.StringVar(&from, "from", "", "the slug of your project on Framework Cloud")
+	lf.BoolVar(&pullToken, "pull-token", false, "use a project token (asked for, or read from stdin)")
+	lf.BoolVar(&create, "create", false, "create the project on Framework Cloud from .framework/spec.json, then link it and send the spec")
+	lf.StringVar(&co.slug, "slug", "", "with --create: the project's slug (default: made from the name)")
+	lf.StringVar(&co.name, "name", "", "with --create: the project's name (default: the spec's name, else the folder's)")
+	lf.StringVar(&co.description, "description", "", "with --create: a description for the project")
+	lf.BoolVar(&private, "private", false, "with --create: keep the project private to your account (the default; Cloud projects are always private)")
+	lf.BoolVar(&co.public, "public", false, "with --create: not available; Framework Cloud has no public projects")
+	lf.BoolVar(&co.includePrivate, "include-private", false, "with --create: send the spec without asking when the project's path contains \"private\"")
+	lf.StringVar(&co.url, "url", "", "Framework Cloud server")
+	lf.BoolVar(&a.jsonOut, "json", false, jsonHelp+" (with --create)")
+	link.MarkFlagsMutuallyExclusive("from", "pull-token", "create")
+	link.MarkFlagsMutuallyExclusive("private", "public")
 	cmd.AddCommand(link, newProjectShowCmd(a), newProjectStatusCmd(a), newProjectBootstrapCmd(a), newPushSpecCmd(a))
 	return cmd
 }

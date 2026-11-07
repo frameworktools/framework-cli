@@ -210,3 +210,8 @@ func (c *Client) send(ctx context.Context, method, path, contentType string, bod
 func ErrPaymentRequired(host string) error {
 	return fmt.Errorf("this account cannot publish documents on %s. Publishing on framework.pub needs paid hosting; self-hosted servers allow it", host)
 }
+
+// RenameProject changes a project's name. Its slug, and so its links, stay.
+func (c *Client) RenameProject(ctx context.Context, slug, name string) error {
+	return c.Do(ctx, http.MethodPatch, "/api/v1/projects/"+url.PathEscape(slug), map[string]string{"name": name}, nil)
+}
