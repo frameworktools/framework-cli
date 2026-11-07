@@ -145,7 +145,8 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 	case pieces && (o.from != "" || o.pullToken):
 		return usageError("--blueprint, --structure, and the other cloud choices describe a new project; --from and --pull-token take an existing one")
 	case pieces && o.kind != "":
-		return usageError("--type picks one of fw's built-in setups; with --blueprint or --structure, the cloud's pieces decide instead")
+		given := strings.Join(changedPieceFlags(cmd), ", ")
+		return usageError(fmt.Sprintf("--type picks one of fw's built-in setups and cannot be combined with cloud choices (%s). Drop --type to build from pieces on Framework Cloud, or drop %s to use the built-in setup", given, given))
 	case pieces && o.headless:
 		return usageError("--headless works with a layers file, for automation. Drop it to build from cloud choices")
 	case o.workflow != "" && o.workflow != "quarto" && o.workflow != "jupyter" && o.workflow != "scripts":

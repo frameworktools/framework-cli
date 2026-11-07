@@ -87,6 +87,14 @@ func TestNewFromCloudChoices(t *testing.T) {
 	}
 }
 
+func TestNewTypeConflictNamesTheFlags(t *testing.T) {
+	h := newHarness(t, nil)
+	_, _, err := h.run(t, "", "new", "X", "--type", "project", "--git=false", "--offline")
+	if exitCode(err) != exitUsage || !strings.Contains(err.Error(), "(--git)") || strings.Contains(err.Error(), "--blueprint") {
+		t.Errorf("exit %d %v", exitCode(err), err)
+	}
+}
+
 func TestNewFromCloudChoicesNeedsLogin(t *testing.T) {
 	h := newHarness(t, nil)
 	_, _, err := h.run(t, "", "new", "Survey", "--blueprint", "framework/project")

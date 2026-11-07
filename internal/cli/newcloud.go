@@ -45,12 +45,18 @@ func addPieceFlags(cmd *cobra.Command, p *pieceOptions) {
 var pieceFlags = []string{"blueprint", "structure", "package-set", "skill-set", "skill", "tool", "no-tool", "sensitive", "ai", "git", "defaults", "cloud"}
 
 func usesPieces(cmd *cobra.Command) bool {
+	return len(changedPieceFlags(cmd)) > 0
+}
+
+// changedPieceFlags names the cloud piece flags given, as "--git, --tool".
+func changedPieceFlags(cmd *cobra.Command) []string {
+	var names []string
 	for _, name := range pieceFlags {
 		if cmd.Flags().Changed(name) {
-			return true
+			names = append(names, "--"+name)
 		}
 	}
-	return false
+	return names
 }
 
 func (p pieceOptions) choices(cmd *cobra.Command, name, language string) cloud.Choices {
