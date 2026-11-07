@@ -200,9 +200,14 @@ func newStructureImportCmd(a *app) *cobra.Command {
 	return cmd
 }
 
+// adoptTypes are the project types fw adopt takes. course and presentation
+// projects are made new, not adopted.
+var adoptTypes = []string{"project", "project_sensitive", "bare"}
+
 func newAdoptCmd(a *app) *cobra.Command {
 	var lang string
 	var yes bool
+	var o engine.AdoptOptions
 	cmd := &cobra.Command{
 		Use:   "adopt [DIR]",
 		Short: "Make an existing folder a Framework project, without moving anything",
@@ -234,6 +239,12 @@ func newAdoptCmd(a *app) *cobra.Command {
 			if lang != "" && lang != "r" && lang != "python" && lang != "stata" {
 				return usageError("--lang takes r, python, or stata")
 			}
+			if o.Type != "" && !contains(adoptTypes, o.Type) {
+				return usageError("--type takes project, project_sensitive, or bare")
+			}
+			if o.Type == "project_sensitive" {
+				o.Sensitive = true
+			}
 			dir, err := a.projectDir(args)
 			if err != nil {
 				return err
@@ -262,22 +273,33 @@ func newAdoptCmd(a *app) *cobra.Command {
 				source = "your answer"
 			}
 			if a.jsonOut && !yes {
-				return a.adoptProposal(cmd, dir, lang, source)
+				return a.adoptProposal(cmd, dir, lang, source, o)
 			}
 			switch lang {
 			case "r":
-				return a.adoptR(cmd, dir, yes)
+				return a.adoptR(cmd, dir, yes, o)
 			case "python":
-				return a.adoptPython(cmd, dir, yes)
+				return a.adoptPython(cmd, dir, yes, o)
 			}
-			return a.adoptStata(cmd, dir, yes)
+			return a.adoptStata(cmd, dir, yes, o)
 		},
 	}
 	f := cmd.Flags()
 	f.StringVar(&lang, "lang", "", "the project's language: r, python, or stata (default: detected)")
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping without asking")
+	f.StringVar(&o.Type, "type", "", "the project type: project, project_sensitive, or bare (default: the language package's choice; bare for Stata)")
+	f.BoolVar(&o.Sensitive, "sensitive", false, "the project holds sensitive data: turn on Framework's guards for private folders")
 	f.BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
+}
+
+// sensitiveHint tells someone adopting without --sensitive that folders
+// look private, since nothing asks when fw runs the package for them.
+func sensitiveHint(cmd *cobra.Command, m adopt.Mapping, o engine.AdoptOptions) {
+	if len(m.Warnings) > 0 && !o.Sensitive {
+		fmt.Fprintln(cmd.ErrOrStderr(), "Some folders look private, and the project is adopted as not sensitive. If it holds sensitive data, "+
+			"add --sensitive to turn on Framework's guards (or set security: sensitive: true in settings.yml later).")
+	}
 }
 
 // alreadyProject is fw adopt's error for a folder that is already a
@@ -295,19 +317,19 @@ func alreadyProject(dir, found string) error {
 // rules, and has the framework R package's adopt() write the project. R
 // reviews a mapping only in an R session, so changing a folder's role needs
 // framework::adopt() in R.
-func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool) error {
-	command, err := a.engines.AdoptR(dir)
+func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) error {
+	command, err := a.engines.AdoptR(dir, o)
 	if err != nil {
 		return err
 	}
+	rules := adopt.Shared()
+	folders, err := rules.Scan(dir)
+	if err != nil {
+		return err
+	}
+	m := rules.Map(folders, "r")
 	if !yes {
-		rules := adopt.Shared()
-		folders, err := rules.Scan(dir)
-		if err != nil {
-			return err
-		}
 		errOut := cmd.ErrOrStderr()
-		m := rules.Map(folders, "r")
 		if m.Empty() {
 			return errors.New("no folders found to map. Nothing was changed")
 		}
@@ -330,14 +352,19 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool) error {
 			return errors.New("canceled; nothing was changed")
 		}
 	}
+	sensitiveHint(cmd, m, o)
 	return a.runAdopt(cmd, command, dir, "r", "framework::adopt()")
 }
 
 // adoptPython hands the folder to framework-py's adopt.
-func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool) error {
-	command, err := a.engines.AdoptPython(dir, yes)
+func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) error {
+	command, err := a.engines.AdoptPython(dir, yes, o)
 	if err != nil {
 		return err
+	}
+	rules := adopt.Shared()
+	if folders, err := rules.Scan(dir); err == nil && yes {
+		sensitiveHint(cmd, rules.Map(folders, "python"), o)
 	}
 	return a.runAdopt(cmd, command, dir, "python", "framework-py")
 }
@@ -403,7 +430,7 @@ func adoptedResult(dir, lang string, before map[string]bool) map[string]any {
 // adoptProposal prints fw adopt --json's proposal without changing
 // anything: the mapping fw and the language packages make from the shared
 // rules.
-func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string) error {
+func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string, o engine.AdoptOptions) error {
 	rules := adopt.Shared()
 	folders, err := rules.Scan(dir)
 	if err != nil {
@@ -411,12 +438,24 @@ func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string) error 
 	}
 	m := rules.Map(folders, lang)
 	return writeJSON(cmd.OutOrStdout(), map[string]any{
-		"path": dir, "language": lang, "language_source": source, "adopted": false,
+		"path": dir, "language": lang, "language_source": source, "adopted": false, "type": proposedType(lang, o), "sensitive": o.Sensitive,
 		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings,
 	})
 }
 
-func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool) error {
+// proposedType is the type a proposal shows: --type, or bare for Stata.
+// Without --type, the R and Python packages choose, so it is null.
+func proposedType(lang string, o engine.AdoptOptions) any {
+	switch {
+	case o.Type != "":
+		return o.Type
+	case lang == "stata":
+		return "bare"
+	}
+	return nil
+}
+
+func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) error {
 	if err := stata.CheckAdoptable(dir); err != nil {
 		return err
 	}
@@ -429,8 +468,8 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool) error {
 	if err != nil {
 		return err
 	}
-	sensitive := false
-	if !yes && a.interactive && len(m.Warnings) > 0 {
+	sensitive := o.Sensitive
+	if !sensitive && !yes && a.interactive && len(m.Warnings) > 0 {
 		if sensitive, err = a.askYes(cmd, "Does this project hold sensitive data? Framework will treat its outputs as private by default."); err != nil {
 			return err
 		}
@@ -439,6 +478,9 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool) error {
 	extras := map[string]any{}
 	for k, e := range m.ExtraDirectories {
 		extras[k] = map[string]any{"label": e.Label, "path": e.Path}
+	}
+	if yes {
+		sensitiveHint(cmd, m, o)
 	}
 	layer, err := json.Marshal(stata.AdoptLayer(m.Directories, extras, sensitive))
 	if err != nil {
@@ -452,6 +494,11 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool) error {
 		return err
 	}
 	resolved.Doc["skills"] = map[string]any{}
+	// The layer resolves as bare, so no built-in folders are added; --type
+	// changes only the label.
+	if o.Type != "" {
+		resolved.Doc["type"], resolved.View.Type = o.Type, o.Type
+	}
 	created, err := stata.Adopt(resolved, dir)
 	if err != nil {
 		return err

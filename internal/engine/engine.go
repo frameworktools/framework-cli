@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -160,11 +161,33 @@ func (f Finder) createR(req Request) (Command, error) {
 	return f.rCommand(expr, args, need, lacks)
 }
 
+// AdoptOptions are fw adopt's choices for the language package: the
+// project type (project, project_sensitive, or bare; empty lets the package
+// choose) and whether the project holds sensitive data.
+type AdoptOptions struct {
+	Type      string
+	Sensitive bool
+}
+
 // AdoptR returns the command that hands an existing folder to the framework
 // R package's adopt(), accepting its proposed mapping. R reviews a mapping
-// only in an interactive R session, which Rscript is not.
-func (f Finder) AdoptR(dir string) (Command, error) {
-	return f.rCommand("a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE)", []string{dir}, rHas("adopt"), "has no adopt()")
+// only in an interactive R session, which Rscript is not. A type or
+// sensitive setting needs an adopt() that takes them.
+func (f Finder) AdoptR(dir string, o AdoptOptions) (Command, error) {
+	if o.Type == "" && !o.Sensitive {
+		return f.rCommand("a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE)", []string{dir}, rHas("adopt"), "has no adopt()")
+	}
+	expr := "a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE"
+	args := []string{dir}
+	if o.Type != "" {
+		expr += ", type = a[2]"
+		args = append(args, o.Type)
+	}
+	if o.Sensitive {
+		expr += ", sensitive = TRUE"
+	}
+	need := rHas("adopt") + ` || !all(c("type", "sensitive") %in% names(formals(get("adopt", envir = asNamespace("framework")))))`
+	return f.rCommand(expr+")", args, need, "has an adopt() that does not take type or sensitive, which came after framework 2.0.1")
 }
 
 // rHas is an R condition that is true when the framework package lacks one
@@ -237,14 +260,45 @@ func (f Finder) createPython(req Request) (Command, error) {
 }
 
 // AdoptPython returns the command that hands an existing folder to
-// framework-py's adopt.
-func (f Finder) AdoptPython(dir string, yes bool) (Command, error) {
+// framework-py's adopt. A type or sensitive setting needs a framework-py
+// whose adopt takes --type and --sensitive; fw checks its help first.
+func (f Finder) AdoptPython(dir string, yes bool, o AdoptOptions) (Command, error) {
 	args := []string{"-m", "framework", "adopt", "--path", dir}
 	if yes {
 		args = append(args, "--yes")
 	}
-	return f.python(args)
+	if o.Type != "" {
+		args = append(args, "--type", o.Type)
+	}
+	if o.Sensitive {
+		args = append(args, "--sensitive")
+	}
+	command, err := f.python(args)
+	if err != nil || o.Type == "" && !o.Sensitive {
+		return command, err
+	}
+	probe, err := f.python([]string{"-c", pythonAdoptFlags})
+	if err != nil {
+		return Command{}, err
+	}
+	if !f.Probe(probe) {
+		return Command{}, errors.New("the framework-py that fw runs does not take --type or --sensitive in adopt yet; they came after framework-py 0.1.0.dev12. " +
+			"Update it (or set FW_PYTHON_PACKAGE to a framework-py that has them), or run fw adopt without --type and --sensitive")
+	}
+	return command, nil
 }
+
+// pythonAdoptFlags exits 0 when python -m framework adopt --help lists
+// --type and --sensitive.
+const pythonAdoptFlags = `import contextlib, io, runpy, sys
+sys.argv = ["framework", "adopt", "--help"]
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    try:
+        runpy.run_module("framework", run_name="__main__")
+    except BaseException:
+        pass
+sys.exit(0 if "--type" in out.getvalue() and "--sensitive" in out.getvalue() else 4)`
 
 // python runs framework-py's module with args: through FW_PYTHON, uv with
 // framework-py MinPython or later, or a python3 whose framework-py has

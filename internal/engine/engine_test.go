@@ -109,9 +109,41 @@ func TestCreatePythonFromDefaults(t *testing.T) {
 }
 
 func TestAdoptPython(t *testing.T) {
-	cmd, err := finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true)
+	cmd, err := finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true, AdoptOptions{})
 	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev10' python -m framework adopt --path /w/old --yes" {
 		t.Errorf("got %s %v", cmd, err)
+	}
+	cmd, err = finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true, AdoptOptions{Type: "project", Sensitive: true})
+	if err != nil || !strings.HasSuffix(cmd.String(), "adopt --path /w/old --yes --type project --sensitive") {
+		t.Errorf("got %s %v", cmd, err)
+	}
+	// An older framework-py, whose adopt has no --type: say so, and run nothing.
+	if _, err := finder(map[string]string{"uv": "uv"}, false, nil).AdoptPython("/w/old", true, AdoptOptions{Sensitive: true}); err == nil || !strings.Contains(err.Error(), "does not take --type or --sensitive") {
+		t.Errorf("old framework-py: %v", err)
+	}
+	// Without them, nothing is checked.
+	if _, err := finder(map[string]string{"uv": "uv"}, false, nil).AdoptPython("/w/old", true, AdoptOptions{}); err != nil {
+		t.Errorf("plain: %v", err)
+	}
+}
+
+func TestAdoptR(t *testing.T) {
+	f := finder(map[string]string{"Rscript": "/bin/Rscript"}, true, nil)
+	cmd, err := f.AdoptR("/w/old", AdoptOptions{Type: "project_sensitive", Sensitive: true})
+	if err != nil || cmd.Args[1] != "a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE, type = a[2], sensitive = TRUE)" || strings.Join(cmd.Args[2:], ",") != "/w/old,project_sensitive" {
+		t.Errorf("got %v %v", cmd.Args, err)
+	}
+	var checked []string
+	f.Probe = func(c Command) bool {
+		checked = append(checked, c.Args[1])
+		return !strings.Contains(c.Args[1], "formals")
+	}
+	var missing *MissingError
+	if _, err := f.AdoptR("/w/old", AdoptOptions{Sensitive: true}); !errors.As(err, &missing) || !strings.Contains(err.Error(), "does not take type or sensitive") {
+		t.Errorf("old R package: %v", err)
+	}
+	if len(checked) == 0 || !strings.Contains(checked[0], `c("type", "sensitive") %in% names(formals(`) {
+		t.Errorf("checked %v", checked)
 	}
 }
 
@@ -141,7 +173,7 @@ func TestRCapabilityChecks(t *testing.T) {
 		t.Errorf("args %q", cmd.Args)
 	}
 
-	cmd, err = f.AdoptR("/w/old")
+	cmd, err = f.AdoptR("/w/old", AdoptOptions{})
 	if err != nil || !strings.Contains(cmd.Args[1], "framework::adopt(a[1], yes = TRUE)") || cmd.Args[2] != "/w/old" || !strings.Contains(probes[len(probes)-1], `"adopt"`) {
 		t.Errorf("adopt: %v %v", cmd, err)
 	}

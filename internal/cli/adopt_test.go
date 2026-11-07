@@ -315,3 +315,46 @@ func TestAdoptJSON(t *testing.T) {
 		})
 	}
 }
+
+// --type and --sensitive reach R and Python, and set Stata's spec.
+func TestAdoptTypeAndSensitive(t *testing.T) {
+	h := newHarness(t, nil)
+	f := &fakeEngines{}
+	f.install(h, "Rscript", "uv")
+	dir := oldStudy(t, h.app.home)
+
+	if _, _, err := h.run(t, "", "adopt", dir, "--type", "course", "--yes"); exitCode(err) != exitUsage {
+		t.Errorf("course: %v", err)
+	}
+	_, errOut, err := h.run(t, "", "adopt", dir, "--lang", "r", "--type", "project_sensitive", "--yes")
+	if err != nil || !strings.Contains(f.ran[0].Args[1], "type = a[2], sensitive = TRUE") || f.ran[0].Args[3] != "project_sensitive" || strings.Contains(errOut, "add --sensitive") {
+		t.Errorf("R: %v %v\n%s", err, f.ran, errOut)
+	}
+	_, errOut, err = h.run(t, "", "adopt", dir, "--lang", "python", "--sensitive", "--yes")
+	if err != nil || !strings.HasSuffix(f.ran[1].String(), "--yes --sensitive") {
+		t.Errorf("python: %v %v\n%s", err, f.ran, errOut)
+	}
+	// Without --sensitive, private-looking folders get a hint.
+	if _, errOut, _ = h.run(t, "", "adopt", dir, "--lang", "r", "--yes"); !strings.Contains(errOut, "add --sensitive") {
+		t.Errorf("no hint:\n%s", errOut)
+	}
+
+	out, _, err := h.run(t, "", "adopt", dir, "--lang", "stata", "--type", "project", "--sensitive", "--yes", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Type        string            `json:"type"`
+		Directories map[string]string `json:"directories"`
+		Security    struct{ Sensitive bool }
+	}
+	if err := json.Unmarshal([]byte(readTestFile(t, filepath.Join(dir, ".framework", "spec.json"))), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Type != "project" || !doc.Security.Sensitive || doc.Directories["outputs_tables"] != "" {
+		t.Errorf("stata spec: %+v\n%s", doc, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "master.do")); err == nil {
+		t.Error("adopt wrote master.do")
+	}
+}
