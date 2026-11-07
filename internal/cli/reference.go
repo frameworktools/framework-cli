@@ -36,7 +36,7 @@ var refCategoryOf = map[string]string{
 	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud",
 	"structures list": "cloud", "tools list": "cloud", "package-sets list": "cloud", "skills list": "cloud",
 	"new": "projects", "project link": "projects", "project status": "projects", "project bootstrap": "projects",
-	"project push-spec": "projects", "adopt": "projects", "structures import": "cloud",
+	"project push-spec": "projects", "project upgrade": "projects", "adopt": "projects", "structures import": "cloud",
 	"config path": "setup", "config sync": "setup", "doctor": "setup", "version": "setup",
 }
 
@@ -49,6 +49,7 @@ var refSince = map[string]string{
 	"project show": "0.2.0", "blueprints list": "0.2.0", "publish": "0.2.0", "project push-spec": "0.2.0",
 	"structures list": "0.3.0", "tools list": "0.3.0", "package-sets list": "0.3.0", "skills list": "0.3.0",
 	"adopt": "0.4.0", "structures import": "0.4.0",
+	"project upgrade": "0.4.7",
 }
 
 // refEnv names the environment variable that sets a flag.
@@ -69,6 +70,7 @@ var refSeeAlso = map[string][]string{
 	"publish":           {"project link", "guide:publishing", "r:ref:publish"},
 	"new":               {"project bootstrap", "project link", "guide:projects"},
 	"project link":      {"publish", "project push-spec"},
+	"project upgrade":   {"adopt", "project link", "project push-spec"},
 	"project status":    {"project bootstrap", "doctor"},
 	"project bootstrap": {"new", "r:ref:bootstrap", "py:ref:bootstrap"},
 	"project push-spec": {"project link", "project show"},
@@ -80,7 +82,8 @@ var refSeeAlso = map[string][]string{
 var refReturns = map[string]string{
 	"structures import": "With `--json` and no `--yes`, the proposed mapping and nothing saved: `{\"name\", \"language\", \"saved\": false, \"directories\", \"extra_directories\", \"warnings\"}`. " +
 		"With `--yes`, the same with `\"saved\": true` and the new structure's `key`, `name`, and `url`. Each warning is `{\"code\": \"private_path\", \"path\": ...}`.",
-	"adopt": "With `--json` (and `--yes`), `{\"path\", \"language\", \"created\", \"directories\", \"extra_directories\", \"warnings\"}`. `created` lists the files fw wrote.",
+	"adopt":           "With `--json` (and `--yes`), `{\"path\", \"language\", \"created\", \"directories\", \"extra_directories\", \"warnings\"}`. `created` lists the files fw wrote.",
+	"project upgrade": "With `--json`, for Stata projects, `{\"path\", \"language\", \"applied\", \"changes\", \"notes\", \"backup\"}`. Each change has `file`, `action` (create, insert, append, or update), `summary`, and the `lines` it adds.",
 	"login": "With `--json`, stdout gets the same object as `fw status --json`. Without a terminal, the code to approve goes to stderr as one JSON line:\n\n" +
 		"```json\n{\"user_code\": \"QGMK-JE6Q\", \"verification_url\": \"https://framework.pub/device?code=QGMK-JE6Q\", \"expires_in\": 600}\n```",
 	"status": "With `--json`, an object with `server`, `server_source`, `logged_in`, `account` (`kind`, `name`, `email`, or `null`), `token_source`, " +

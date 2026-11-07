@@ -558,7 +558,7 @@ func newPushSpecCmd(a *app) *cobra.Command {
 			specPath := filepath.Join(root, ".framework", "spec.json")
 			data, err := os.ReadFile(specPath)
 			if errors.Is(err, fs.ErrNotExist) {
-				return errors.New("this project has no .framework/spec.json. Projects made by older versions of R and Python don't record one")
+				return errors.New("this project has no .framework/spec.json. Projects made by older versions of R, Python, and fw don't record one. Run fw project upgrade --apply to record it")
 			}
 			if err != nil {
 				return err

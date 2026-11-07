@@ -505,6 +505,15 @@ func (s *scaffolder) specFiles() error {
 // that fw_publish reads. Its directories match settings.do. Destinations
 // from the layers are written out; otherwise a commented example shows one.
 func (s *scaffolder) settingsYml() error {
+	var b strings.Builder
+	if err := s.renderSettingsYml(&b); err != nil {
+		return err
+	}
+	return s.write("settings.yml", b.String(), 0o644)
+}
+
+// renderSettingsYml writes settings.yml's content to w.
+func (s *scaffolder) renderSettingsYml(w *strings.Builder) error {
 	publish := ""
 	if value, ok := s.r.Doc["publish"]; ok && value != nil {
 		var b bytes.Buffer
@@ -541,7 +550,8 @@ func (s *scaffolder) settingsYml() error {
 	if err != nil {
 		return err
 	}
-	return s.write("settings.yml", content, 0o644)
+	w.WriteString(content)
+	return nil
 }
 
 func (s *scaffolder) record() error {

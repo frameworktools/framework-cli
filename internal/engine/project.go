@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/frameworktools/framework-cli/internal/adopt"
 )
 
 // Project describes an existing project: its language, and how to run code
@@ -115,6 +117,11 @@ func DetectLanguage(root string) (language, source string) {
 		return "stata", "settings.do"
 	case exists(root, "settings.yml") || exists(root, "renv.lock"):
 		return "r", "settings.yml"
+	case exists(root, "settings.yaml"):
+		return "r", "settings.yaml"
+	case adopt.FrameworkConfig(filepath.Join(root, "config.yml")):
+		// Framework 1 was for R only
+		return "r", "config.yml"
 	}
 	return "", ""
 }
