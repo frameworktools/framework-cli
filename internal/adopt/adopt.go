@@ -91,9 +91,16 @@ func (r Rules) skipped(segment string) bool {
 	if strings.HasPrefix(segment, ".") {
 		return true
 	}
+	lower := strings.ToLower(segment)
 	for _, s := range r.Skip {
+		// A pattern such as *_files matches with path.Match, ignoring case
 		if strings.EqualFold(s, segment) {
 			return true
+		}
+		if strings.ContainsAny(s, "*?[") {
+			if ok, _ := path.Match(strings.ToLower(s), lower); ok {
+				return true
+			}
 		}
 	}
 	return false

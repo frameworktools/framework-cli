@@ -147,3 +147,24 @@ func TestExisting(t *testing.T) {
 		})
 	}
 }
+
+// Skip entries may be globs, such as Quarto's *_files render folders. The
+// shared rules come from the R package, so the test adds its own entries.
+func TestScanSkipGlobs(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"settings", "report_files/figure-html", "Analysis_Cache", "_site", "scripts", "profiles"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(d)), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules := Shared()
+	rules.Skip = append(rules.Skip, "settings", "_site", "*_files", "*_cache")
+	folders, err := rules.Scan(root)
+	if err != nil || strings.Join(folders, ",") != "profiles,scripts" {
+		t.Errorf("scan: %v %v", folders, err)
+	}
+	m := rules.Map([]string{"settings", "nb_files", "scripts"}, "r")
+	if len(m.ExtraDirectories) != 0 || m.Directories["scripts"] != "scripts" {
+		t.Errorf("map: %+v", m)
+	}
+}
