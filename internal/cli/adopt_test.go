@@ -173,7 +173,10 @@ func TestStructureImport(t *testing.T) {
 		t.Errorf("proposal: %v %q\n%s", err, lastStructure, out)
 	}
 
-	out, _, err = h.run(t, "", "structure", "import", dir, "--yes", "--name", "Old Study")
+	if _, _, err := h.run(t, "", "structures", "import", dir, "--yes", "--type", "spaceship"); exitCode(err) != exitUsage {
+		t.Errorf("bad type: %v", err)
+	}
+	out, _, err = h.run(t, "", "structure", "import", dir, "--yes", "--name", "Old Study", "--type", "bare")
 	if err != nil || !strings.Contains(out, "ada/old-study") {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -182,7 +185,7 @@ func TestStructureImport(t *testing.T) {
 		t.Fatal(err)
 	}
 	dirs, _ := sent["directories"].(map[string]any)
-	if sent["name"] != "Old Study" || dirs["do"] != "do" || dirs["inputs_final"] != "data/clean" {
+	if sent["name"] != "Old Study" || sent["type"] != "bare" || dirs["do"] != "do" || dirs["inputs_final"] != "data/clean" {
 		t.Errorf("body: %s", lastStructure)
 	}
 	if strings.Contains(lastStructure, "analysis.do") {

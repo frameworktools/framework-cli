@@ -122,8 +122,8 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-func structureBody(name, description string, m adopt.Mapping) cloud.NewStructure {
-	s := cloud.NewStructure{Name: name, Description: description, Directories: m.Directories}
+func structureBody(name, description, kind string, m adopt.Mapping) cloud.NewStructure {
+	s := cloud.NewStructure{Name: name, Description: description, Type: kind, Directories: m.Directories}
 	if len(m.ExtraDirectories) > 0 {
 		s.ExtraDirectories = map[string]cloud.ExtraDirectory{}
 		for k, e := range m.ExtraDirectories {
@@ -134,8 +134,9 @@ func structureBody(name, description string, m adopt.Mapping) cloud.NewStructure
 }
 
 // uploadStructure saves the mapping as a private structure on the server.
-func uploadStructure(cmd *cobra.Command, client *cloud.Client, name, description string, m adopt.Mapping) (cloud.CreatedStructure, error) {
-	created, err := client.CreateStructure(cmd.Context(), structureBody(name, description, m))
+// kind is the project type it is for; empty lets the server choose project.
+func uploadStructure(cmd *cobra.Command, client *cloud.Client, name, description, kind string, m adopt.Mapping) (cloud.CreatedStructure, error) {
+	created, err := client.CreateStructure(cmd.Context(), structureBody(name, description, kind, m))
 	if err != nil {
 		return created, explain(err, client.URL)
 	}
@@ -143,7 +144,7 @@ func uploadStructure(cmd *cobra.Command, client *cloud.Client, name, description
 }
 
 func newStructureImportCmd(a *app) *cobra.Command {
-	var name, description, lang string
+	var name, description, lang, kind string
 	var yes bool
 	cmd := &cobra.Command{
 		Use:   "import [DIR]",
@@ -163,6 +164,9 @@ func newStructureImportCmd(a *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if lang != "" && lang != "r" && lang != "python" && lang != "stata" {
 				return usageError("--lang takes r, python, or stata")
+			}
+			if kind != "" && !contains(structureTypes, kind) {
+				return usageError("--type takes " + strings.Join(structureTypes, ", "))
 			}
 			urlFlag, _ := cmd.Flags().GetString("url")
 			client, err := a.userClient(urlFlag)
@@ -197,7 +201,7 @@ func newStructureImportCmd(a *app) *cobra.Command {
 			if m, err = a.reviewMapping(cmd, rules, m, lang, yes); err != nil {
 				return err
 			}
-			created, err := uploadStructure(cmd, client, name, description, m)
+			created, err := uploadStructure(cmd, client, name, description, kind, m)
 			if err != nil {
 				return err
 			}
@@ -214,10 +218,15 @@ func newStructureImportCmd(a *app) *cobra.Command {
 	f.StringVar(&name, "name", "", "the structure's name (default: the folder's name)")
 	f.StringVar(&description, "description", "", "a description for the structure")
 	f.StringVar(&lang, "lang", "", "map folders for this language: r, python, or stata (default: detected, else r)")
+	f.StringVar(&kind, "type", "", "the project type the structure is for, such as bare or project_sensitive (default: project)")
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping and save it without asking")
 	f.BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
 }
+
+// structureTypes are the project types a structure can be for, as
+// Framework Cloud lists them.
+var structureTypes = []string{"project", "project_sensitive", "course", "presentation", "shiny", "plumber", "shiny_python", "fastapi", "bare"}
 
 // adoptTypes are the project types fw adopt takes. course and presentation
 // projects are made new, not adopted.
@@ -603,7 +612,7 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 			if err != nil || !save {
 				return result, err
 			}
-			created, err := uploadStructure(cmd, client, name, "", m)
+			created, err := uploadStructure(cmd, client, name, "", resolved.View.Type, m)
 			if err != nil {
 				return result, err
 			}
