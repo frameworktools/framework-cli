@@ -8,6 +8,11 @@
 # This project holds restricted data. Everything under a private/ folder stays
 # on the machine that may hold it. Only reviewed, de-identified files go in
 # public/ folders.
+{{- else}}
+#
+# In this project, data in inputs/ and outputs/ is committable, as in R and
+# Python projects. To keep it out of git, add its folder below (for example
+# /inputs/raw/), or add *.dta to ignore every Stata dataset.
 {{- end}}
 
 # Stata logs and session files

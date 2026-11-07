@@ -70,7 +70,7 @@ func TestResolveBasic(t *testing.T) {
 	if !v.AI.Assistants["claude"] || !v.Skills["framework-stata"].Package {
 		t.Errorf("ai %+v skills %+v", v.AI, v.Skills)
 	}
-	if strings.Contains(v.Git.GitignoreContent, "*.dta") || !strings.Contains(v.Git.GitignoreContent, "**/private/**") || !strings.Contains(v.Git.GitignoreContent, "# --- from project vaccine-study ---\n*.xlsx") {
+	if !strings.Contains(v.Git.GitignoreContent, "is committable, as in R and\n# Python projects") || strings.Contains(v.Git.GitignoreContent, "\n*.dta") || !strings.Contains(v.Git.GitignoreContent, "**/private/**") || !strings.Contains(v.Git.GitignoreContent, "# --- from project vaccine-study ---\n*.xlsx") {
 		t.Errorf("gitignore:\n%s", v.Git.GitignoreContent)
 	}
 	if sc, _ := r.Doc["scaffold"].(map[string]any); sc["workflow"] != "scripts" || sc["notebook_format"] != "script" || sc["ggplot_theme"] != nil {
@@ -225,7 +225,7 @@ func TestScaffoldSensitive(t *testing.T) {
 	if !strings.Contains(read(t, dir, "AGENTS.md"), "`inputs/private/`, `outputs/private/`") {
 		t.Errorf("AGENTS.md:\n%s", read(t, dir, "AGENTS.md"))
 	}
-	if gi := read(t, dir, ".gitignore"); !strings.Contains(gi, "/inputs/private/") || strings.Contains(gi, "*.dta") {
+	if gi := read(t, dir, ".gitignore"); !strings.Contains(gi, "/inputs/private/") || strings.Contains(gi, "*.dta") || strings.Contains(gi, "committable") {
 		t.Errorf("sensitive gitignore:\n%s", gi)
 	}
 	// The same public input folders as R and Python
