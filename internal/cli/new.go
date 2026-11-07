@@ -66,7 +66,7 @@ func newNewCmd(a *app) *cobra.Command {
 			"terminal, and without one it stops unless --offline is given. --offline\n" +
 			"uses the saved defaults, or fw's built-ins, without contacting the server.\n" +
 			"For Python and R projects fw passes --offline and --workflow to\n" +
-			"framework-py (0.1.0.dev9 or later) or the framework R package, which apply\n" +
+			"framework-py (0.1.0.dev10 or later) or the framework R package, which apply\n" +
 			"the same rules. Logged in, they also register the project on Framework\n" +
 			"Cloud and write FW_PROJECT_TOKEN to its .env. --offline keeps it on this\n" +
 			"machine.\n\n" +
@@ -88,7 +88,7 @@ func newNewCmd(a *app) *cobra.Command {
 			"--headless never prompts. With --from, and for Stata projects, it also makes\n" +
 			"no git repository. R and Python projects built from your defaults still get\n" +
 			"git init and a first commit outside an existing repository: framework::new()\n" +
-			"(2.0.0) and framework-py's create (0.1.0.dev9) have no option to skip git,\n" +
+			"(2.0.0) and framework-py's create (0.1.0.dev10) have no option to skip git,\n" +
 			"so fw has no --no-git. Turn git off in your defaults, or delete .git after.\n\n" +
 			"At a terminal, fw new with no name asks for the name, language, and\n" +
 			"blueprint. Logged in, fw asks how you want the project: built here,\n" +
