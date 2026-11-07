@@ -525,7 +525,10 @@ func checkStataChoices(o newOptions) error {
 	}
 	if o.kind != "" && !slices.Contains(stata.Types, o.kind) {
 		other := ""
-		if o.kind == "course" || o.kind == "presentation" {
+		switch o.kind {
+		case "presentation":
+			other = ". For slides, use --type project, export the figures to outputs/figures, and build the deck in an R or Python presentation project"
+		case "course":
 			other = ". course and presentation are for R and Python projects"
 		}
 		return usageError(fmt.Sprintf("fw has no Stata %q type: Stata projects take --type %s, with --workflow scripts%s", o.kind, types, other))

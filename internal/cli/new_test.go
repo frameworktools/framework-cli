@@ -304,7 +304,7 @@ func TestNewStataUnsupportedChoices(t *testing.T) {
 	for args, want := range map[string][]string{
 		"--workflow quarto":   {"no quarto workflow", "--workflow scripts only", "project, project_sensitive, or bare", "R and Python"},
 		"--workflow jupyter":  {"no jupyter workflow", "--workflow scripts only"},
-		"--type presentation": {`no Stata "presentation" type`, "project, project_sensitive, or bare", "--workflow scripts", "R and Python"},
+		"--type presentation": {`no Stata "presentation" type`, "project, project_sensitive, or bare", "--workflow scripts", "R or Python presentation project"},
 		"--type course":       {`no Stata "course" type`, "R and Python"},
 		"--type survey":       {`no Stata "survey" type`, "project, project_sensitive, or bare"},
 	} {

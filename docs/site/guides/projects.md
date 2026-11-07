@@ -170,6 +170,13 @@ Types and workflows differ by language:
 fw stops with a message naming these when a Stata project asks for another
 type or workflow.
 
+There is no Stata presentation type. Stata's own `dyndoc` turns Markdown
+with Stata output into an HTML page, not slides, and a deck would need
+Quarto or pandoc on top, which Stata projects do not use. For a talk, create
+a Stata project with `--type project`, export the figures to
+`outputs/figures`, and build the deck in an R or Python presentation project
+from those files.
+
 When R, Python, or uv is missing, fw prints the exact command to run once it
 is installed, and keeps the layers file for it. `--print` shows that command
 without running anything.
