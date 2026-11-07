@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -13,6 +15,7 @@ import (
 
 	"github.com/frameworktools/framework-cli/internal/adopt"
 	"github.com/frameworktools/framework-cli/internal/cloud"
+	"github.com/frameworktools/framework-cli/internal/engine"
 	"github.com/frameworktools/framework-cli/internal/spec"
 	"github.com/frameworktools/framework-cli/internal/stata"
 )
@@ -219,8 +222,12 @@ func newAdoptCmd(a *app) *cobra.Command {
 			".Rproj file for R. Without those, setup.py, setup.cfg, requirements*.txt,\n" +
 			"or .ipynb files mean Python, and .R, .Rmd, or .qmd files mean R (a .qmd\n" +
 			"with Python chunks means Python). fw says which file decided, and --lang\n" +
-			"overrides it.",
+			"overrides it.\n\n" +
+			"With --json and no --yes, fw prints the proposal as JSON and changes\n" +
+			"nothing. With --yes --json, it prints what was adopted: the files it\n" +
+			"wrote and the directories recorded in .framework/spec.json.",
 		Example: "  fw adopt ~/projects/old-study --lang stata\n" +
+			"  fw adopt --json\n" +
 			"  fw adopt --yes",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -235,8 +242,8 @@ func newAdoptCmd(a *app) *cobra.Command {
 			if found := adopt.Existing(dir); found != "" {
 				return alreadyProject(dir, found)
 			}
+			source := "--lang"
 			if lang == "" {
-				var source string
 				if lang, source = adopt.DetectLanguage(dir); lang != "" {
 					fmt.Fprintf(cmd.ErrOrStderr(), "Language: %s (from %s). --lang overrides it.\n", lang, source)
 				}
@@ -252,24 +259,16 @@ func newAdoptCmd(a *app) *cobra.Command {
 				if lang != "r" && lang != "python" && lang != "stata" {
 					return usageError("the language must be r, python, or stata")
 				}
+				source = "your answer"
+			}
+			if a.jsonOut && !yes {
+				return a.adoptProposal(cmd, dir, lang, source)
 			}
 			switch lang {
 			case "r":
 				return a.adoptR(cmd, dir, yes)
 			case "python":
-				command, err := a.engines.AdoptPython(dir, yes)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.ErrOrStderr(), "Adopting %s with framework-py\n", dir)
-				code, err := a.run(command)
-				if err != nil {
-					return err
-				}
-				if code != 0 {
-					return &exitError{code: code, err: fmt.Errorf("framework-py exited with status %d", code)}
-				}
-				return nil
+				return a.adoptPython(cmd, dir, yes)
 			}
 			return a.adoptStata(cmd, dir, yes)
 		},
@@ -331,15 +330,90 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool) error {
 			return errors.New("canceled; nothing was changed")
 		}
 	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "Adopting %s with the framework R package\n", dir)
+	return a.runAdopt(cmd, command, dir, "r", "framework::adopt()")
+}
+
+// adoptPython hands the folder to framework-py's adopt.
+func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool) error {
+	command, err := a.engines.AdoptPython(dir, yes)
+	if err != nil {
+		return err
+	}
+	return a.runAdopt(cmd, command, dir, "python", "framework-py")
+}
+
+// runAdopt runs a language package's adopt. With --json its output goes to
+// stderr, and fw prints what it wrote and recorded.
+func (a *app) runAdopt(cmd *cobra.Command, command engine.Command, dir, lang, what string) error {
+	pkg := map[string]string{"r": "the framework R package", "python": "framework-py"}[lang]
+	fmt.Fprintf(cmd.ErrOrStderr(), "Adopting %s with %s\n", dir, pkg)
+	before := projectFiles(dir)
+	command.StdoutToStderr = a.jsonOut
 	code, err := a.run(command)
 	if err != nil {
 		return err
 	}
 	if code != 0 {
-		return &exitError{code: code, err: fmt.Errorf("framework::adopt() exited with status %d", code)}
+		return &exitError{code: code, err: fmt.Errorf("%s exited with status %d", what, code)}
 	}
-	return nil
+	if !a.jsonOut {
+		return nil
+	}
+	return writeJSON(cmd.OutOrStdout(), adoptedResult(dir, lang, before))
+}
+
+// projectFiles lists the files and folders at the top of dir and in
+// .framework, which is where adopt writes.
+func projectFiles(dir string) map[string]bool {
+	found := map[string]bool{}
+	for _, sub := range []string{"", ".framework"} {
+		entries, _ := os.ReadDir(filepath.Join(dir, sub))
+		for _, e := range entries {
+			found[path.Join(sub, e.Name())] = true
+		}
+	}
+	return found
+}
+
+// adoptedResult is fw adopt --yes --json's output for R and Python: the
+// files that are new since before, and what .framework/spec.json records.
+func adoptedResult(dir, lang string, before map[string]bool) map[string]any {
+	created := []string{}
+	for f := range projectFiles(dir) {
+		if !before[f] && f != ".framework" {
+			created = append(created, f)
+		}
+	}
+	sort.Strings(created)
+	res := map[string]any{"path": dir, "language": lang, "created": created}
+	var doc struct {
+		Type             string         `json:"type"`
+		Directories      map[string]any `json:"directories"`
+		ExtraDirectories map[string]any `json:"extra_directories"`
+		Security         struct {
+			Sensitive bool `json:"sensitive"`
+		} `json:"security"`
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, ".framework", "spec.json")); err == nil && json.Unmarshal(data, &doc) == nil {
+		res["type"], res["directories"], res["extra_directories"], res["sensitive"] = doc.Type, doc.Directories, doc.ExtraDirectories, doc.Security.Sensitive
+	}
+	return res
+}
+
+// adoptProposal prints fw adopt --json's proposal without changing
+// anything: the mapping fw and the language packages make from the shared
+// rules.
+func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string) error {
+	rules := adopt.Shared()
+	folders, err := rules.Scan(dir)
+	if err != nil {
+		return err
+	}
+	m := rules.Map(folders, lang)
+	return writeJSON(cmd.OutOrStdout(), map[string]any{
+		"path": dir, "language": lang, "language_source": source, "adopted": false,
+		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings,
+	})
 }
 
 func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool) error {

@@ -18,6 +18,9 @@ type Command struct {
 	// so another project's .Rprofile or renv in the current folder does not
 	// take over.
 	Dir string
+	// StdoutToStderr sends the program's output to stderr, so fw's own
+	// --json output is the only thing on stdout.
+	StdoutToStderr bool
 }
 
 // String renders the command for a POSIX shell.

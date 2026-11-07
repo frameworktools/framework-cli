@@ -268,3 +268,50 @@ func TestAdoptExistingProject(t *testing.T) {
 		t.Errorf("own config.yml: %v\n%s", err, errOut)
 	}
 }
+
+// fw adopt --json prints JSON for R and Python: the proposal without --yes,
+// and what was adopted with it. The package's own output goes to stderr.
+func TestAdoptJSON(t *testing.T) {
+	for _, lang := range []string{"r", "python"} {
+		t.Run(lang, func(t *testing.T) {
+			h := newHarness(t, nil)
+			f := &fakeEngines{}
+			f.install(h, "Rscript", "uv")
+			dir := oldStudy(t, h.app.home)
+			before := files(t, dir)
+
+			out, _, err := h.run(t, "", "adopt", dir, "--lang", lang, "--json")
+			var proposal map[string]any
+			if err != nil || json.Unmarshal([]byte(out), &proposal) != nil || len(f.ran) != 0 {
+				t.Fatalf("proposal: %v ran %v\n%s", err, f.ran, out)
+			}
+			if proposal["language"] != lang || proposal["adopted"] != false || proposal["directories"].(map[string]any)["inputs_raw"] != "data/raw" {
+				t.Errorf("proposal: %s", out)
+			}
+			if got := files(t, dir); strings.Join(got, ",") != strings.Join(before, ",") {
+				t.Fatal("the proposal changed files")
+			}
+
+			var seen engine.Command
+			h.app.run = func(c engine.Command) (int, error) {
+				seen = c
+				writeTestFile(t, filepath.Join(dir, "settings.yml"), "default: {}\n")
+				writeTestFile(t, filepath.Join(dir, ".framework", "spec.json"), `{"type":"bare","directories":{"inputs_raw":"data/raw"},"extra_directories":{},"security":{"sensitive":false}}`)
+				return 0, nil
+			}
+			out, _, err = h.run(t, "", "adopt", dir, "--lang", lang, "--yes", "--json")
+			var res struct {
+				Path        string            `json:"path"`
+				Language    string            `json:"language"`
+				Created     []string          `json:"created"`
+				Directories map[string]string `json:"directories"`
+			}
+			if err != nil || json.Unmarshal([]byte(out), &res) != nil {
+				t.Fatalf("adopted: %v\n%s", err, out)
+			}
+			if !seen.StdoutToStderr || res.Path != dir || res.Language != lang || strings.Join(res.Created, ",") != ".framework/spec.json,settings.yml" || res.Directories["inputs_raw"] != "data/raw" {
+				t.Errorf("adopted: %+v %+v", seen, res)
+			}
+		})
+	}
+}

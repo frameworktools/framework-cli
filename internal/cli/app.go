@@ -161,6 +161,9 @@ func runAttached(c engine.Command) (int, error) {
 	cmd := exec.Command(c.Program, c.Args...) // #nosec G204 -- programs fw found itself
 	cmd.Dir = c.Dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if c.StdoutToStderr {
+		cmd.Stdout = os.Stderr
+	}
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
