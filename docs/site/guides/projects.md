@@ -142,16 +142,44 @@ for each folder it recognizes, such as `data/raw` for `inputs_raw`, and
 lists the rest as other folders. At a terminal you can change a folder's
 role or leave it out. Without one, read the proposal and pass `--yes`.
 
-A folder whose path inside the project contains "private" gets a warning.
-Keep such folders out of git and away from AI assistants.
+fw detects the language from the files at the top of the folder and says
+which file decided it: `.do` files, `pyproject.toml`, or `renv.lock`,
+`DESCRIPTION`, or an `.Rproj` file first, then weaker signs such as
+`setup.py`, `requirements*.txt`, notebooks, and `.R`, `.Rmd`, or `.qmd`
+files. `--lang` overrides it. A folder of loose files with no subfolders is
+adopted with no directories.
 
-For a Stata project fw writes `settings.do` and `.framework/spec.json` and
-nothing else. It stops without changing anything if the folder is already a
-project. The project stays on this machine, and `fw project push-spec` sends
-its spec to Framework Cloud. For Python projects fw runs framework-py's
-`adopt`, which writes `settings.yml` instead. For R projects fw shows the
-proposal and runs `framework::adopt()` to accept it. To change a folder's
-role in an R project, run `framework::adopt()` in R.
+A folder whose path inside the project contains "private" gets a warning.
+Keep such folders out of git and away from AI assistants. `--sensitive`
+turns on Framework's guards for private data, and `--type` sets the type:
+`project`, `project_sensitive`, or `bare`. fw passes both to the R and
+Python packages, and says when the installed package is too old to take
+them.
+
+For a Stata project fw writes `settings.do`, `settings.yml`, and
+`.framework/spec.json`, and appends the `.gitignore` lines the project
+lacks for secrets and private folders. It never changes a line already in
+`.gitignore`. For Python projects fw runs framework-py's `adopt`, and for R
+projects it shows the proposal and runs `framework::adopt()` to accept it.
+To change a folder's role in an R project, run `framework::adopt()` in R.
+`--json` without `--yes` prints the proposal and changes nothing.
+
+fw adopt stops without changing anything if the folder is already a
+Framework project, and names the file it found. A `config.yml` counts only
+when it is Framework's own. Upgrade an existing project instead:
+`fw project upgrade` prints what would change, and `--apply` makes the
+changes. R projects run `framework::upgrade()`, Python projects
+`python -m framework upgrade`, and fw upgrades Stata projects itself. It
+never removes a line, and backs up each file it changes to
+`.framework/backups/`.
+
+The project stays on this machine until you create it on Framework Cloud.
+`fw project link --create` makes the Cloud project from
+`.framework/spec.json`, links the folder with a project token in `.env`,
+and sends the spec; `fw adopt --cloud` does the same right after adopting.
+Running it again on a linked project changes nothing. If you already have a
+Cloud project with that slug, fw offers `fw project link --from SLUG`
+instead.
 
 `fw structures import [DIR]` maps a folder the same way and saves the layout
 as a structure on Framework Cloud, private to you, so new projects can use
