@@ -155,7 +155,7 @@ func newStructureImportCmd(a *app) *cobra.Command {
 				return err
 			}
 			if lang == "" {
-				if lang = adopt.DetectLanguage(dir); lang == "" {
+				if lang, _ = adopt.DetectLanguage(dir); lang == "" {
 					lang = "r"
 				}
 			}
@@ -214,9 +214,12 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"are adopted by framework-py (0.1.0.dev10 or later), and R projects by the\n" +
 			"framework R package's adopt(). fw runs them for you. To change a folder's\n" +
 			"role in an R project, run framework::adopt() in R instead.\n\n" +
-			"fw detects the language from the files at the top of the folder (.do files\n" +
-			"for Stata, pyproject.toml for Python, renv.lock, DESCRIPTION, or an .Rproj\n" +
-			"file for R). --lang overrides it.",
+			"fw detects the language from the files at the top of the folder: .do files\n" +
+			"for Stata, pyproject.toml for Python, and renv.lock, DESCRIPTION, or an\n" +
+			".Rproj file for R. Without those, setup.py, setup.cfg, requirements*.txt,\n" +
+			"or .ipynb files mean Python, and .R, .Rmd, or .qmd files mean R (a .qmd\n" +
+			"with Python chunks means Python). fw says which file decided, and --lang\n" +
+			"overrides it.",
 		Example: "  fw adopt ~/projects/old-study --lang stata\n" +
 			"  fw adopt --yes",
 		Args: cobra.MaximumNArgs(1),
@@ -233,7 +236,10 @@ func newAdoptCmd(a *app) *cobra.Command {
 				return alreadyProject(dir, found)
 			}
 			if lang == "" {
-				lang = adopt.DetectLanguage(dir)
+				var source string
+				if lang, source = adopt.DetectLanguage(dir); lang != "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Language: %s (from %s). --lang overrides it.\n", lang, source)
+				}
 			}
 			if lang == "" {
 				if !a.interactive {

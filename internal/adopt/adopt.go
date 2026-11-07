@@ -302,30 +302,79 @@ func (r Rules) Keys(language string) []string {
 	return keys
 }
 
-// DetectLanguage guesses a project's language from the names of the files
-// at its top level, or returns "" when it cannot tell.
-func DetectLanguage(root string) string {
+// DetectLanguage guesses a project's language from the files at its top
+// level and returns it with the file that decided it, or "" when it cannot
+// tell. Project files (pyproject.toml; renv.lock, DESCRIPTION, or an .Rproj;
+// .do files) decide first. Without them, weaker signs do: setup.py,
+// setup.cfg, requirements*.txt, or notebooks for Python; .R or .Rmd files
+// for R; and a .qmd file, whose code chunks say which. Two languages at the
+// same strength are a tie, and fw cannot tell.
+func DetectLanguage(root string) (language, source string) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	found := map[string]bool{}
-	for _, e := range entries {
-		name := e.Name()
-		switch {
-		case name == "pyproject.toml":
-			found["python"] = true
-		case name == "renv.lock" || name == "DESCRIPTION" || strings.HasSuffix(name, ".Rproj"):
-			found["r"] = true
-		case strings.HasSuffix(strings.ToLower(name), ".do"):
-			found["stata"] = true
+	strong := map[string]string{}
+	weak := map[string]string{}
+	note := func(m map[string]string, lang, name string) {
+		if _, ok := m[lang]; !ok {
+			m[lang] = name
 		}
 	}
-	if len(found) != 1 {
-		return ""
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		lower := strings.ToLower(name)
+		switch {
+		case name == "pyproject.toml":
+			note(strong, "python", name)
+		case name == "renv.lock" || name == "DESCRIPTION" || strings.HasSuffix(name, ".Rproj"):
+			note(strong, "r", name)
+		case strings.HasSuffix(lower, ".do"):
+			note(strong, "stata", name)
+		case name == "setup.py" || name == "setup.cfg" || strings.HasSuffix(lower, ".ipynb") ||
+			strings.HasPrefix(lower, "requirements") && strings.HasSuffix(lower, ".txt"):
+			note(weak, "python", name)
+		case strings.HasSuffix(lower, ".r") || strings.HasSuffix(lower, ".rmd"):
+			note(weak, "r", name)
+		case strings.HasSuffix(lower, ".qmd"):
+			note(weak, qmdLanguage(filepath.Join(root, name)), name)
+		}
 	}
-	for l := range found {
-		return l
+	for _, found := range []map[string]string{strong, weak} {
+		switch len(found) {
+		case 0:
+			continue
+		case 1:
+			for l, src := range found {
+				return l, src
+			}
+		}
+		return "", ""
 	}
-	return ""
+	return "", ""
+}
+
+var (
+	pythonChunk = regexp.MustCompile("(?m)^```\\{python")
+	rChunk      = regexp.MustCompile("(?m)^```\\{r[ ,}]")
+)
+
+// qmdLanguage reads a Quarto document's code chunks: python when it has
+// Python chunks, otherwise r, Quarto's knitr engine. Only the first 64 KB
+// are read.
+func qmdLanguage(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return "r"
+	}
+	defer f.Close()
+	buf := make([]byte, 64<<10)
+	n, _ := f.Read(buf)
+	if pythonChunk.Match(buf[:n]) && !rChunk.Match(buf[:n]) {
+		return "python"
+	}
+	return "r"
 }

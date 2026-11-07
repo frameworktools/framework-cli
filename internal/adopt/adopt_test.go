@@ -75,17 +75,38 @@ func TestSetRole(t *testing.T) {
 }
 
 func TestDetectLanguage(t *testing.T) {
-	for files, want := range map[string]string{"master.do": "stata", "pyproject.toml": "python", "study.Rproj": "r", "": "", "a.do,renv.lock": ""} {
+	for files, want := range map[string]string{
+		"master.do": "stata", "pyproject.toml": "python", "study.Rproj": "r", "": "", "a.do,renv.lock": "",
+		// weaker signs, used only without project files
+		"setup.py": "python", "requirements-dev.txt,manage.py": "python", "setup.cfg": "python", "explore.ipynb": "python",
+		"clean.R": "r", "report.Rmd": "r", "analysis.qmd": "r", "py.qmd": "python",
+		"setup.py,study.Rproj": "r", "clean.R,requirements.txt": "",
+	} {
 		root := t.TempDir()
+		var first string
 		if files != "" {
 			for _, f := range strings.Split(files, ",") {
-				if err := os.WriteFile(filepath.Join(root, f), nil, 0o600); err != nil {
+				content := ""
+				switch f {
+				case "analysis.qmd":
+					content = "# A\n\n```{r}\n1\n```\n"
+				case "py.qmd":
+					content = "# A\n\n```{python}\n1\n```\n"
+				}
+				if err := os.WriteFile(filepath.Join(root, f), []byte(content), 0o600); err != nil {
 					t.Fatal(err)
+				}
+				if first == "" {
+					first = f
 				}
 			}
 		}
-		if got := DetectLanguage(root); got != want {
+		got, source := DetectLanguage(root)
+		if got != want {
 			t.Errorf("%q: got %q, want %q", files, got, want)
+		}
+		if got != "" && source == "" {
+			t.Errorf("%q: no source", files)
 		}
 	}
 }
