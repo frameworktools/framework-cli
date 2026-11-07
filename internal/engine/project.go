@@ -62,13 +62,17 @@ func (f Finder) Detect(root string) Project {
 			p.Runner, p.Reason = []string{uv, "run", "python"}, "uv run, so uv.lock's versions apply"
 		case exists(root, venvPython):
 			p.Runner, p.Reason = []string{filepath.Join(root, venvPython)}, "the project's .venv"
-		case uv != "":
+		case uv != "" && exists(root, "pyproject.toml"):
 			p.Runner, p.Reason = []string{uv, "run", "python"}, "uv run with pyproject.toml"
 		default:
+			none := "the project has no Python environment: no pyproject.toml, uv.lock, or .venv. Make one with uv init, or python3 -m venv .venv"
+			if exists(root, "pyproject.toml") {
+				none = "no uv.lock or .venv found, and uv is not installed"
+			}
 			if py := f.find("FW_PYTHON", "python3"); py != "" {
-				p.Runner, p.Reason = []string{py}, "python3 on your PATH (no uv.lock or .venv found)"
+				p.Runner, p.Reason = []string{py}, "python3 on your PATH; "+none
 			} else {
-				p.Reason = "neither uv nor python3 was found"
+				p.Reason = "neither uv nor python3 was found; " + none
 			}
 		}
 	case "stata":

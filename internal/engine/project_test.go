@@ -90,3 +90,21 @@ func TestBootstrap(t *testing.T) {
 		t.Errorf("stata: %v", err)
 	}
 }
+
+// An adopted Python project without pyproject.toml has no environment; fw
+// must not claim uv runs it from one.
+func TestDetectPythonWithoutPyproject(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".framework"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".framework", "spec.json"), []byte(`{"language":"python"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, root, "requirements.txt")
+	all := map[string]string{"uv": "/bin/uv", "python3": "/bin/python3"}
+	p := finder(all, true, nil).Detect(root)
+	if strings.Join(p.Runner, " ") != "/bin/python3" || strings.Contains(p.Reason, "pyproject.toml\"") || !strings.Contains(p.Reason, "no Python environment") || !strings.Contains(p.Reason, "uv init") {
+		t.Errorf("got %+v", p)
+	}
+}
