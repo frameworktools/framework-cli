@@ -41,7 +41,7 @@ func (f Finder) Upgrade(p Project, o UpgradeOptions) (Command, error) {
 			if o.NoBackup {
 				what = "upgrade() that takes backup = FALSE"
 			}
-			return Command{}, &UnavailableError{Msg: "the framework R package in this project's environment has no " + what + " yet: framework 2.0.1 and earlier don't. " +
+			return Command{}, &UnavailableError{Msg: "the framework R package in this project's environment is missing or has no " + what + " yet: framework 2.0.1 and earlier don't. " +
 				"Update it with pak::pak(\"frameworktools/framework\") (or renv::update(\"framework\") in an renv project), then run fw project upgrade again. Nothing was changed. " +
 				"To check the environment, run: " + probe.String()}
 		}
