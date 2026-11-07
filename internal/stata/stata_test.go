@@ -162,6 +162,9 @@ func TestScaffoldProject(t *testing.T) {
 	if i, j := strings.Index(master, "do \"settings.do\""), strings.Index(master, "\nfw_project\n"); i < 0 || j < i || strings.Index(master, "log using") < j {
 		t.Errorf("master.do should run fw_project after settings.do and before the log:\n%s", master)
 	}
+	if !strings.Contains(master, "\nversion 14\n") || !strings.Contains(master, "capture which fw_table") || !strings.Contains(master, "0.2.0 or later") {
+		t.Errorf("master.do should need framework-stata 0.2.0 under version 14:\n%s", master)
+	}
 	if !strings.Contains(master, "\n* set type double\n") {
 		t.Errorf("master.do lacks the commented set type double:\n%s", master)
 	}

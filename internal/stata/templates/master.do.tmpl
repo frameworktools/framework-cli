@@ -4,7 +4,7 @@
 * Each step is its own do-file. To add a step, write the do-file and add a
 * line below.
 
-version 16
+version 14
 clear all
 set more off
 
@@ -19,10 +19,11 @@ do "settings.do"
 
 * fw_project reads settings.do and settings.yml, and sets $fw_root,
 * $fw_project_name, and an $fw_ global for each folder that fw_use, fw_save,
-* and fw_publish use. It comes with framework-stata.
-capture which fw_project
+* fw_table, fw_graph, and fw_publish use. It comes with framework-stata 0.2.0
+* or later, the first with fw_table.
+capture which fw_table
 if _rc {
-    display as error "master.do needs the framework-stata package. Install it with:"
+    display as error "master.do needs framework-stata 0.2.0 or later. Install or update it with:"
     display as error `"  net install framework, from("https://raw.githubusercontent.com/frameworktools/framework-stata/main") replace"'
     exit 199
 }

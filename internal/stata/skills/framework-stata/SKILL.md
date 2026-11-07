@@ -52,7 +52,7 @@ moves, change it in `settings.do` and `settings.yml`.
 ## Style
 
 - Start each do-file with a comment that says what the step does.
-- Use `version 16` (set in `master.do`) and avoid user-written commands unless
+- Use `version 14` (set in `master.do`) and avoid user-written commands unless
   the project already uses them. When one is needed, note the `ssc install`
   line in a comment at the top of the do-file.
 - Label variables and values in the cleaning step, so later steps and tables
