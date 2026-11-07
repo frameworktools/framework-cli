@@ -174,12 +174,20 @@ never removes a line, and backs up each file it changes to
 `.framework/backups/`.
 
 The project stays on this machine until you create it on Framework Cloud.
-`fw project link --create` makes the Cloud project from
-`.framework/spec.json`, links the folder with a project token in `.env`,
-and sends the spec; `fw adopt --cloud` does the same right after adopting.
-Running it again on a linked project changes nothing. If you already have a
-Cloud project with that slug, fw offers `fw project link --from SLUG`
-instead.
+`fw project link --create` sends `.framework/spec.json` to Framework Cloud,
+which makes the project from exactly that spec (its folders, type,
+language, and tools, without your defaults) at the folder's slug or
+`--slug`, and marks an adopted project as adopted. fw then links the folder
+with a project token in `.env`. `fw adopt --cloud` does the same right
+after adopting. Running it again on a linked project changes nothing; send
+a changed spec with `fw project push-spec`. If you already have a Cloud
+project with that slug, fw offers `fw project link --from SLUG` instead. A
+slug held by a project in your Trash can't be reused; restore that
+project and link to it, or choose another slug. An older self-hosted server builds the project from your
+defaults, and fw sends the spec separately.
+
+`fw structures import --type` records the project type a saved layout is
+for, such as `bare` or `project_sensitive`.
 
 `fw structures import [DIR]` maps a folder the same way and saves the layout
 as a structure on Framework Cloud, private to you, so new projects can use

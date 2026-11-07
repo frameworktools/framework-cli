@@ -86,8 +86,8 @@ var refReturns = map[string]string{
 		"plus `gitignore_additions` for Stata. `type` is null when the R or Python package chooses. " +
 		"With `--yes`, `{\"path\", \"language\", \"created\", \"type\", \"directories\", \"extra_directories\"}`, plus `sensitive`, `warnings`, and `gitignore_additions` for Stata; `created` lists the files the adopt wrote. " +
 		"With `--cloud`, `cloud` holds the result of `fw project link --create`. An existing project fails with `reason` `already_framework`, `found` (the file), and `hint` (`fw project upgrade`).",
-	"project link": "With `--create --json`, `{\"slug\", \"url\", \"structure\", \"created\", \"linked\", \"spec_changed\"}`. An already linked project gives `\"created\": false` and a `message`. " +
-		"A slug you already have fails with `reason` `slug_taken` and `hint` `fw project link --from SLUG`.",
+	"project link": "With `--create --json`, `{\"slug\", \"url\", \"type\", \"adopted\", \"created\", \"linked\", \"spec_changed\"}`. An already linked project gives `\"created\": false` and a `message`. " +
+		"A slug you already have fails with `reason` `slug_taken` and `hint` `fw project link --from SLUG`; one held by a project in the Trash fails with `reason` `slug_in_trash`.",
 	"project upgrade": "With `--json`, for Stata projects, `{\"path\", \"language\", \"applied\", \"changes\", \"notes\", \"backup\"}`. Each change has `file`, `action` (create, insert, append, or update), `summary`, and the `lines` it adds.",
 	"login": "With `--json`, stdout gets the same object as `fw status --json`. Without a terminal, the code to approve goes to stderr as one JSON line:\n\n" +
 		"```json\n{\"user_code\": \"QGMK-JE6Q\", \"verification_url\": \"https://framework.pub/device?code=QGMK-JE6Q\", \"expires_in\": 600}\n```",
