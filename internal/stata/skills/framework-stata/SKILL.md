@@ -7,8 +7,9 @@ description: Use when writing, editing, or running do-files in this Framework St
 
 ## How the project runs
 
-`master.do` runs the whole analysis: it runs `settings.do`, opens a log, and
-then runs each step's do-file in order. Run it from the project folder with
+`master.do` runs the whole analysis: it runs `settings.do`, loads the project
+with `fw_project` (from framework-stata), opens a log, and then runs each
+step's do-file in order. Run it from the project folder with
 `do master.do`. Each step reads the previous step's output, so the steps can be
 rerun from scratch at any time.
 

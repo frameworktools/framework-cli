@@ -149,6 +149,14 @@ func TestScaffoldProject(t *testing.T) {
 	if !strings.Contains(master, "* do `\"$do/import.do\"'") || !strings.Contains(master, "`\"$logs/master_") {
 		t.Errorf("master.do:\n%s", master)
 	}
+	// fw_project loads the project before any step, and set type double is
+	// offered, commented
+	if i, j := strings.Index(master, "do \"settings.do\""), strings.Index(master, "\nfw_project\n"); i < 0 || j < i || strings.Index(master, "log using") < j {
+		t.Errorf("master.do should run fw_project after settings.do and before the log:\n%s", master)
+	}
+	if !strings.Contains(master, "\n* set type double\n") {
+		t.Errorf("master.do lacks the commented set type double:\n%s", master)
+	}
 	// Starter do-files come only from a blueprint's files.
 	if entries, err := os.ReadDir(filepath.Join(dir, "do")); err != nil || len(entries) != 1 || entries[0].Name() != ".gitkeep" {
 		t.Errorf("do/ should be empty: %v %v", entries, err)
