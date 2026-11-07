@@ -56,7 +56,8 @@ func TestAdoptStata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if !strings.Contains(errOut, "'output/private' looks private") || !strings.Contains(out, "settings.do and .framework/spec.json") {
+	if !strings.Contains(errOut, "'output/private' looks private") || !strings.Contains(out, "settings.do, settings.yml, .gitignore, .framework/spec.json") ||
+		!strings.Contains(out, "/output/private/") {
 		t.Errorf("output:\n%s\n%s", out, errOut)
 	}
 	added := map[string]bool{}
@@ -66,8 +67,14 @@ func TestAdoptStata(t *testing.T) {
 	for _, f := range before {
 		delete(added, f)
 	}
-	if len(added) != 3 || !added["settings.do"] || !added[".framework"] || !added[".framework/spec.json"] {
-		t.Errorf("adopt should add only settings.do and the spec: %v", added)
+	if len(added) != 5 || !added["settings.do"] || !added["settings.yml"] || !added[".gitignore"] || !added[".framework"] || !added[".framework/spec.json"] {
+		t.Errorf("adopt should add only the settings, .gitignore, and the spec: %v", added)
+	}
+	if ignore := readTestFile(t, filepath.Join(dir, ".gitignore")); !strings.Contains(ignore, "\n.env\n") || !strings.Contains(ignore, "**/private/**") || !strings.Contains(ignore, "/output/private/") {
+		t.Errorf(".gitignore:\n%s", ignore)
+	}
+	if yml := readTestFile(t, filepath.Join(dir, "settings.yml")); !strings.Contains(yml, "inputs_raw: data/raw") || !strings.Contains(yml, "project_name: old-study") {
+		t.Errorf("settings.yml:\n%s", yml)
 	}
 	var doc struct {
 		Type        string                       `json:"type"`
@@ -75,13 +82,15 @@ func TestAdoptStata(t *testing.T) {
 		Extra       map[string]map[string]string `json:"extra_directories"`
 		AI          struct{ Enabled bool }       `json:"ai"`
 		Source      map[string]any               `json:"source"`
+		Git         map[string]any               `json:"git"`
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, ".framework", "spec.json")) // #nosec G304 -- test path
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
 	if doc.Type != "bare" || doc.Directories["do"] != "do" || doc.Directories["inputs_raw"] != "data/raw" || doc.Extra["irb"]["path"] != "IRB" || doc.AI.Enabled ||
-		doc.Source["origin"] != "cli" || doc.Source["adopted"] != true || doc.Source["fw_version"] == nil {
+		doc.Source["origin"] != "cli" || doc.Source["adopted"] != true || doc.Source["fw_version"] == nil ||
+		doc.Git["gitignore_content"] != readTestFile(t, filepath.Join(dir, ".gitignore")) {
 		t.Errorf("spec: %+v", doc)
 	}
 	if settings := readTestFile(t, filepath.Join(dir, "settings.do")); !strings.Contains(settings, "global do") || !strings.Contains(settings, "global irb") {
@@ -381,5 +390,34 @@ func TestAdoptNoFolders(t *testing.T) {
 	}
 	if !strings.Contains(readTestFile(t, filepath.Join(stataDir, "settings.do")), "global root") {
 		t.Error("no settings.do")
+	}
+}
+
+// fw adopt adds only the .gitignore lines a Stata project lacks, keeps the
+// rest, and lists them in the proposal. A --lang that disagrees with the
+// files gets a warning.
+func TestAdoptStataGitignore(t *testing.T) {
+	h := newHarness(t, nil)
+	dir := oldStudy(t, h.app.home)
+	writeTestFile(t, filepath.Join(dir, ".gitignore"), "# mine\n*.dta\n.env\n")
+	writeTestFile(t, filepath.Join(dir, "study.Rproj"), "")
+	if err := os.Remove(filepath.Join(dir, "analysis.do")); err != nil {
+		t.Fatal(err)
+	}
+
+	out, errOut, err := h.run(t, "", "adopt", dir, "--lang", "stata", "--json")
+	var proposal struct {
+		Additions []string `json:"gitignore_additions"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &proposal) != nil || strings.Join(proposal.Additions, " ") != ".env.* !.env.example **/private/** **/*_private/** /output/private/" ||
+		!strings.Contains(errOut, "Warning: the files say r (from study.Rproj), but --lang says stata") {
+		t.Fatalf("%v %+v\n%s", err, proposal, errOut)
+	}
+	if _, _, err := h.run(t, "", "adopt", dir, "--lang", "stata", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	ignore := readTestFile(t, filepath.Join(dir, ".gitignore"))
+	if !strings.HasPrefix(ignore, "# mine\n*.dta\n.env\n\n# Added by fw adopt") || strings.Count(ignore, "\n.env\n") != 1 {
+		t.Errorf(".gitignore:\n%s", ignore)
 	}
 }

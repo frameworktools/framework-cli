@@ -16,6 +16,7 @@ import (
 	"github.com/frameworktools/framework-cli/internal/adopt"
 	"github.com/frameworktools/framework-cli/internal/cloud"
 	"github.com/frameworktools/framework-cli/internal/engine"
+	"github.com/frameworktools/framework-cli/internal/project"
 	"github.com/frameworktools/framework-cli/internal/spec"
 	"github.com/frameworktools/framework-cli/internal/stata"
 )
@@ -233,9 +234,11 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"fw looks at folder names only, at most three levels deep, proposes which\n" +
 			"Framework directory each one is, and lets you change a folder's role at a\n" +
 			"terminal. Without one, pass --yes after reading the proposal.\n\n" +
-			"For a Stata project fw writes settings.do and .framework/spec.json and\n" +
-			"nothing else: it creates, moves, and overwrites no files, and stops if the\n" +
-			"folder is already a project. The project stays on this machine; run\n" +
+			"For a Stata project fw writes settings.do, settings.yml, and\n" +
+			".framework/spec.json, and adds lines that keep secrets and private\n" +
+			"folders out of git to .gitignore. It moves and overwrites no files, never\n" +
+			"changes a line already in .gitignore, and stops if the folder is already\n" +
+			"a project. The project stays on this machine; run\n" +
 			"fw project push-spec to send its spec to Framework Cloud. Python projects\n" +
 			"are adopted by framework-py (0.1.0.dev10 or later), and R projects by the\n" +
 			"framework R package's adopt(). fw runs them for you. To change a folder's\n" +
@@ -272,6 +275,9 @@ func newAdoptCmd(a *app) *cobra.Command {
 				return alreadyProject(dir, found)
 			}
 			source := "--lang"
+			if detected, from := adopt.DetectLanguage(dir); lang != "" && detected != "" && detected != lang {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: the files say %s (from %s), but --lang says %s. Adopting it as %s.\n", detected, from, lang, lang)
+			}
 			if lang == "" {
 				if lang, source = adopt.DetectLanguage(dir); lang != "" {
 					fmt.Fprintf(cmd.ErrOrStderr(), "Language: %s (from %s). --lang overrides it.\n", lang, source)
@@ -455,10 +461,35 @@ func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string, o engi
 		return err
 	}
 	m := rules.Map(folders, lang)
-	return writeJSON(cmd.OutOrStdout(), map[string]any{
+	res := map[string]any{
 		"path": dir, "language": lang, "language_source": source, "adopted": false, "type": proposedType(lang, o), "sensitive": o.Sensitive,
 		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings,
-	})
+	}
+	// fw writes Stata projects itself, so it knows what .gitignore gets
+	if lang == "stata" {
+		missing, err := project.MissingGitignoreLines(dir, stataIgnores(m))
+		if err != nil {
+			return err
+		}
+		res["gitignore_additions"] = nonNil(missing)
+	}
+	return writeJSON(cmd.OutOrStdout(), res)
+}
+
+// stataIgnores lists the .gitignore lines fw adopt adds to a Stata project.
+func stataIgnores(m adopt.Mapping) []string {
+	private := make([]string, 0, len(m.Warnings))
+	for _, w := range m.Warnings {
+		private = append(private, w.Path)
+	}
+	return stata.AdoptGitignore(private)
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 // proposedType is the type a proposal shows: --type, or bare for Stata.
@@ -517,20 +548,25 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	if o.Type != "" {
 		resolved.Doc["type"], resolved.View.Type = o.Type, o.Type
 	}
-	created, err := stata.Adopt(resolved, dir)
+	res, err := stata.Adopt(resolved, dir, stataIgnores(m))
 	if err != nil {
 		return err
 	}
 
 	out := cmd.OutOrStdout()
 	if a.jsonOut {
-		return writeJSON(out, map[string]any{"path": dir, "language": "stata", "created": created,
+		return writeJSON(out, map[string]any{"path": dir, "language": "stata", "type": resolved.View.Type, "sensitive": sensitive,
+			"created": res.Created, "gitignore_additions": nonNil(res.Gitignore),
 			"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings})
 	}
-	fmt.Fprintf(out, "%s is a Framework Stata project. fw wrote %s and changed nothing else.\n", name, strings.Join(created, " and "))
+	fmt.Fprintf(out, "%s is a Framework Stata project. fw wrote %s.\n", name, strings.Join(res.Created, ", "))
+	if len(res.Gitignore) > 0 {
+		fmt.Fprintf(out, "Added to .gitignore: %s\n", strings.Join(res.Gitignore, " "))
+	}
+	fmt.Fprintln(out, "fw moved and overwrote nothing.")
 	fmt.Fprintln(out, "Next: open Stata in that folder and run: do settings.do")
-	if len(m.Warnings) > 0 {
-		fmt.Fprintln(out, "Some folders look private. Keep them out of git, and consider the Privacy Sensitive structure.")
+	if len(m.Warnings) > 0 && !sensitive {
+		fmt.Fprintln(out, "Some folders look private. .gitignore now keeps them out of git; consider the Privacy Sensitive structure.")
 	}
 	if !yes && a.interactive {
 		if client, err := a.userClient(""); err == nil {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/frameworktools/framework-cli/internal/adopt"
+	"github.com/frameworktools/framework-cli/internal/project"
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"gopkg.in/yaml.v3"
 )
@@ -634,19 +635,61 @@ func AdoptLayer(directories map[string]string, extras map[string]any, sensitive 
 	}
 }
 
+// adoptIgnores are the lines fw adopt makes sure a Stata project's
+// .gitignore has: secrets and private folders. Data in other folders stays
+// committable, as in new projects.
+var adoptIgnores = []string{".env", ".env.*", "!.env.example", "**/private/**", "**/*_private/**"}
+
+// AdoptGitignore lists the .gitignore lines for an adopted project: the
+// secrets and private-folder rules, and each folder that looks private.
+func AdoptGitignore(private []string) []string {
+	lines := append([]string{}, adoptIgnores...)
+	for _, p := range private {
+		lines = append(lines, "/"+strings.Trim(p, "/")+"/")
+	}
+	return lines
+}
+
+// AdoptResult is what Adopt wrote.
+type AdoptResult struct {
+	Created   []string // files fw created
+	Gitignore []string // lines added to .gitignore
+}
+
 // Adopt turns an existing folder into a Stata project by writing
-// settings.do and .framework/spec.json. It creates, moves, and overwrites
-// nothing else, and changes nothing when the folder is already a project.
-func Adopt(r Resolved, dir string) ([]string, error) {
+// settings.do, settings.yml, and .framework/spec.json, and by adding the
+// ignore lines .gitignore lacks. It creates, moves, and overwrites nothing
+// else, never changes a line already in .gitignore, and changes nothing when
+// the folder is already a project. The spec records the .gitignore as it is
+// afterwards.
+func Adopt(r Resolved, dir string, ignore []string) (AdoptResult, error) {
 	if err := CheckAdoptable(dir); err != nil {
-		return nil, err
+		return AdoptResult{}, err
 	}
 	s := &scaffolder{r: r, o: Options{Dir: dir}}
-	if err := s.settingsDo(); err != nil {
-		return s.res.Created, err
+	var res AdoptResult
+	for _, step := range []func() error{s.settingsDo, s.settingsYml} {
+		if err := step(); err != nil {
+			return AdoptResult{Created: s.res.Created}, err
+		}
+	}
+	_, statErr := os.Stat(filepath.Join(dir, ".gitignore"))
+	added, err := project.AppendGitignore(dir, "Added by fw adopt: secrets and private data stay out of git", ignore)
+	if err != nil {
+		return AdoptResult{Created: s.res.Created}, err
+	}
+	if errors.Is(statErr, fs.ErrNotExist) && len(added) > 0 {
+		s.res.Created = append(s.res.Created, ".gitignore")
+	}
+	res.Gitignore = added
+	if data, err := os.ReadFile(filepath.Join(dir, ".gitignore")); err == nil {
+		git := asMap(r.Doc["git"])
+		git["gitignore_content"] = string(data)
+		r.Doc["git"] = git
 	}
 	if err := s.record(); err != nil {
-		return s.res.Created, err
+		return AdoptResult{Created: s.res.Created}, err
 	}
-	return s.res.Created, nil
+	res.Created = s.res.Created
+	return res, nil
 }
