@@ -41,9 +41,10 @@ moves, change it in `settings.do` and `settings.yml`.
 ## Data
 
 - Raw data is read-only. Steps write to the intermediate and final folders.
-- `.dta` files, logs, and everything under `private/` folders are gitignored.
-  Data stays on the machines that may hold it, and git holds the code that
-  rebuilds it.
+- Everything under `private/` folders is gitignored, and so are logs, cache,
+  scratch, and tmp folders. Data elsewhere, such as a public `.dta`, can be
+  committed. Data that must stay on the machines that may hold it goes under
+  `private/`; git holds the code that rebuilds it.
 - Logs from `master.do` go to the logs folder. Check the newest log when a run
   fails.
 

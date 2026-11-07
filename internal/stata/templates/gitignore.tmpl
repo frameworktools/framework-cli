@@ -1,6 +1,8 @@
 # Framework Stata project
-# Data files stay out of git. Do-files, settings.do, and documentation are
-# committed; data and logs are not.
+# As in R and Python projects, git ignores data by folder, not by file type:
+# everything under a private/ folder stays out of git, and so do logs, cache,
+# scratch, and tmp folders. Data in other folders, such as a public .dta,
+# can be committed. Put data that must stay on this machine under private/.
 {{- if .Sensitive}}
 #
 # This project holds restricted data. Everything under a private/ folder stays
@@ -8,8 +10,7 @@
 # public/ folders.
 {{- end}}
 
-# Stata data and session files
-*.dta
+# Stata logs and session files
 *.log
 *.smcl
 *.stswp

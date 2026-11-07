@@ -42,6 +42,8 @@ func defaults(kind string) map[string]any {
 			"inputs_private_raw":          "inputs/private/raw",
 			"inputs_private_intermediate": "inputs/private/intermediate",
 			"inputs_private_final":        "inputs/private/final",
+			"inputs_public_raw":           "inputs/public/raw",
+			"inputs_public_intermediate":  "inputs/public/intermediate",
 			"inputs_public_final":         "inputs/public/final",
 			"outputs_private_tables":      "outputs/private/tables",
 			"outputs_public_tables":       "outputs/public/tables",

@@ -69,23 +69,23 @@
     },
     "internal/spec/testdata/conformance/create/stata/bare-scripts.json": {
       "source": "inst/conformance/create/stata/bare-scripts.json",
-      "sha256": "459246a0e84668b9d3596dc9a364362a6f0d6aa584157dce63112ba1ccf1a83f"
+      "sha256": "59f50d4d78da759f9b149ef9fd109d84468182250eb7b23d298fa1cc143d995d"
     },
     "internal/spec/testdata/conformance/create/stata/project-scripts-codex-copilot.json": {
       "source": "inst/conformance/create/stata/project-scripts-codex-copilot.json",
-      "sha256": "4c2e9655b8c40f028dde048d22ddc7595234eddb345d221fe7e9dbfed395ad31"
+      "sha256": "ac40c41076ce1ed683c854b3c869fa2435f10bc2a64d09aeb73e6e75db74d4b9"
     },
     "internal/spec/testdata/conformance/create/stata/project-scripts-no-agents.json": {
       "source": "inst/conformance/create/stata/project-scripts-no-agents.json",
-      "sha256": "4677a79841a9509768169173ccb5980e2255a7750933a19580c3ee05c641f086"
+      "sha256": "2239fda488f244191bb7524e18a56950e54c9f2683e246581973b20a7a5b2e63"
     },
     "internal/spec/testdata/conformance/create/stata/project-scripts.json": {
       "source": "inst/conformance/create/stata/project-scripts.json",
-      "sha256": "5ff61d76cd82fc96198abcea5b2c547693872530bdf121afb82db02f3b799442"
+      "sha256": "c8a59a269b940969c57f372f9cbeaee012cd961efd13b5db23807ea11922afe4"
     },
     "internal/spec/testdata/conformance/create/stata/project_sensitive-scripts.json": {
       "source": "inst/conformance/create/stata/project_sensitive-scripts.json",
-      "sha256": "5c426a9e1d6f2ea982affdb89c73c547800a50e5100fbfd7c8f4adb77c104fa0"
+      "sha256": "7e97214f9c879b1acc2948e8daac44ca331d1fcea7d25a3ca778f3582a5fa8a5"
     },
     "internal/spec/testdata/conformance/merge/atomic-entries.json": {
       "source": "inst/conformance/merge/atomic-entries.json",
