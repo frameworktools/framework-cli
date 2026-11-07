@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "6755b53da142a6deedada08f449c9ad5b7e6aa9a",
-  "commit": "6755b53da142a6deedada08f449c9ad5b7e6aa9a",
+  "ref": "8d714cb08c95a5705981b2733fff63757eb58ace",
+  "commit": "8d714cb08c95a5705981b2733fff63757eb58ace",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
@@ -25,7 +25,7 @@
     },
     "internal/spec/testdata/conformance/README.md": {
       "source": "inst/conformance/README.md",
-      "sha256": "6f2d8cf9a3f73fc90bca8802a1741421be6603f93658a0872900a574e3908611"
+      "sha256": "719868ba8867552fab21a291b35c3e5fefd757852934983b9a0b350909791e02"
     },
     "internal/spec/testdata/conformance/adopt/case-insensitive.json": {
       "source": "inst/conformance/adopt/case-insensitive.json",
