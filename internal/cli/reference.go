@@ -63,13 +63,13 @@ var refSeeAlso = map[string][]string{
 	"blueprints list":   {"structures list", "tools list", "package-sets list", "skills list"},
 	"structures list":   {"blueprints list", "structures import", "new"},
 	"structures import": {"structures list", "adopt", "new"},
-	"adopt":             {"structures import", "project push-spec", "guide:projects"},
+	"adopt":             {"project upgrade", "project link", "structures import", "guide:projects"},
 	"tools list":        {"blueprints list", "new"},
 	"package-sets list": {"blueprints list", "new"},
 	"skills list":       {"blueprints list", "new"},
 	"publish":           {"project link", "guide:publishing", "r:ref:publish"},
 	"new":               {"project bootstrap", "project link", "guide:projects"},
-	"project link":      {"publish", "project push-spec"},
+	"project link":      {"publish", "project push-spec", "adopt"},
 	"project upgrade":   {"adopt", "project link", "project push-spec"},
 	"project status":    {"project bootstrap", "doctor"},
 	"project bootstrap": {"new", "r:ref:bootstrap", "py:ref:bootstrap"},
@@ -82,7 +82,12 @@ var refSeeAlso = map[string][]string{
 var refReturns = map[string]string{
 	"structures import": "With `--json` and no `--yes`, the proposed mapping and nothing saved: `{\"name\", \"language\", \"saved\": false, \"directories\", \"extra_directories\", \"warnings\"}`. " +
 		"With `--yes`, the same with `\"saved\": true` and the new structure's `key`, `name`, and `url`. Each warning is `{\"code\": \"private_path\", \"path\": ...}`.",
-	"adopt":           "With `--json` (and `--yes`), `{\"path\", \"language\", \"created\", \"directories\", \"extra_directories\", \"warnings\"}`. `created` lists the files fw wrote.",
+	"adopt": "With `--json` and no `--yes`, the proposal, and nothing changes: `{\"path\", \"language\", \"language_source\", \"adopted\": false, \"type\", \"sensitive\", \"directories\", \"extra_directories\", \"warnings\"}`, " +
+		"plus `gitignore_additions` for Stata. `type` is null when the R or Python package chooses. " +
+		"With `--yes`, `{\"path\", \"language\", \"created\", \"type\", \"directories\", \"extra_directories\"}`, plus `sensitive`, `warnings`, and `gitignore_additions` for Stata; `created` lists the files the adopt wrote. " +
+		"With `--cloud`, `cloud` holds the result of `fw project link --create`. An existing project fails with `reason` `already_framework`, `found` (the file), and `hint` (`fw project upgrade`).",
+	"project link": "With `--create --json`, `{\"slug\", \"url\", \"structure\", \"created\", \"linked\", \"spec_changed\"}`. An already linked project gives `\"created\": false` and a `message`. " +
+		"A slug you already have fails with `reason` `slug_taken` and `hint` `fw project link --from SLUG`.",
 	"project upgrade": "With `--json`, for Stata projects, `{\"path\", \"language\", \"applied\", \"changes\", \"notes\", \"backup\"}`. Each change has `file`, `action` (create, insert, append, or update), `summary`, and the `lines` it adds.",
 	"login": "With `--json`, stdout gets the same object as `fw status --json`. Without a terminal, the code to approve goes to stderr as one JSON line:\n\n" +
 		"```json\n{\"user_code\": \"QGMK-JE6Q\", \"verification_url\": \"https://framework.pub/device?code=QGMK-JE6Q\", \"expires_in\": 600}\n```",
