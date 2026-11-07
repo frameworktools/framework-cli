@@ -1,10 +1,11 @@
 # settings.yml: settings that fw, R, Python, and Stata share
 #
 # settings.do holds the path globals that do-files use, such as $inputs_raw.
-# This file holds what the framework-stata commands read: the data catalog
-# for fw_use and fw_save, and the publishing destinations for fw_publish.
-# fw_project reads both files. The directories below match settings.do;
-# change a folder in both.
+# This file holds the project name, the data catalog for fw_use and fw_save,
+# the publishing destinations for fw_publish, and the security settings.
+# Framework for Stata (fw_project) reads both files. The directories below
+# match settings.do. When the two set a folder differently, this file wins
+# and fw_project notes it, so change a folder in both.
 default:
   project_name: {{yaml .Name}}
   directories:{{if not .Globals}} {}{{end}}
@@ -13,14 +14,24 @@ default:
 {{- end}}
 
   # The data catalog. fw_use and fw_save take a catalog name in place of a
-  # path, and check the file's checksum when the entry is locked:
+  # path, such as {{.CatalogName}}.survey, and check the file's checksum when
+  # the entry is locked:
   #
   #   data:
-  #     survey:
-  #       path: {{.CatalogPath}}/survey.csv
-  #       type: csv
-  #       locked: true
+{{- range $i, $k := .CatalogKeys}}
+  #   {{indent $i}}  {{$k}}:
+{{- end}}
+  #   {{indent (len .CatalogKeys)}}  survey:
+  #   {{indent (len .CatalogKeys)}}    path: {{.CatalogPath}}/survey.csv
+  #   {{indent (len .CatalogKeys)}}    locked: true
   data: {}
+{{- if .Sensitive}}
+
+  # This project holds restricted data: fw_table and fw_graph save to the
+  # private folders unless told public.
+  security:
+    sensitive: true
+{{- end}}
 {{- if .Publish}}
 
 {{.Publish}}

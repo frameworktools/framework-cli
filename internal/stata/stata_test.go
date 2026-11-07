@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -135,11 +137,17 @@ func TestScaffoldProject(t *testing.T) {
 		"  data: {}\n",
 		"  #   publish:\n",
 		"  #         driver: folder\n",
-		"#       path: inputs/raw/survey.csv",
+		"  #   data:\n  #     inputs:\n  #       raw:\n  #         survey:\n  #           path: inputs/raw/survey.csv\n  #           locked: true\n",
 	} {
 		if !strings.Contains(yml, want) {
 			t.Errorf("settings.yml lacks %q:\n%s", want, yml)
 		}
+	}
+	if strings.Contains(yml, "security:") {
+		t.Errorf("security is for sensitive projects:\n%s", yml)
+	}
+	if !strings.Contains(settings, "settings.yml wins") || !strings.Contains(settings, "r(conflicts)") {
+		t.Errorf("settings.do should say settings.yml wins:\n%s", settings)
 	}
 	if strings.Contains(yml, "scratch") {
 		t.Errorf("settings.yml lists a removed folder:\n%s", yml)
@@ -223,8 +231,32 @@ func TestScaffoldSensitive(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if yml := read(t, dir, "settings.yml"); !strings.Contains(yml, "    inputs_public_raw: inputs/public/raw\n") {
+	if yml := read(t, dir, "settings.yml"); !strings.Contains(yml, "    inputs_public_raw: inputs/public/raw\n") ||
+		!strings.Contains(yml, "\n  security:\n    sensitive: true\n") || !strings.Contains(yml, "such as inputs.private.raw.survey") {
 		t.Errorf("settings.yml:\n%s", yml)
+	}
+}
+
+// settings.yml and settings.do set the same folders, so fw_project reports
+// no conflicts.
+func TestSettingsFilesAgree(t *testing.T) {
+	for _, kind := range []string{"project", "project_sensitive"} {
+		dir, _ := scaffold(t, `{"spec_version":1,"name":"A","layers":[{"kind":"project","layer":{"language":"stata","type":"`+kind+`","extra_directories":{"codebooks":{"label":"Codebooks","path":"docs/codebooks"}}}}]}`, true)
+		var doFolders, ymlFolders []string
+		for _, m := range regexp.MustCompile("(?m)^global (\\w+) `\"\\$root/(.+)\"'$").FindAllStringSubmatch(read(t, dir, "settings.do"), -1) {
+			doFolders = append(doFolders, m[1]+"="+m[2])
+		}
+		yml := read(t, dir, "settings.yml")
+		block := yml[strings.Index(yml, "  directories:\n"):]
+		block = block[:strings.Index(block, "\n\n")]
+		for _, m := range regexp.MustCompile(`(?m)^    (\w+): (.+)$`).FindAllStringSubmatch(block, -1) {
+			ymlFolders = append(ymlFolders, m[1]+"="+m[2])
+		}
+		slices.Sort(doFolders)
+		slices.Sort(ymlFolders)
+		if len(doFolders) == 0 || !slices.Equal(doFolders, ymlFolders) {
+			t.Errorf("%s: settings.do %v, settings.yml %v", kind, doFolders, ymlFolders)
+		}
 	}
 }
 

@@ -28,7 +28,7 @@ var templateFiles embed.FS
 //go:embed all:skills
 var skillFiles embed.FS
 
-var templates = template.Must(template.New("").Funcs(template.FuncMap{"yaml": yamlScalar}).ParseFS(templateFiles, "templates/*.tmpl"))
+var templates = template.Must(template.New("").Funcs(template.FuncMap{"yaml": yamlScalar, "indent": func(n int) string { return strings.Repeat("  ", n) }}).ParseFS(templateFiles, "templates/*.tmpl"))
 
 // yamlScalar renders s as a YAML scalar, quoted only when it must be.
 func yamlScalar(s string) string {
@@ -531,6 +531,9 @@ func (s *scaffolder) settingsYml() error {
 		"Name":        s.r.View.Name,
 		"Globals":     s.globals(),
 		"CatalogPath": catalog,
+		"CatalogKeys": strings.Split(catalog, "/"),
+		"CatalogName": strings.ReplaceAll(catalog, "/", "."),
+		"Sensitive":   s.r.View.Security.Sensitive,
 		"Publish":     publish,
 	})
 	if err != nil {
