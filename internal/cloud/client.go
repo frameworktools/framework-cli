@@ -36,6 +36,18 @@ type APIError struct {
 	Code    string // the "error" field, used by the device flow
 	// Problems lists Laravel's validation errors, field by field.
 	Problems []string
+	// Fields are the validation errors by field.
+	Fields map[string][]string
+}
+
+// FieldProblem returns the server's first validation error for field, or ""
+// when err is not a 422 about it.
+func FieldProblem(err error, field string) string {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusUnprocessableEntity && len(apiErr.Fields[field]) > 0 {
+		return apiErr.Fields[field][0]
+	}
+	return ""
 }
 
 func (e *APIError) Error() string {
@@ -149,7 +161,7 @@ func (c *Client) doRaw(req *http.Request) (http.Header, []byte, error) {
 			Errors  map[string][]string `json:"errors"`
 		}
 		if json.Unmarshal(data, &payload) == nil {
-			apiErr.Message, apiErr.Code = payload.Message, payload.Error
+			apiErr.Message, apiErr.Code, apiErr.Fields = payload.Message, payload.Error, payload.Errors
 			fields := make([]string, 0, len(payload.Errors))
 			for field := range payload.Errors {
 				fields = append(fields, field)

@@ -149,6 +149,10 @@ type CreatedProject struct {
 	Language string `json:"language"`
 	URL      string `json:"url"`
 	Token    string `json:"token"`
+	// Type and Adopted come from servers with the spec API (framework-cloud
+	// ef3224d); Type is empty from older ones.
+	Type    string `json:"type"`
+	Adopted bool   `json:"adopted"`
 	// GitHub is set when the project is being scaffolded on GitHub.
 	GitHub *struct {
 		Repository     string `json:"repository"`
@@ -173,8 +177,11 @@ type ExtraDirectory struct {
 // NewStructure is the body of POST /api/v1/structures: a project structure
 // made from an existing project's folders.
 type NewStructure struct {
-	Name             string                    `json:"name"`
-	Description      string                    `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Type is the project type the structure is for; servers before
+	// framework-cloud ef3224d record project whatever it says.
+	Type             string                    `json:"type,omitempty"`
 	Directories      map[string]string         `json:"directories"`
 	ExtraDirectories map[string]ExtraDirectory `json:"extra_directories,omitempty"`
 }

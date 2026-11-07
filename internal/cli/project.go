@@ -34,14 +34,17 @@ func newProjectCmd(a *app) *cobra.Command {
 			"projects. --pull-token takes a project token from the project's page; fw\n" +
 			"asks for it, or reads it from stdin.\n\n" +
 			"--create makes the Framework Cloud project for a project that exists only\n" +
-			"here, such as one made with fw adopt, from its .framework/spec.json: its\n" +
-			"name, type, language, and folders. A project made by Framework uses the\n" +
-			"built-in structure for its type; an adopted one saves its own folders as\n" +
-			"a private structure first. fw then links the project and sends its spec.\n" +
-			"The slug comes from the name unless --slug gives one. When you already\n" +
-			"have a project with that slug, fw offers to link to it (--from) instead\n" +
-			"and creates nothing. Framework Cloud projects are private to your\n" +
-			"account. A project with no spec needs fw project upgrade --apply first.",
+			"here, such as one made with fw adopt, from its .framework/spec.json. The\n" +
+			"server stores the spec as the project's only layer, so the Cloud project\n" +
+			"has exactly this folder's name, type, language, folders, and tools, and\n" +
+			"none of your defaults; an adopted project is marked as adopted. fw then\n" +
+			"links the project. The slug comes from the name unless --slug gives one.\n" +
+			"When you already have a project with that slug, fw offers to link to it\n" +
+			"(--from) instead and creates nothing; a slug held by a project in your\n" +
+			"Trash can't be reused. Framework Cloud projects are private to your\n" +
+			"account. A project with no spec needs fw project upgrade --apply first.\n" +
+			"An older self-hosted server, from before the spec API, builds the project\n" +
+			"from your defaults instead; fw then sends the spec separately.",
 		Example: "  fw project link --from vaccine-study\n" +
 			"  fw project link --pull-token --url https://framework.example.edu\n" +
 			"  fw project link --create\n" +

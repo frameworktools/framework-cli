@@ -211,7 +211,23 @@ func ErrPaymentRequired(host string) error {
 	return fmt.Errorf("this account cannot publish documents on %s. Publishing on framework.pub needs paid hosting; self-hosted servers allow it", host)
 }
 
-// RenameProject changes a project's name. Its slug, and so its links, stay.
-func (c *Client) RenameProject(ctx context.Context, slug, name string) error {
-	return c.Do(ctx, http.MethodPatch, "/api/v1/projects/"+url.PathEscape(slug), map[string]string{"name": name}, nil)
+// SpecProject is the body of POST /api/v1/projects that registers a project
+// existing on someone's computer from its resolved spec. Spec is sent as is,
+// so empty maps stay {}.
+type SpecProject struct {
+	Spec        json.RawMessage `json:"spec"`
+	Name        string          `json:"name,omitempty"`
+	Slug        string          `json:"slug,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Adopted     bool            `json:"adopted,omitempty"`
+}
+
+// CreateProjectFromSpec creates a project whose only layer is its spec, at
+// the slug given. The server stores the spec as the last one received. A
+// server from before this API ignores spec and slug and builds the project
+// from the user's defaults; its response has no type.
+func (c *Client) CreateProjectFromSpec(ctx context.Context, p SpecProject) (CreatedProject, error) {
+	var out CreatedProject
+	err := c.Do(ctx, http.MethodPost, "/api/v1/projects", p, &out)
+	return out, err
 }

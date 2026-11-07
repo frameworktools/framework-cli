@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,21 +18,25 @@ import (
 )
 
 // fakeProjects is a Framework Cloud with state, for fw project link
-// --create: projects made with POST /projects, their structures and specs,
-// and the requests in order. "user-tok" is the user; each project's token
-// is "tok-SLUG".
+// --create, with the spec API of framework-cloud ef3224d: POST /projects
+// with {"spec", "name", "slug", "adopted"} stores the spec as received.
+// It records the projects, their specs, the create bodies, and the requests
+// in order. "user-tok" is the user; each project's token is "tok-SLUG".
+// With old set, it answers as a server from before the spec API: it ignores
+// spec and slug, makes the slug from the name, and reports no type.
 type fakeProjects struct {
-	mu         sync.Mutex
-	projects   map[string]map[string]any // slug: name, structure, ...
-	specs      map[string]string
-	structures []string // bodies of POST /structures
-	choices    []string // bodies of POST /projects
-	requests   []string // "METHOD path"
+	mu       sync.Mutex
+	projects map[string]map[string]any // slug: name, language, type, adopted
+	trashed  map[string]bool
+	specs    map[string]string
+	creates  []string // bodies of POST /projects
+	requests []string // "METHOD path"
+	old      bool
 }
 
 func newFakeProjects(t *testing.T) (*fakeProjects, *httptest.Server) {
 	t.Helper()
-	f := &fakeProjects{projects: map[string]map[string]any{}, specs: map[string]string{}}
+	f := &fakeProjects{projects: map[string]map[string]any{}, trashed: map[string]bool{}, specs: map[string]string{}}
 	nonSlug := regexp.MustCompile(`[^a-z0-9]+`)
 	auth := func(r *http.Request) string { return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") }
 	fail := func(w http.ResponseWriter, status int, msg string) {
@@ -73,32 +78,60 @@ func newFakeProjects(t *testing.T) (*fakeProjects, *httptest.Server) {
 		}
 		_ = json.NewEncoder(w).Encode(p)
 	}))
-	mux.HandleFunc("PATCH /api/v1/projects/{slug}", user(func(w http.ResponseWriter, r *http.Request) {
-		p := f.projects[r.PathValue("slug")]
-		var body map[string]string
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		p["name"] = body["name"]
-		_ = json.NewEncoder(w).Encode(p)
-	}))
-	mux.HandleFunc("POST /api/v1/structures", user(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		f.structures = append(f.structures, string(body))
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"key":"ada/old-study-layout","name":"old-study layout","url":"https://x/structures/1"}`))
-	}))
 	mux.HandleFunc("POST /api/v1/projects", user(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		f.choices = append(f.choices, string(body))
-		var c struct{ Name, Language, Structure string }
+		f.creates = append(f.creates, string(body))
+		var c struct {
+			Spec    map[string]any `json:"spec"`
+			Name    string         `json:"name"`
+			Slug    string         `json:"slug"`
+			Adopted bool           `json:"adopted"`
+		}
 		_ = json.Unmarshal(body, &c)
-		slug := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(c.Name), "-"), "-")
-		if f.projects[slug] != nil {
-			fail(w, http.StatusUnprocessableEntity, "You already have a project with this name.")
+		invalid := func(field, msg string) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{"message": msg, "errors": map[string][]string{field: {msg}}})
+		}
+		if f.old {
+			slug := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(c.Name), "-"), "-")
+			if f.projects[slug] != nil {
+				invalid("name", "You already have a project with this name.")
+				return
+			}
+			f.projects[slug] = map[string]any{"slug": slug, "name": c.Name, "language": "r"}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"slug": slug, "name": c.Name, "language": "r", "url": "https://x/projects/" + slug, "token": "tok-" + slug})
 			return
 		}
-		f.projects[slug] = map[string]any{"slug": slug, "name": c.Name, "language": c.Language, "structure": c.Structure}
+		if c.Spec == nil {
+			invalid("spec", "The spec must be a JSON object.")
+			return
+		}
+		name := c.Name
+		if name == "" {
+			name, _ = c.Spec["name"].(string)
+		}
+		slug := c.Slug
+		if slug == "" {
+			slug = strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(name), "-"), "-")
+		}
+		if f.projects[slug] != nil {
+			invalid("slug", "You already have a project at "+slug+".")
+			return
+		}
+		if f.trashed[slug] {
+			invalid("slug", "You used "+slug+" for a project you deleted. Choose a different slug.")
+			return
+		}
+		kind, _ := c.Spec["type"].(string)
+		language, _ := c.Spec["language"].(string)
+		f.projects[slug] = map[string]any{"slug": slug, "name": name, "language": language, "type": kind, "adopted": c.Adopted}
+		// Stored as received, so it counts as the last spec
+		raw, _ := json.Marshal(c.Spec)
+		f.specs[slug] = string(raw)
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{"slug": slug, "name": c.Name, "language": c.Language, "url": "https://x/projects/" + slug, "token": "tok-" + slug})
+		_ = json.NewEncoder(w).Encode(map[string]any{"slug": slug, "name": name, "language": language, "type": kind, "adopted": c.Adopted,
+			"url": "https://x/projects/" + slug, "token": "tok-" + slug, "github": nil})
 	}))
 	mux.HandleFunc("POST /api/v1/projects/{slug}/pull-tokens", user(func(w http.ResponseWriter, r *http.Request) {
 		if f.projects[r.PathValue("slug")] == nil {
@@ -159,21 +192,25 @@ func TestLinkCreate(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if res.Slug != "old-study" || !res.Created || !res.Linked || !res.SpecChanged || res.Structure != "ada/old-study-layout" {
+	if res.Slug != "old-study" || !res.Created || !res.Linked || !res.SpecChanged || res.Type != "bare" || !res.Adopted {
 		t.Errorf("result: %+v", res)
 	}
-	// The adopted folders became a structure, and the project was made from it.
-	if len(f.structures) != 1 || !strings.Contains(f.structures[0], `"inputs_raw":"data/raw"`) || !strings.Contains(f.structures[0], `"irb":{"label":"IRB","path":"IRB"}`) {
-		t.Errorf("structures: %v", f.structures)
+	// One request creates the project from the spec as it is on disk, marked
+	// adopted; no structure, and no separate push.
+	var body struct {
+		Spec    json.RawMessage `json:"spec"`
+		Name    string          `json:"name"`
+		Slug    string          `json:"slug"`
+		Adopted bool            `json:"adopted"`
 	}
-	var choices map[string]any
-	_ = json.Unmarshal([]byte(f.choices[0]), &choices)
-	if choices["name"] != "old-study" || choices["language"] != "stata" || choices["structure"] != "ada/old-study-layout" ||
-		choices["settings"].(map[string]any)["sensitive"] != false || choices["settings"].(map[string]any)["git"] != false {
-		t.Errorf("choices: %s", f.choices[0])
+	if len(f.creates) != 1 || json.Unmarshal([]byte(f.creates[0]), &body) != nil || body.Name != "old-study" || body.Slug != "old-study" || !body.Adopted ||
+		string(body.Spec) != compactJSON(t, adoptedSpec) || strings.Contains(f.creates[0], "project_type") {
+		t.Errorf("create: %s", f.creates)
 	}
-	if f.specs["old-study"] != strings.TrimSpace(adoptedSpec) && !strings.Contains(f.specs["old-study"], `"adopted":true`) {
-		t.Errorf("spec: %s", f.specs["old-study"])
+	for _, r := range f.requests {
+		if r == "PUT /api/v1/project/spec" || r == "POST /api/v1/structures" {
+			t.Errorf("sent %s", r)
+		}
 	}
 	// .env keeps what was there and gains the link; git ignores it.
 	env := readTestFile(t, filepath.Join(dir, ".env"))
@@ -191,7 +228,7 @@ func TestLinkCreate(t *testing.T) {
 	before := len(f.requests)
 	envBefore := env
 	out, _, err = h.run(t, "", "project", "link", "--create")
-	if err != nil || !strings.Contains(out, "Already linked to old-study. Nothing changed.") {
+	if err != nil || !strings.Contains(out, "Already linked to old-study. Nothing changed.") || !strings.Contains(out, "fw project push-spec") {
 		t.Errorf("second run: %v\n%s", err, out)
 	}
 	if len(f.requests) != before || len(f.projects) != 1 || readTestFile(t, filepath.Join(dir, ".env")) != envBefore {
@@ -203,12 +240,12 @@ func TestLinkCreate(t *testing.T) {
 	}
 }
 
-// A project made by Framework uses the built-in structure for its type, and
-// --slug and --name set both.
-func TestLinkCreateBuiltinAndSlug(t *testing.T) {
+// A project made by Framework is sent with its own spec too, not marked
+// adopted; --slug and --name go with it, and empty maps stay {}.
+func TestLinkCreateSlugAndName(t *testing.T) {
 	f, srv := newFakeProjects(t)
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
-	spec := `{"spec_version":1,"name":"Survey","type":"project_sensitive","language":"r","directories":{"inputs_private_raw":"inputs/private/raw"},"security":{"sensitive":true},"source":{"origin":"r"}}`
+	spec := `{"spec_version":1,"name":"Survey","type":"project_sensitive","language":"r","directories":{"inputs_private_raw":"inputs/private/raw"},"tools":{"quarto":true,"renv":false},"data_hooks":{},"security":{"sensitive":true},"source":{"origin":"r"}}`
 	dir := adoptedProject(t, h.app.home, "survey", spec)
 	h.app.cwd = dir
 
@@ -222,15 +259,29 @@ func TestLinkCreateBuiltinAndSlug(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if len(f.structures) != 0 || !strings.Contains(f.choices[0], `"structure":"framework/project_sensitive"`) || !strings.Contains(f.choices[0], `"sensitive":true`) {
-		t.Errorf("choices: %v structures %v", f.choices, f.structures)
+	if len(f.creates) != 1 || strings.Contains(f.creates[0], `"adopted"`) || !strings.Contains(f.creates[0], `"data_hooks":{}`) || !strings.Contains(f.creates[0], `"tools":{"quarto":true,"renv":false}`) {
+		t.Errorf("create: %v", f.creates)
 	}
 	p := f.projects["survey-2026"]
-	if p == nil || p["name"] != "Survey 2026 (final)" || !strings.Contains(out, "Created survey-2026") {
+	if p == nil || p["name"] != "Survey 2026 (final)" || p["type"] != "project_sensitive" || !strings.Contains(out, "Created survey-2026") {
 		t.Errorf("projects %v\n%s", f.projects, out)
 	}
 	if !strings.Contains(readTestFile(t, filepath.Join(dir, ".env")), "FW_PROJECT_TOKEN=tok-survey-2026") {
 		t.Error("not linked")
+	}
+}
+
+// A server from before the spec API makes the project from the user's
+// defaults; fw then sends the spec separately and says so.
+func TestLinkCreateOlderServer(t *testing.T) {
+	f, srv := newFakeProjects(t)
+	f.old = true
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
+	dir := adoptedProject(t, h.app.home, "old-study", adoptedSpec)
+	h.app.cwd = dir
+	out, errOut, err := h.run(t, "", "project", "link", "--create")
+	if err != nil || !strings.Contains(errOut, "older than the spec API") || !strings.Contains(out, "Sent .framework/spec.json.") || f.specs["old-study"] == "" {
+		t.Errorf("%v\n%s%s", err, out, errOut)
 	}
 }
 
@@ -247,8 +298,8 @@ func TestLinkCreateSlugTaken(t *testing.T) {
 	if !errors.As(err, &exit) || exit.reason != "slug_taken" || exit.hint != "fw project link --from old-study" || !strings.Contains(err.Error(), "fw project link --from old-study") {
 		t.Errorf("no terminal: %#v", err)
 	}
-	if len(f.choices) != 0 || len(f.structures) != 0 {
-		t.Errorf("created something: %v %v", f.choices, f.structures)
+	if len(f.projects) != 1 {
+		t.Errorf("created something: %v", f.projects)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err == nil {
 		t.Error("wrote .env")
@@ -260,8 +311,18 @@ func TestLinkCreateSlugTaken(t *testing.T) {
 	if err != nil || !strings.Contains(errOut, "Link this folder to it instead?") || !strings.Contains(out, "fw project push-spec") {
 		t.Errorf("terminal: %v\n%s%s", err, out, errOut)
 	}
-	if len(f.choices) != 0 || !strings.Contains(readTestFile(t, filepath.Join(dir, ".env")), "FW_PROJECT_TOKEN=tok-old-study") {
-		t.Errorf("terminal: choices %v", f.choices)
+	if len(f.projects) != 1 || !strings.Contains(readTestFile(t, filepath.Join(dir, ".env")), "FW_PROJECT_TOKEN=tok-old-study") {
+		t.Errorf("terminal: projects %v", f.projects)
+	}
+
+	// A slug held by a project in the Trash says so.
+	h.app.interactive = false
+	f.trashed["gone"] = true
+	other := adoptedProject(t, t.TempDir(), "gone", adoptedSpec)
+	h.app.cwd = other
+	_, _, err = h.run(t, "", "project", "link", "--create", "--slug", "gone")
+	if !errors.As(err, &exit) || exit.reason != "slug_in_trash" || !strings.Contains(err.Error(), "Trash") {
+		t.Errorf("trash: %v", err)
 	}
 }
 
@@ -298,8 +359,8 @@ func TestAdoptCloud(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if res.Language != "stata" || res.Cloud.Slug != "old-study" || !res.Cloud.Linked || f.specs["old-study"] == "" || len(f.structures) != 1 {
-		t.Errorf("result %+v, structures %v", res, f.structures)
+	if res.Language != "stata" || res.Cloud.Slug != "old-study" || !res.Cloud.Linked || !res.Cloud.Adopted || f.specs["old-study"] == "" {
+		t.Errorf("result %+v", res)
 	}
 	if !strings.Contains(readTestFile(t, filepath.Join(dir, ".env")), "FW_PROJECT_TOKEN=tok-old-study") {
 		t.Error("not linked")
@@ -322,8 +383,17 @@ func TestAdoptCloud(t *testing.T) {
 	}
 
 	// Adopt failing creates nothing on the cloud.
-	before := len(f.choices)
-	if _, _, err := h.run(t, "", "adopt", r, "--lang", "r", "--yes", "--cloud"); err == nil || len(f.choices) != before {
-		t.Errorf("already adopted: %v %d", err, len(f.choices))
+	before := len(f.creates)
+	if _, _, err := h.run(t, "", "adopt", r, "--lang", "r", "--yes", "--cloud"); err == nil || len(f.creates) != before {
+		t.Errorf("already adopted: %v %d", err, len(f.creates))
 	}
+}
+
+func compactJSON(t *testing.T, s string) string {
+	t.Helper()
+	var b bytes.Buffer
+	if err := json.Compact(&b, []byte(s)); err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
 }

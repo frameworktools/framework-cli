@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -23,30 +23,15 @@ type createOptions struct {
 	public, includePrivate       bool
 }
 
-// builtinTypes have a built-in structure, framework/<type>, on Framework
-// Cloud.
-var builtinTypes = []string{"project", "project_sensitive", "course", "presentation", "bare"}
-
 var validSlug = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // localSpec is the part of .framework/spec.json that describes the project
 // to Framework Cloud.
 type localSpec struct {
-	Name             string                          `json:"name"`
-	Type             string                          `json:"type"`
-	Language         string                          `json:"language"`
-	Directories      map[string]string               `json:"directories"`
-	ExtraDirectories map[string]cloud.ExtraDirectory `json:"extra_directories"`
-	Security         struct {
-		Sensitive bool `json:"sensitive"`
-	} `json:"security"`
-	Git struct {
-		UseGit *bool `json:"use_git"`
-	} `json:"git"`
-	AI struct {
-		Enabled *bool `json:"enabled"`
-	} `json:"ai"`
-	Source struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Language string `json:"language"`
+	Source   struct {
 		Adopted bool `json:"adopted"`
 	} `json:"source"`
 }
@@ -55,7 +40,8 @@ type localSpec struct {
 type createdLink struct {
 	Slug        string `json:"slug"`
 	URL         string `json:"url,omitempty"`
-	Structure   string `json:"structure,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Adopted     bool   `json:"adopted"`
 	Created     bool   `json:"created"`
 	Linked      bool   `json:"linked"`
 	SpecChanged bool   `json:"spec_changed"`
@@ -90,9 +76,9 @@ func (a *app) createLink(cmd *cobra.Command, root string, o createOptions) (crea
 				slug = me.Project
 			}
 		}
-		msg := "This project is already linked: .env has FW_PROJECT_TOKEN. Nothing changed."
+		msg := "This project is already linked: .env has FW_PROJECT_TOKEN. Nothing changed. To send its spec, run: fw project push-spec"
 		if slug != "" {
-			msg = fmt.Sprintf("Already linked to %s. Nothing changed.", slug)
+			msg = fmt.Sprintf("Already linked to %s. Nothing changed. To send its spec, run: fw project push-spec", slug)
 		}
 		fmt.Fprintln(out, msg)
 		return createdLink{Slug: slug, Linked: true, Message: msg}, nil
@@ -144,80 +130,69 @@ func (a *app) createLink(cmd *cobra.Command, root string, o createOptions) (crea
 	}
 	host := cloud.Host(client.URL)
 
-	// 3. A project with this slug already exists: offer to link to it.
-	if existing, err := client.Project(ctx, slug); err == nil {
-		if a.interactive && !a.jsonOut {
-			yes, err := a.askYes(cmd, fmt.Sprintf("You already have a project %s (%s) on %s. Link this folder to it instead?", slug, existing.Name, host))
-			if err != nil {
-				return createdLink{}, err
-			}
-			if yes {
-				if err := linkProjectTo(cmd, out, &cloudLink{slug: slug, client: client, url: client.URL}, root); err != nil {
-					return createdLink{}, err
-				}
-				fmt.Fprintln(out, "To send this folder's spec to it, run: fw project push-spec")
-				return createdLink{Slug: slug, Linked: true, Message: "linked to the existing project"}, nil
-			}
-		}
-		return createdLink{}, &exitError{code: exitFailure, reason: "slug_taken", hint: "fw project link --from " + slug, err: fmt.Errorf(
-			"you already have a project %s on %s. To link this folder to it, run fw project link --from %s. To create a new project, pass --slug with another name", slug, host, slug)}
-	} else if cloud.StatusOf(err) != http.StatusNotFound {
-		return createdLink{}, explain(err, client.URL)
+	// 3. Create the project from its spec, at its slug, in one request. The
+	// server stores the spec as the project's only layer, so the cloud
+	// matches the folder, and records it as received.
+	created, err := client.CreateProjectFromSpec(ctx, cloud.SpecProject{Spec: data, Name: name, Slug: slug, Description: o.description, Adopted: s.Source.Adopted})
+	if field := cloud.FieldProblem(err, "slug"); field != "" {
+		return createdLink{}, a.slugTaken(cmd, out, client, root, slug, field)
 	}
-
-	// 4. The layout: the built-in structure for a project made by Framework,
-	// or the project's own folders, saved as a private structure.
-	structure := "framework/" + s.Type
-	if s.Source.Adopted || !slices.Contains(builtinTypes, s.Type) || len(s.ExtraDirectories) > 0 {
-		dirs := s.Directories
-		if dirs == nil {
-			dirs = map[string]string{}
-		}
-		saved, err := client.CreateStructure(ctx, cloud.NewStructure{Name: name + " layout", Description: "The folders of " + name + ", from fw project link --create",
-			Directories: dirs, ExtraDirectories: s.ExtraDirectories})
-		if err != nil {
-			return createdLink{}, fmt.Errorf("saving the project's layout as a structure failed: %w", explain(err, client.URL))
-		}
-		structure = saved.Key
-	}
-
-	// 5. Create the project. The server makes the slug from the name, so a
-	// different --slug creates it under the slug, then renames it.
-	createName := name
-	if slugify(name) != slug {
-		createName = slug
-	}
-	settings := map[string]any{"sensitive": s.Security.Sensitive}
-	if s.Git.UseGit != nil {
-		settings["git"] = *s.Git.UseGit
-	}
-	if s.AI.Enabled != nil {
-		settings["ai"] = *s.AI.Enabled
-	}
-	created, err := client.CreateProject(ctx, cloud.Choices{Name: createName, Description: o.description, Language: s.Language, Structure: structure, Settings: settings})
 	if err != nil {
 		return createdLink{}, explain(err, client.URL)
 	}
 	fmt.Fprintf(out, "Created %s on %s: %s\n", created.Slug, host, created.URL)
-	finish := func(step string, err error) error {
-		return fmt.Errorf("created %s on %s, but %s failed: %w. To finish, run: fw project link --from %s && fw project push-spec", created.Slug, host, step, err, created.Slug)
+	// A server from before the spec API (framework-cloud ef3224d) ignores
+	// the spec and slug, builds the project from the user's defaults, and
+	// does not report a type. fw then sends the spec separately.
+	stored := created.Type != ""
+	if !stored {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s is older than the spec API, so it made the project from your defaults at %s. fw sends the spec next; the project's layers stay your defaults until the server is updated.\n", host, created.Slug)
 	}
-	if createName != name {
-		if err := client.RenameProject(ctx, created.Slug, name); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: could not name the project %q: %v. Rename it on its page.\n", name, err)
-		}
+	finish := func(step string, err error) error {
+		return fmt.Errorf("created %s on %s, but %s failed: %w. To finish, run: fw project link --from %s", created.Slug, host, step, err, created.Slug)
 	}
 
-	// 6. Link: the project token and server go in .env, which git ignores.
+	// 4. Link: the project token and server go in .env, which git ignores.
 	if err := linkProjectTo(cmd, out, &cloudLink{token: created.Token, url: client.URL}, root); err != nil {
 		return createdLink{}, finish("linking this folder", err)
 	}
 
-	// 7. Send the spec with the new project token.
-	res, err := cloud.NewClient(client.URL, created.Token).PushSpec(ctx, data)
-	if err != nil {
-		return createdLink{}, fmt.Errorf("created %s on %s and linked this folder, but sending the spec failed: %w. Run: fw project push-spec", created.Slug, host, explainProject(err))
+	// 5. An older server needs the spec sent with the new project token.
+	if !stored {
+		if _, err := cloud.NewClient(client.URL, created.Token).PushSpec(ctx, data); err != nil {
+			return createdLink{}, fmt.Errorf("created %s on %s and linked this folder, but sending the spec failed: %w. Run: fw project push-spec", created.Slug, host, explainProject(err))
+		}
+		fmt.Fprintln(out, "Sent .framework/spec.json.")
 	}
-	fmt.Fprintln(out, "Sent .framework/spec.json.")
-	return createdLink{Slug: created.Slug, URL: created.URL, Structure: structure, Created: true, Linked: true, SpecChanged: res.Changed}, nil
+	return createdLink{Slug: created.Slug, URL: created.URL, Type: created.Type, Adopted: created.Adopted, Created: true, Linked: true, SpecChanged: true}, nil
+}
+
+// slugTaken handles a slug the server refused on create. A slug of one of
+// the user's projects gets the offer to link to it instead (--from); one
+// held by a project in the Trash, or a slug refused for another reason,
+// is an error.
+func (a *app) slugTaken(cmd *cobra.Command, out io.Writer, client *cloud.Client, root, slug, problem string) error {
+	host := cloud.Host(client.URL)
+	if strings.Contains(problem, "deleted") {
+		return &exitError{code: exitFailure, reason: "slug_in_trash", err: fmt.Errorf(
+			"%s is the slug of a project in your Trash on %s, so it can't be used again. Restore that project and run fw project link --from %s, or pass --slug with another name", slug, host, slug)}
+	}
+	if !strings.Contains(problem, "already have") {
+		return usageError(fmt.Sprintf("%s refused the slug %s: %s", host, slug, problem))
+	}
+	if a.interactive && !a.jsonOut {
+		yes, err := a.askYes(cmd, fmt.Sprintf("You already have a project %s on %s. Link this folder to it instead?", slug, host))
+		if err != nil {
+			return err
+		}
+		if yes {
+			if err := linkProjectTo(cmd, out, &cloudLink{slug: slug, client: client, url: client.URL}, root); err != nil {
+				return err
+			}
+			fmt.Fprintln(out, "To send this folder's spec to it, run: fw project push-spec")
+			return nil
+		}
+	}
+	return &exitError{code: exitFailure, reason: "slug_taken", hint: "fw project link --from " + slug, err: fmt.Errorf(
+		"you already have a project %s on %s. To link this folder to it, run fw project link --from %s. To create a new project, pass --slug with another name", slug, host, slug)}
 }
