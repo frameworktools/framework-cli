@@ -2,7 +2,10 @@
 *
 * fw wrote this file from the project spec. Every do-file refers to folders
 * through these globals, so the project runs on any machine without edits.
-* Stata cannot read the project's YAML settings, so the paths live here.
+* settings.yml lists the same folders and adds what the framework commands
+* read: the data catalog for fw_use and fw_save, and the publishing
+* destinations for fw_publish. fw_project reads both files. Change a folder
+* here and in settings.yml.
 *
 * Run Stata from the project folder: cd to it first, or open master.do from
 * there. The root is set from the current folder every time, because globals

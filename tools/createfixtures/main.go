@@ -69,7 +69,7 @@ var cases = []struct {
 		[]entry{base("project"), scripts, choices(nil)}},
 	{"project_sensitive-scripts", "Privacy-sensitive structure: private and public folders and Claude Code deny rules.",
 		[]entry{base("project_sensitive"), scripts, choices(nil)}},
-	{"bare-scripts", "Bare structure: folders and settings.do only, no do-files, .env, or AI files.",
+	{"bare-scripts", "Bare structure: folders, settings.do, and settings.yml only, no do-files, .env, or AI files.",
 		[]entry{base("bare"), scripts, choices(nil)}},
 	{"project-scripts-no-agents", "Standard structure with AI agents off.",
 		[]entry{base("project"), scripts, choices(map[string]any{"ai": map[string]any{"enabled": false}})}},

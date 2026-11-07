@@ -124,7 +124,8 @@
       "outputs/tables/.gitkeep",
       "scratch/",
       "scratch/.gitkeep",
-      "settings.do"
+      "settings.do",
+      "settings.yml"
     ]
   }
 }

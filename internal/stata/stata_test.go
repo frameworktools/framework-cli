@@ -122,6 +122,28 @@ func TestScaffoldProject(t *testing.T) {
 	if strings.Index(settings, `mkdir `+"`"+`"$root/inputs"'`) > strings.Index(settings, `mkdir `+"`"+`"$root/inputs/raw"'`) {
 		t.Error("parents must be created first")
 	}
+	if strings.Contains(settings, "cannot read") || !strings.Contains(settings, "settings.yml") {
+		t.Errorf("settings.do should explain how it and settings.yml divide the work:\n%s", settings)
+	}
+
+	// settings.yml holds the catalog and destinations, with settings.do's folders
+	yml := read(t, dir, "settings.yml")
+	for _, want := range []string{
+		"default:\n  project_name: Vaccine Study\n  directories:\n",
+		"    inputs_raw: inputs/raw\n",
+		"    codebooks: docs/codebooks\n",
+		"  data: {}\n",
+		"  #   publish:\n",
+		"  #         driver: folder\n",
+		"#       path: inputs/raw/survey.csv",
+	} {
+		if !strings.Contains(yml, want) {
+			t.Errorf("settings.yml lacks %q:\n%s", want, yml)
+		}
+	}
+	if strings.Contains(yml, "scratch") {
+		t.Errorf("settings.yml lists a removed folder:\n%s", yml)
+	}
 
 	master := read(t, dir, "master.do")
 	if !strings.Contains(master, "* do `\"$do/import.do\"'") || !strings.Contains(master, "`\"$logs/master_") {
@@ -193,6 +215,9 @@ func TestScaffoldBare(t *testing.T) {
 	dir, _ := scaffold(t, `{"spec_version":1,"name":"B","layers":[{"kind":"project","layer":{"language":"stata","type":"bare"}}]}`, true)
 	for _, rel := range []string{"settings.do", ".gitignore", ".framework/spec.json"} {
 		read(t, dir, rel)
+	}
+	if yml := read(t, dir, "settings.yml"); !strings.Contains(yml, "  project_name: B\n  directories: {}\n") || !strings.Contains(yml, "  data: {}\n") {
+		t.Errorf("bare settings.yml:\n%s", yml)
 	}
 	for _, rel := range []string{"master.do", "AGENTS.md", ".claude"} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); !os.IsNotExist(err) {
@@ -331,7 +356,7 @@ func TestPublishingSettingsFromLayers(t *testing.T) {
 	doc := `{"spec_version":1,"name":"Published Study","layers":[{"kind":"settings","layer":{"language":"stata","publish":{"default":"pages","destinations":{"pages":{"driver":"github"}}},"git":{"use_git":false},"ai":{"enabled":false}}}]}`
 	dir, _ := scaffold(t, doc, true)
 	settings := read(t, dir, "settings.yml")
-	if !strings.Contains(settings, "publish:") || !strings.Contains(settings, "default: pages") || !strings.Contains(settings, "driver: github") {
+	if !strings.Contains(settings, "\n  publish:\n    default: pages\n    destinations:\n      pages:\n        driver: github\n") || strings.Contains(settings, "#   publish:") {
 		t.Fatal(settings)
 	}
 	recorded := read(t, dir, ".framework/spec.json")

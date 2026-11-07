@@ -148,8 +148,16 @@ it with `fw new --structure`. Only folder paths and their roles are sent.
 - **Python** projects are created with `python -m framework create`, run
   through `uv` when it is installed.
 - **Stata** projects are built by fw itself: a master do-file, `settings.do`
-  with path globals, a log folder, and a `.gitignore` that keeps `.dta` files
-  out of git. Starter do-files come only from a blueprint.
+  with path globals, `settings.yml`, a log folder, and a `.gitignore` that
+  keeps `.dta` files out of git. Starter do-files come only from a blueprint.
+
+`settings.do` and `settings.yml` divide a Stata project's settings.
+`settings.do` sets the path globals that do-files use, such as
+`$inputs_raw`. `settings.yml` lists the same folders and holds what the
+framework-stata commands read: the data catalog for `fw_use` and `fw_save`,
+and the publishing destinations for `fw_publish`. It starts with an empty
+catalog and a commented example of a folder destination. `fw_project` reads
+both files.
 
 When R, Python, or uv is missing, fw prints the exact command to run once it
 is installed, and keeps the layers file for it. `--print` shows that command

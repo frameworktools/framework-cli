@@ -106,6 +106,9 @@ func DetectLanguage(root string) (language, source string) {
 		return "stata", "master.do and settings.do"
 	case exists(root, "pyproject.toml"):
 		return "python", "pyproject.toml"
+	case exists(root, "settings.do"):
+		// A bare Stata project has settings.do and settings.yml, and no master.do
+		return "stata", "settings.do"
 	case exists(root, "settings.yml") || exists(root, "renv.lock"):
 		return "r", "settings.yml"
 	}

@@ -33,7 +33,8 @@ func TestDetect(t *testing.T) {
 		{"uv.lock", "python", "/bin/uv run python", "uv.lock", []string{"pyproject.toml", "uv.lock"}, all},
 		{"venv", "python", ".venv", ".venv", []string{"pyproject.toml", ".venv/bin/python", ".venv/Scripts/python.exe"}, map[string]string{}},
 		{"pyproject only", "python", "/bin/python3", "python3", []string{"pyproject.toml"}, map[string]string{"python3": "/bin/python3"}},
-		{"stata", "stata", "", "do master.do", []string{"master.do", "settings.do"}, all},
+		{"stata", "stata", "", "do master.do", []string{"master.do", "settings.do", "settings.yml"}, all},
+		{"bare stata", "stata", "", "", []string{"settings.do", "settings.yml"}, all},
 		{"no R", "r", "", "not installed", []string{"settings.yml"}, map[string]string{}},
 	}
 	for _, c := range cases {

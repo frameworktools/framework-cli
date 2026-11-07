@@ -1,5 +1,5 @@
 {
-  "description": "Bare structure: folders and settings.do only, no do-files, .env, or AI files.",
+  "description": "Bare structure: folders, settings.do, and settings.yml only, no do-files, .env, or AI files.",
   "language": "stata",
   "layers": [
     {
@@ -83,7 +83,8 @@
       ".framework/",
       ".framework/spec.json",
       ".gitignore",
-      "settings.do"
+      "settings.do",
+      "settings.yml"
     ]
   }
 }

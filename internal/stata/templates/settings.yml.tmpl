@@ -1,0 +1,39 @@
+# settings.yml: settings that fw, R, Python, and Stata share
+#
+# settings.do holds the path globals that do-files use, such as $inputs_raw.
+# This file holds what the framework-stata commands read: the data catalog
+# for fw_use and fw_save, and the publishing destinations for fw_publish.
+# fw_project reads both files. The directories below match settings.do;
+# change a folder in both.
+default:
+  project_name: {{yaml .Name}}
+  directories:{{if not .Globals}} {}{{end}}
+{{- range .Globals}}
+    {{.Name}}: {{yaml .Path}}
+{{- end}}
+
+  # The data catalog. fw_use and fw_save take a catalog name in place of a
+  # path, and check the file's checksum when the entry is locked:
+  #
+  #   data:
+  #     survey:
+  #       path: {{.CatalogPath}}/survey.csv
+  #       type: csv
+  #       locked: true
+  data: {}
+{{- if .Publish}}
+
+{{.Publish}}
+{{- else}}
+
+  # Publishing destinations for fw_publish, to(NAME). A folder destination
+  # writes each result, with its versions and an offline reader, under path:
+  #
+  #   publish:
+  #     default: results
+  #     destinations:
+  #       results:
+  #         driver: folder
+  #         path: published
+  #         visibility: private
+{{- end}}

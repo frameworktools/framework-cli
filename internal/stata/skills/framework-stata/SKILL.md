@@ -1,6 +1,6 @@
 ---
 name: framework-stata
-description: Use when writing, editing, or running do-files in this Framework Stata project. Covers master.do, the path globals in settings.do, logs, and where data and outputs go.
+description: Use when writing, editing, or running do-files in this Framework Stata project. Covers master.do, the path globals in settings.do, the data catalog and publishing destinations in settings.yml, logs, and where data and outputs go.
 ---
 
 # Framework Stata projects
@@ -29,6 +29,14 @@ Quote paths with compound quotes, because folder names can contain spaces:
 use `"$inputs_final/analysis.dta"', clear
 graph export `"$outputs_figures/figure1.png"', replace
 ```
+
+## settings.yml
+
+`settings.yml` lists the same folders and holds what the framework-stata
+commands read: the data catalog under `data:`, which `fw_use` and `fw_save`
+take names from, and the publishing destinations under `publish:`, which
+`fw_publish, to(NAME)` uses. `fw_project` reads both files. When a folder
+moves, change it in `settings.do` and `settings.yml`.
 
 ## Data
 

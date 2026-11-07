@@ -28,7 +28,16 @@ var templateFiles embed.FS
 //go:embed all:skills
 var skillFiles embed.FS
 
-var templates = template.Must(template.ParseFS(templateFiles, "templates/*.tmpl"))
+var templates = template.Must(template.New("").Funcs(template.FuncMap{"yaml": yamlScalar}).ParseFS(templateFiles, "templates/*.tmpl"))
+
+// yamlScalar renders s as a YAML scalar, quoted only when it must be.
+func yamlScalar(s string) string {
+	data, err := yaml.Marshal(s)
+	if err != nil {
+		panic(err) // a string always marshals
+	}
+	return strings.TrimSuffix(string(data), "\n")
+}
 
 // checkoutAllowlist is what headless creation accepts in the target folder,
 // matching the R and Python packages.
@@ -72,7 +81,7 @@ func Scaffold(r Resolved, o Options) (Result, error) {
 	}
 	v := r.View
 
-	steps := []func() error{s.directories, s.settingsDo, s.publishSettings}
+	steps := []func() error{s.directories, s.settingsDo, s.settingsYml}
 	if v.CoreFiles {
 		steps = append(steps, s.masterDo, s.envFile)
 	}
@@ -489,17 +498,45 @@ func (s *scaffolder) specFiles() error {
 	return nil
 }
 
-// publishSettings writes only explicitly configured publishing destinations.
-func (s *scaffolder) publishSettings() error {
-	value, ok := s.r.Doc["publish"]
-	if !ok || value == nil {
-		return nil
+// settingsYml writes settings.yml, which holds what settings.do cannot: the
+// data catalog that fw_use and fw_save read, and the publishing destinations
+// that fw_publish reads. Its directories match settings.do. Destinations
+// from the layers are written out; otherwise a commented example shows one.
+func (s *scaffolder) settingsYml() error {
+	publish := ""
+	if value, ok := s.r.Doc["publish"]; ok && value != nil {
+		var b bytes.Buffer
+		enc := yaml.NewEncoder(&b)
+		enc.SetIndent(2)
+		if err := enc.Encode(map[string]any{"publish": value}); err != nil {
+			return err
+		}
+		if err := enc.Close(); err != nil {
+			return err
+		}
+		lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
+		for i, line := range lines {
+			lines[i] = "  " + line
+		}
+		publish = strings.Join(lines, "\n")
 	}
-	data, err := yaml.Marshal(map[string]any{"default": map[string]any{"publish": value}})
+	catalog := "inputs/raw"
+	for _, k := range []string{"inputs_raw", "inputs_private_raw"} {
+		if p, ok := s.r.View.Directories[k]; ok {
+			catalog = p
+			break
+		}
+	}
+	content, err := s.render("settings.yml.tmpl", map[string]any{
+		"Name":        s.r.View.Name,
+		"Globals":     s.globals(),
+		"CatalogPath": catalog,
+		"Publish":     publish,
+	})
 	if err != nil {
 		return err
 	}
-	return s.write("settings.yml", string(data), 0644)
+	return s.write("settings.yml", content, 0o644)
 }
 
 func (s *scaffolder) record() error {
