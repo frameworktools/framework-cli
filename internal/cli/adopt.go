@@ -227,6 +227,8 @@ func newAdoptCmd(a *app) *cobra.Command {
 	var lang string
 	var yes bool
 	var o engine.AdoptOptions
+	var toCloud bool
+	var co createOptions
 	cmd := &cobra.Command{
 		Use:   "adopt [DIR]",
 		Short: "Make an existing folder a Framework project, without moving anything",
@@ -238,11 +240,17 @@ func newAdoptCmd(a *app) *cobra.Command {
 			".framework/spec.json, and adds lines that keep secrets and private\n" +
 			"folders out of git to .gitignore. It moves and overwrites no files, never\n" +
 			"changes a line already in .gitignore, and stops if the folder is already\n" +
-			"a project. The project stays on this machine; run\n" +
-			"fw project push-spec to send its spec to Framework Cloud. Python projects\n" +
-			"are adopted by framework-py (0.1.0.dev10 or later), and R projects by the\n" +
-			"framework R package's adopt(). fw runs them for you. To change a folder's\n" +
-			"role in an R project, run framework::adopt() in R instead.\n\n" +
+			"a project. Python projects are adopted by framework-py (0.1.0.dev10 or\n" +
+			"later), and R projects by the framework R package's adopt(). fw runs them\n" +
+			"for you. To change a folder's role in an R project, run framework::adopt()\n" +
+			"in R instead. An existing Framework project is not adopted: run\n" +
+			"fw project upgrade in it.\n\n" +
+			"--type sets the project type (project, project_sensitive, or bare), and\n" +
+			"--sensitive turns on Framework's guards for private data. Both need an R\n" +
+			"or Python package recent enough to take them; fw says when it isn't.\n\n" +
+			"The project stays on this machine unless you pass --cloud, which then\n" +
+			"creates it on Framework Cloud from its spec, links it with a project token\n" +
+			"in .env, and sends the spec, as fw project link --create does later.\n\n" +
 			"fw detects the language from the files at the top of the folder: .do files\n" +
 			"for Stata, pyproject.toml for Python, and renv.lock, DESCRIPTION, or an\n" +
 			".Rproj file for R. Without those, setup.py, setup.cfg, requirements*.txt,\n" +
@@ -254,7 +262,8 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"wrote and the directories recorded in .framework/spec.json.",
 		Example: "  fw adopt ~/projects/old-study --lang stata\n" +
 			"  fw adopt --json\n" +
-			"  fw adopt --yes",
+			"  fw adopt --yes --type project --sensitive\n" +
+			"  fw adopt --yes --cloud",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if lang != "" && lang != "r" && lang != "python" && lang != "stata" {
@@ -299,13 +308,29 @@ func newAdoptCmd(a *app) *cobra.Command {
 			if a.jsonOut && !yes {
 				return a.adoptProposal(cmd, dir, lang, source, o)
 			}
+			var res map[string]any
 			switch lang {
 			case "r":
-				return a.adoptR(cmd, dir, yes, o)
+				res, err = a.adoptR(cmd, dir, yes, o)
 			case "python":
-				return a.adoptPython(cmd, dir, yes, o)
+				res, err = a.adoptPython(cmd, dir, yes, o)
+			default:
+				res, err = a.adoptStata(cmd, dir, yes, o, toCloud)
 			}
-			return a.adoptStata(cmd, dir, yes, o)
+			if err != nil {
+				return err
+			}
+			if toCloud {
+				link, err := a.createLink(cmd, dir, co)
+				if err != nil {
+					return fmt.Errorf("%s is adopted, but creating it on Framework Cloud failed: %w", dir, err)
+				}
+				res["cloud"] = link
+			}
+			if a.jsonOut {
+				return writeJSON(cmd.OutOrStdout(), res)
+			}
+			return nil
 		},
 	}
 	f := cmd.Flags()
@@ -313,6 +338,10 @@ func newAdoptCmd(a *app) *cobra.Command {
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping without asking")
 	f.StringVar(&o.Type, "type", "", "the project type: project, project_sensitive, or bare (default: the language package's choice; bare for Stata)")
 	f.BoolVar(&o.Sensitive, "sensitive", false, "the project holds sensitive data: turn on Framework's guards for private folders")
+	f.BoolVar(&toCloud, "cloud", false, "after adopting, create the project on Framework Cloud and link it, as fw project link --create does")
+	f.StringVar(&co.slug, "slug", "", "with --cloud: the project's slug on Framework Cloud (default: made from the folder's name)")
+	f.BoolVar(&co.includePrivate, "include-private", false, "with --cloud: send the spec without asking when the project's path contains \"private\"")
+	f.StringVar(&co.url, "url", "", "with --cloud: the Framework Cloud server")
 	f.BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
 }
@@ -341,15 +370,15 @@ func alreadyProject(dir, found string) error {
 // rules, and has the framework R package's adopt() write the project. R
 // reviews a mapping only in an R session, so changing a folder's role needs
 // framework::adopt() in R.
-func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) error {
+func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) (map[string]any, error) {
 	command, err := a.engines.AdoptR(dir, o)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rules := adopt.Shared()
 	folders, err := rules.Scan(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	m := rules.Map(folders, "r")
 	if !yes {
@@ -366,14 +395,14 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOpt
 		}
 		fmt.Fprintf(errOut, "To change a folder's role, run framework::adopt(%q) in R.\n", dir)
 		if !a.interactive {
-			return usageError("no terminal to review the mapping from. After reading it above, rerun with --yes to accept it")
+			return nil, usageError("no terminal to review the mapping from. After reading it above, rerun with --yes to accept it")
 		}
 		ok, err := a.askYes(cmd, "Accept this mapping?")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !ok {
-			return errors.New("canceled; nothing was changed")
+			return nil, errors.New("canceled; nothing was changed")
 		}
 	}
 	sensitiveHint(cmd, m, o)
@@ -381,10 +410,10 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOpt
 }
 
 // adoptPython hands the folder to framework-py's adopt.
-func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) error {
+func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) (map[string]any, error) {
 	command, err := a.engines.AdoptPython(dir, yes, o)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rules := adopt.Shared()
 	if folders, err := rules.Scan(dir); err == nil && yes {
@@ -393,24 +422,21 @@ func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool, o engine.Ado
 	return a.runAdopt(cmd, command, dir, "python", "framework-py")
 }
 
-// runAdopt runs a language package's adopt. With --json its output goes to
-// stderr, and fw prints what it wrote and recorded.
-func (a *app) runAdopt(cmd *cobra.Command, command engine.Command, dir, lang, what string) error {
+// runAdopt runs a language package's adopt and returns what it wrote and
+// recorded. With --json the package's output goes to stderr.
+func (a *app) runAdopt(cmd *cobra.Command, command engine.Command, dir, lang, what string) (map[string]any, error) {
 	pkg := map[string]string{"r": "the framework R package", "python": "framework-py"}[lang]
 	fmt.Fprintf(cmd.ErrOrStderr(), "Adopting %s with %s\n", dir, pkg)
 	before := projectFiles(dir)
 	command.StdoutToStderr = a.jsonOut
 	code, err := a.run(command)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if code != 0 {
-		return &exitError{code: code, err: fmt.Errorf("%s exited with status %d", what, code)}
+		return nil, &exitError{code: code, err: fmt.Errorf("%s exited with status %d", what, code)}
 	}
-	if !a.jsonOut {
-		return nil
-	}
-	return writeJSON(cmd.OutOrStdout(), adoptedResult(dir, lang, before))
+	return adoptedResult(dir, lang, before), nil
 }
 
 // projectFiles lists the files and folders at the top of dir and in
@@ -504,23 +530,25 @@ func proposedType(lang string, o engine.AdoptOptions) any {
 	return nil
 }
 
-func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions) error {
+// adoptStata writes a Stata project itself. toCloud skips the offer to save
+// the layout as a structure, since fw adopt --cloud creates the project.
+func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOptions, toCloud bool) (map[string]any, error) {
 	if err := stata.CheckAdoptable(dir); err != nil {
-		return err
+		return nil, err
 	}
 	rules := adopt.Shared()
 	folders, err := rules.Scan(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	m, err := a.reviewMapping(cmd, rules, rules.Map(folders, "stata"), "stata", yes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sensitive := o.Sensitive
 	if !sensitive && !yes && a.interactive && len(m.Warnings) > 0 {
 		if sensitive, err = a.askYes(cmd, "Does this project hold sensitive data? Framework will treat its outputs as private by default."); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -533,14 +561,14 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	}
 	layer, err := json.Marshal(stata.AdoptLayer(m.Directories, extras, sensitive))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	name := filepath.Base(dir)
 	env := spec.Envelope{SpecVersion: 1, Name: name, Layers: []spec.Entry{{Kind: "project", Key: "adopted", Layer: layer}},
 		Source: json.RawMessage(`{"origin":"cli","adopted":true}`)}
 	resolved, err := stata.Resolve(env, version)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resolved.Doc["skills"] = map[string]any{}
 	// The layer resolves as bare, so no built-in folders are added; --type
@@ -550,14 +578,15 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	}
 	res, err := stata.Adopt(resolved, dir, stataIgnores(m))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	out := cmd.OutOrStdout()
+	result := map[string]any{"path": dir, "language": "stata", "type": resolved.View.Type, "sensitive": sensitive,
+		"created": res.Created, "gitignore_additions": nonNil(res.Gitignore),
+		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings}
 	if a.jsonOut {
-		return writeJSON(out, map[string]any{"path": dir, "language": "stata", "type": resolved.View.Type, "sensitive": sensitive,
-			"created": res.Created, "gitignore_additions": nonNil(res.Gitignore),
-			"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings})
+		return result, nil
 	}
 	fmt.Fprintf(out, "%s is a Framework Stata project. fw wrote %s.\n", name, strings.Join(res.Created, ", "))
 	if len(res.Gitignore) > 0 {
@@ -568,18 +597,18 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	if len(m.Warnings) > 0 && !sensitive {
 		fmt.Fprintln(out, "Some folders look private. .gitignore now keeps them out of git; consider the Privacy Sensitive structure.")
 	}
-	if !yes && a.interactive {
+	if !yes && a.interactive && !toCloud {
 		if client, err := a.userClient(""); err == nil {
 			save, err := a.askYes(cmd, fmt.Sprintf("Save this layout as a structure on %s?", cloud.Host(client.URL)))
 			if err != nil || !save {
-				return err
+				return result, err
 			}
 			created, err := uploadStructure(cmd, client, name, "", m)
 			if err != nil {
-				return err
+				return result, err
 			}
 			fmt.Fprintf(out, "Saved the structure %s: %s\n", created.Key, created.URL)
 		}
 	}
-	return nil
+	return result, nil
 }

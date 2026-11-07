@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/frameworktools/framework-cli/internal/engine"
 )
 
 // fakeProjects is a Framework Cloud with state, for fw project link
@@ -274,5 +276,54 @@ func TestLinkCreateNeedsSpecAndUntrackedEnv(t *testing.T) {
 	}
 	if _, _, err := h.run(t, "", "project", "link", "--create", "--public"); exitCode(err) != exitUsage || !strings.Contains(err.Error(), "private") {
 		t.Errorf("--public: %v", err)
+	}
+}
+
+// fw adopt --cloud adopts, then creates and links the Cloud project, with
+// one JSON result.
+func TestAdoptCloud(t *testing.T) {
+	f, srv := newFakeProjects(t)
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
+	dir := oldStudy(t, h.app.home)
+
+	out, errOut, err := h.run(t, "", "adopt", dir, "--yes", "--cloud", "--json")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	var res struct {
+		Language string      `json:"language"`
+		Created  []string    `json:"created"`
+		Cloud    createdLink `json:"cloud"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if res.Language != "stata" || res.Cloud.Slug != "old-study" || !res.Cloud.Linked || f.specs["old-study"] == "" || len(f.structures) != 1 {
+		t.Errorf("result %+v, structures %v", res, f.structures)
+	}
+	if !strings.Contains(readTestFile(t, filepath.Join(dir, ".env")), "FW_PROJECT_TOKEN=tok-old-study") {
+		t.Error("not linked")
+	}
+
+	// R: the package writes the spec, then fw creates the project from it.
+	r := oldStudy(t, t.TempDir())
+	engines := &fakeEngines{}
+	engines.install(h, "Rscript")
+	h.app.run = func(engine.Command) (int, error) {
+		writeTestFile(t, filepath.Join(r, "settings.yml"), "default: {}\n")
+		writeTestFile(t, filepath.Join(r, ".framework", "spec.json"), strings.Replace(adoptedSpec, `"language":"stata"`, `"language":"r"`, 1))
+		return 0, nil
+	}
+	if _, errOut, err := h.run(t, "", "adopt", r, "--lang", "r", "--yes", "--cloud", "--slug", "old-study-r"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if f.projects["old-study-r"] == nil || f.projects["old-study-r"]["language"] != "r" {
+		t.Errorf("projects: %v", f.projects)
+	}
+
+	// Adopt failing creates nothing on the cloud.
+	before := len(f.choices)
+	if _, _, err := h.run(t, "", "adopt", r, "--lang", "r", "--yes", "--cloud"); err == nil || len(f.choices) != before {
+		t.Errorf("already adopted: %v %d", err, len(f.choices))
 	}
 }

@@ -62,10 +62,20 @@ type createdLink struct {
 	Message     string `json:"message,omitempty"`
 }
 
-// linkCreate creates the Framework Cloud project for the local project at
-// root from its spec, links it with a project token in .env, and sends the
-// spec. It changes nothing when the project is already linked.
+// linkCreate is fw project link --create.
 func (a *app) linkCreate(cmd *cobra.Command, root string, o createOptions) error {
+	res, err := a.createLink(cmd, root, o)
+	if err != nil || !a.jsonOut {
+		return err
+	}
+	return writeJSON(cmd.OutOrStdout(), res)
+}
+
+// createLink creates the Framework Cloud project for the local project at
+// root from its spec, links it with a project token in .env, and sends the
+// spec. It changes nothing when the project is already linked. It reports
+// on stdout, or on stderr with --json, and returns the --json result.
+func (a *app) createLink(cmd *cobra.Command, root string, o createOptions) (createdLink, error) {
 	out := cmd.OutOrStdout()
 	if a.jsonOut {
 		out = cmd.ErrOrStderr()
@@ -84,38 +94,35 @@ func (a *app) linkCreate(cmd *cobra.Command, root string, o createOptions) error
 		if slug != "" {
 			msg = fmt.Sprintf("Already linked to %s. Nothing changed.", slug)
 		}
-		if a.jsonOut {
-			return writeJSON(cmd.OutOrStdout(), createdLink{Slug: slug, Linked: true, Message: msg})
-		}
 		fmt.Fprintln(out, msg)
-		return nil
+		return createdLink{Slug: slug, Linked: true, Message: msg}, nil
 	}
 
 	// 2. Local checks, before anything is created.
 	if o.public {
-		return usageError("Framework Cloud projects are private to your account; there is no public project to make. " +
+		return createdLink{}, usageError("Framework Cloud projects are private to your account; there is no public project to make. " +
 			"Publish artifacts or reports with public visibility instead. Leave out --public (or pass --private)")
 	}
 	specPath := filepath.Join(root, ".framework", "spec.json")
 	data, err := os.ReadFile(specPath)
 	if errors.Is(err, os.ErrNotExist) {
-		return errors.New("this project has no .framework/spec.json, which Framework Cloud is made from. Run fw project upgrade --apply first, then fw project link --create")
+		return createdLink{}, errors.New("this project has no .framework/spec.json, which Framework Cloud is made from. Run fw project upgrade --apply first, then fw project link --create")
 	}
 	if err != nil {
-		return err
+		return createdLink{}, err
 	}
 	var s localSpec
 	if err := json.Unmarshal(data, &s); err != nil {
-		return fmt.Errorf(".framework/spec.json is not valid JSON: %w", err)
+		return createdLink{}, fmt.Errorf(".framework/spec.json is not valid JSON: %w", err)
 	}
 	if s.Language == "" {
 		s.Language = "r"
 	}
 	if project.EnvTracked(root) {
-		return fmt.Errorf("git tracks %s, so the project token would be committed. Run `git rm --cached .env`, then fw project link --create again", filepath.Join(root, ".env"))
+		return createdLink{}, fmt.Errorf("git tracks %s, so the project token would be committed. Run `git rm --cached .env`, then fw project link --create again", filepath.Join(root, ".env"))
 	}
 	if _, err := a.checkPrivate(cmd, root, []string{specPath}, o.includePrivate, false); err != nil {
-		return err
+		return createdLink{}, err
 	}
 	name := o.name
 	for _, n := range []string{s.Name, filepath.Base(root)} {
@@ -128,12 +135,12 @@ func (a *app) linkCreate(cmd *cobra.Command, root string, o createOptions) error
 		slug = slugify(name)
 	}
 	if !validSlug.MatchString(slug) {
-		return usageError(fmt.Sprintf("%q cannot be a slug: use lowercase letters, digits, and hyphens, as in --slug old-study", slug))
+		return createdLink{}, usageError(fmt.Sprintf("%q cannot be a slug: use lowercase letters, digits, and hyphens, as in --slug old-study", slug))
 	}
 
 	client, err := a.userClient(o.url)
 	if err != nil {
-		return err
+		return createdLink{}, err
 	}
 	host := cloud.Host(client.URL)
 
@@ -142,20 +149,20 @@ func (a *app) linkCreate(cmd *cobra.Command, root string, o createOptions) error
 		if a.interactive && !a.jsonOut {
 			yes, err := a.askYes(cmd, fmt.Sprintf("You already have a project %s (%s) on %s. Link this folder to it instead?", slug, existing.Name, host))
 			if err != nil {
-				return err
+				return createdLink{}, err
 			}
 			if yes {
 				if err := linkProjectTo(cmd, out, &cloudLink{slug: slug, client: client, url: client.URL}, root); err != nil {
-					return err
+					return createdLink{}, err
 				}
 				fmt.Fprintln(out, "To send this folder's spec to it, run: fw project push-spec")
-				return nil
+				return createdLink{Slug: slug, Linked: true, Message: "linked to the existing project"}, nil
 			}
 		}
-		return &exitError{code: exitFailure, reason: "slug_taken", hint: "fw project link --from " + slug, err: fmt.Errorf(
+		return createdLink{}, &exitError{code: exitFailure, reason: "slug_taken", hint: "fw project link --from " + slug, err: fmt.Errorf(
 			"you already have a project %s on %s. To link this folder to it, run fw project link --from %s. To create a new project, pass --slug with another name", slug, host, slug)}
 	} else if cloud.StatusOf(err) != http.StatusNotFound {
-		return explain(err, client.URL)
+		return createdLink{}, explain(err, client.URL)
 	}
 
 	// 4. The layout: the built-in structure for a project made by Framework,
@@ -169,7 +176,7 @@ func (a *app) linkCreate(cmd *cobra.Command, root string, o createOptions) error
 		saved, err := client.CreateStructure(ctx, cloud.NewStructure{Name: name + " layout", Description: "The folders of " + name + ", from fw project link --create",
 			Directories: dirs, ExtraDirectories: s.ExtraDirectories})
 		if err != nil {
-			return fmt.Errorf("saving the project's layout as a structure failed: %w", explain(err, client.URL))
+			return createdLink{}, fmt.Errorf("saving the project's layout as a structure failed: %w", explain(err, client.URL))
 		}
 		structure = saved.Key
 	}
@@ -189,7 +196,7 @@ func (a *app) linkCreate(cmd *cobra.Command, root string, o createOptions) error
 	}
 	created, err := client.CreateProject(ctx, cloud.Choices{Name: createName, Description: o.description, Language: s.Language, Structure: structure, Settings: settings})
 	if err != nil {
-		return explain(err, client.URL)
+		return createdLink{}, explain(err, client.URL)
 	}
 	fmt.Fprintf(out, "Created %s on %s: %s\n", created.Slug, host, created.URL)
 	finish := func(step string, err error) error {
@@ -203,17 +210,14 @@ func (a *app) linkCreate(cmd *cobra.Command, root string, o createOptions) error
 
 	// 6. Link: the project token and server go in .env, which git ignores.
 	if err := linkProjectTo(cmd, out, &cloudLink{token: created.Token, url: client.URL}, root); err != nil {
-		return finish("linking this folder", err)
+		return createdLink{}, finish("linking this folder", err)
 	}
 
 	// 7. Send the spec with the new project token.
 	res, err := cloud.NewClient(client.URL, created.Token).PushSpec(ctx, data)
 	if err != nil {
-		return fmt.Errorf("created %s on %s and linked this folder, but sending the spec failed: %w. Run: fw project push-spec", created.Slug, host, explainProject(err))
+		return createdLink{}, fmt.Errorf("created %s on %s and linked this folder, but sending the spec failed: %w. Run: fw project push-spec", created.Slug, host, explainProject(err))
 	}
 	fmt.Fprintln(out, "Sent .framework/spec.json.")
-	if a.jsonOut {
-		return writeJSON(cmd.OutOrStdout(), createdLink{Slug: created.Slug, URL: created.URL, Structure: structure, Created: true, Linked: true, SpecChanged: res.Changed})
-	}
-	return nil
+	return createdLink{Slug: created.Slug, URL: created.URL, Structure: structure, Created: true, Linked: true, SpecChanged: res.Changed}, nil
 }
