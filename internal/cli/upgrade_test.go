@@ -286,3 +286,43 @@ func TestStataQuartoAndNegations(t *testing.T) {
 		t.Errorf("spec without tools: %v\n%s", err, out)
 	}
 }
+
+// fw project upgrade creates the private folders a Stata project's settings
+// name and a fresh checkout lacks, once.
+func TestUpgradeStataCreatesPrivateFolders(t *testing.T) {
+	h := newHarness(t, nil)
+	if _, errOut, err := h.run(t, "", "new", "sens", "--lang", "stata", "--type", "project_sensitive"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	dir := filepath.Join(h.app.home, "sens")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(readTestFile(t, filepath.Join(dir, ".framework", "spec.json"))), &doc); err != nil {
+		t.Fatal(err)
+	}
+	r, err := stata.FromSpec(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	private := stata.PrivateFolders(r.View)
+	if len(private) == 0 {
+		t.Fatal("no private folders")
+	}
+	for _, p := range private {
+		if err := os.RemoveAll(filepath.Join(dir, filepath.FromSlash(p))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.app.cwd = dir
+	out, _, err := h.run(t, "", "project", "upgrade", "--apply")
+	if err != nil || !strings.Contains(out, "mkdir   "+private[0]+"/") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, p := range private {
+		if info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p))); err != nil || !info.IsDir() {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	if out, _, err := h.run(t, "", "project", "upgrade"); err != nil || !strings.Contains(out, "Nothing to upgrade") {
+		t.Errorf("again: %v\n%s", err, out)
+	}
+}

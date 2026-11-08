@@ -11,6 +11,7 @@ import (
 	"github.com/frameworktools/framework-cli/internal/cloud"
 	"github.com/frameworktools/framework-cli/internal/engine"
 	"github.com/frameworktools/framework-cli/internal/project"
+	"github.com/frameworktools/framework-cli/internal/stata"
 )
 
 func newProjectCmd(a *app) *cobra.Command {
@@ -279,17 +280,31 @@ func newProjectBootstrapCmd(a *app) *cobra.Command {
 			"framework::bootstrap() for R and python -m framework bootstrap for Python.\n" +
 			"It restores packages, creates .env from .env.example, creates the folders\n" +
 			"git does not keep, and installs the git hooks. It never contacts the cloud.\n" +
-			"Stata projects need no bootstrap. When the runtime or its bootstrap is\n" +
-			"missing, fw says so and exits 1.",
+			"Stata projects need no package bootstrap: fw creates the private folders\n" +
+			"their settings name that git doesn't keep, and settings.do creates the\n" +
+			"rest when Stata runs it. When the runtime or its bootstrap is missing,\n" +
+			"fw says so and exits 1.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := a.requireProject()
 			if err != nil {
 				return err
 			}
-			command, err := a.engines.Bootstrap(a.engines.Detect(root))
+			p := a.engines.Detect(root)
+			command, err := a.engines.Bootstrap(p)
 			var unavailable *engine.UnavailableError
 			if errors.As(err, &unavailable) && unavailable.NotNeeded {
+				// A fresh checkout of a Stata project lacks the private
+				// folders git doesn't keep
+				if p.Language == "stata" && !printOnly {
+					created, err := stata.CreatePrivateFolders(root)
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "Warning: fw could not read .framework/spec.json for the private folders, so it created none: %v\n", err)
+					}
+					if len(created) > 0 {
+						fmt.Fprintf(cmd.OutOrStdout(), "Created the private folders git doesn't keep: %s\n", strings.Join(created, ", "))
+					}
+				}
 				fmt.Fprintln(cmd.OutOrStdout(), unavailable.Msg)
 				return nil
 			}

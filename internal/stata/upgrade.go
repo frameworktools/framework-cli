@@ -31,7 +31,7 @@ import (
 // UpgradeChange is one change an upgrade makes to one file.
 type UpgradeChange struct {
 	File    string   `json:"file"`
-	Action  string   `json:"action"` // create, insert, append, or update
+	Action  string   `json:"action"` // create, insert, append, update, or mkdir
 	Summary string   `json:"summary"`
 	Lines   []string `json:"lines,omitempty"` // lines added, for the plan
 	content string   // the file's new content
@@ -256,7 +256,14 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 		}
 	}
 
-	// 5. .gitignore gains the rules it lacks: the current template's for a
+	// 5. Private folders git doesn't keep, missing in a fresh checkout or
+	// added by the settings, are created.
+	for _, p := range MissingPrivateFolders(root, resolved.View) {
+		plan.Changes = append(plan.Changes, UpgradeChange{File: p + "/", Action: "mkdir",
+			Summary: "create the private folder the settings name (git doesn't keep it)"})
+	}
+
+	// 6. .gitignore gains the rules it lacks: the current template's for a
 	// project fw made, and adopt's (secrets and private folders) for an
 	// adopted one, whose own rules for logs and caches stay its choice.
 	want := strings.Split(gitignore(sensitive, nil), "\n")
@@ -435,6 +442,9 @@ func ApplyUpgrade(root string, plan UpgradePlan, backup bool, now time.Time) (st
 	if backup {
 		var existing []string
 		for _, c := range plan.Changes {
+			if c.Action == "mkdir" {
+				continue
+			}
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(c.File))); err == nil {
 				existing = append(existing, c.File)
 			}
@@ -459,6 +469,12 @@ func ApplyUpgrade(root string, plan UpgradePlan, backup bool, now time.Time) (st
 	}
 	for _, c := range plan.Changes {
 		target := filepath.Join(root, filepath.FromSlash(c.File))
+		if c.Action == "mkdir" {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return backupDir, err
+			}
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return backupDir, err
 		}

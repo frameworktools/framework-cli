@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/frameworktools/framework-cli/internal/engine"
 	"github.com/frameworktools/framework-cli/internal/project"
+	"github.com/frameworktools/framework-cli/internal/stata"
 )
 
 // fakeEngines finds R and uv, and records what fw runs. The fake run creates
@@ -406,6 +408,44 @@ func TestProjectStatusAndBootstrap(t *testing.T) {
 	out, _, err = h.run(t, "", "project", "bootstrap")
 	if err != nil || !strings.Contains(out, "do settings.do") || strings.Contains(out, "master.do") {
 		t.Errorf("adopted Stata: %v\n%s", err, out)
+	}
+
+	// A fresh checkout of a sensitive Stata project gets the private folders
+	// git doesn't keep.
+	sens := filepath.Join(h.app.home, "sens")
+	h.app.cwd = h.app.home
+	if _, errOut, err := h.run(t, "", "new", "sens", "--lang", "stata", "--type", "project_sensitive"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(readTestFile(t, filepath.Join(sens, ".framework", "spec.json"))), &doc); err != nil {
+		t.Fatal(err)
+	}
+	r, err := stata.FromSpec(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	private := stata.PrivateFolders(r.View)
+	if len(private) == 0 {
+		t.Fatalf("no private folders in %v", r.View.Directories)
+	}
+	for _, p := range private {
+		if err := os.RemoveAll(filepath.Join(sens, filepath.FromSlash(p))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.app.cwd = sens
+	out, _, err = h.run(t, "", "project", "bootstrap")
+	if err != nil || !strings.Contains(out, "Created the private folders git doesn't keep: "+strings.Join(private, ", ")) {
+		t.Errorf("fresh checkout: %v\n%s", err, out)
+	}
+	for _, p := range private {
+		if info, err := os.Stat(filepath.Join(sens, filepath.FromSlash(p))); err != nil || !info.IsDir() {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	if out, _, _ = h.run(t, "", "project", "bootstrap"); strings.Contains(out, "Created") {
+		t.Errorf("second run:\n%s", out)
 	}
 }
 

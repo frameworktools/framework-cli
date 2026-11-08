@@ -30,14 +30,16 @@ func newProjectUpgradeCmd(a *app) *cobra.Command {
 			"fw upgrades Stata projects itself. It records .framework/spec.json from\n" +
 			"settings.do when there is none, writes settings.yml when it is missing,\n" +
 			"adds the settings.do header that names settings.yml, makes master.do\n" +
-			"check for framework-stata 0.2.0 and run fw_project, and adds the\n" +
-			".gitignore rules the project lacks, leaving out negations (!...) when it\n" +
-			"already has rules, since they would win over them. The spec records\n" +
-			"tools.quarto when the project has a _quarto.yml, _quarto.yaml, or .qmd\n" +
-			"file at most three folders deep. It never removes or changes a line\n" +
-			"of a text file: it only creates files, inserts lines, and appends. Each\n" +
-			"file it changes is copied to .framework/backups/<timestamp>/ first,\n" +
-			"unless --no-backup. Running it again changes nothing.",
+			"check for framework-stata 0.2.0 and run fw_project, creates the private\n" +
+			"folders its settings name that are missing (git doesn't keep them, so a\n" +
+			"fresh checkout lacks them), and adds the .gitignore rules the project\n" +
+			"lacks, leaving out negations (!...) when it already has rules, since\n" +
+			"they would win over them. The spec records tools.quarto when the\n" +
+			"project has a _quarto.yml, _quarto.yaml, or .qmd file at most three\n" +
+			"folders deep. It never removes or changes a line of a text file: it\n" +
+			"only creates files, inserts lines, and appends. Each file it changes\n" +
+			"is copied to .framework/backups/<timestamp>/ first, unless --no-backup.\n" +
+			"Running it again changes nothing.",
 		Example: "  fw project upgrade\n  fw project upgrade --apply\n  fw project upgrade --apply --no-backup",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
