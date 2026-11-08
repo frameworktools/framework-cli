@@ -95,8 +95,16 @@ func CheckSpec(data []byte) (Checked, error) {
 		}
 		c.Problems = schemaProblems(verr)
 	}
+	// Framework Cloud refuses a written-out credential in connections too
+	for _, p := range ConnectionSecrets(root) {
+		c.Problems = append(c.Problems, Problem{Path: p, Message: secretMessage})
+	}
+	sort.SliceStable(c.Problems, func(i, j int) bool { return c.Problems[i].Path < c.Problems[j].Path })
 	return c, nil
 }
+
+// secretMessage is the problem with a written-out credential.
+const secretMessage = `a written-out secret: write env("NAME") (or env("NAME", "")) and set NAME in .env`
 
 // schemaProblems lists a validation error's leaves, once each.
 func schemaProblems(verr *jsonschema.ValidationError) []Problem {

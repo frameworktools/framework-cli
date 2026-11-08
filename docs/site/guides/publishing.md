@@ -186,8 +186,12 @@ verify the mounted share's permissions. An optional `url` provides reader links;
 without it, the receipt contains a local location. Cloud tracking never includes
 that local path.
 
-Destination credentials require `env("VARIABLE")` references. Literal secrets
-and embedded URL passwords are rejected. S3 `access_key_id`, `secret_access_key`,
+Destination credentials require `env("VARIABLE")` or `env("VARIABLE", "")`
+references, with single or double quotes, the rule Framework Cloud applies
+to specs. Literal secrets, a non-empty default such as
+`env("VARIABLE", "value")`, and embedded URL passwords are rejected. A
+variable that isn't set takes its empty default, or stops fw when there is
+none. S3 `access_key_id`, `secret_access_key`,
 and `session_token` references are passed to the AWS CLI environment. The legacy
 `private: true` setting means `visibility: private`; an explicit visibility takes
 precedence.

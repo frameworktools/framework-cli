@@ -444,6 +444,22 @@ func TestPushSpecChecksSchema(t *testing.T) {
 		strings.Join(e.problems, "|") != "ai.model: not part of spec.v1|author: missing" || !strings.Contains(e.Error(), "Nothing was sent") {
 		t.Errorf("bad spec: %v\n%s", err, errOut)
 	}
+
+	// A credential with a non-empty default is refused; an empty one passes.
+	conn := func(password string) string {
+		return specWith(t, map[string]any{"connections": map[string]any{"storage_buckets": map[string]any{},
+			"databases": map[string]any{"main": map[string]any{"driver": "postgres", "password": password}}}})
+	}
+	write(t, root, ".framework/spec.json", conn(`env("PG_PASSWORD", "hunter2")`))
+	lastSpec = ""
+	if _, _, err := h.run(t, "", "project", "push-spec"); err == nil || lastSpec != "" || !strings.Contains(err.Error(), "connections.databases.main.password: a written-out secret") ||
+		strings.Contains(err.Error(), "hunter2") {
+		t.Errorf("secret default: %v", err)
+	}
+	write(t, root, ".framework/spec.json", conn(`env("PG_PASSWORD", "")`))
+	if _, _, err := h.run(t, "", "project", "push-spec"); err != nil || lastSpec == "" {
+		t.Errorf("empty default: %v", err)
+	}
 }
 
 func TestPrivatePaths(t *testing.T) {

@@ -549,7 +549,9 @@ func newPushSpecCmd(a *app) *cobra.Command {
 			"against. It leaves out scaffold.positron and source.upgraded_from, which\n" +
 			"an older upgrade() wrote and spec.v1 doesn't allow, and says so; the\n" +
 			"file keeps them until fw project upgrade --apply rewrites it. Any\n" +
-			"other problem stops fw before it sends anything, with the keys named.\n" +
+			"other problem stops fw before it sends anything, with the keys named,\n" +
+			"including a connection credential that is written out: it must be\n" +
+			"env(\"NAME\") or env(\"NAME\", \"\"), not a value or a non-empty default.\n" +
 			"fw project upgrade --apply rewrites the spec (in R projects, with a\n" +
 			"framework package newer than 2.0.1).\n\n" +
 			"When the project's full path contains \"private\", fw warns and asks\n" +

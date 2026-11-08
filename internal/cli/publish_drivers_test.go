@@ -175,15 +175,19 @@ func TestDestinationVisibilityAndCredentialCompatibility(t *testing.T) {
 			t.Fatal(d, e, want)
 		}
 	}
-	for _, options := range []string{"password: literal-secret", "credentials: {secret_key: literal-secret}", "access_key_id: literal-secret", "endpoint: 'https://user:password@example.org'"} {
+	for _, options := range []string{"password: literal-secret", "credentials: {secret_key: literal-secret}", "access_key_id: literal-secret", "endpoint: 'https://user:password@example.org'",
+		`secret_key: 'env("RESULTS_SECRET", "literal-secret")'`, "session_token: 12345"} {
 		write(t, root, "settings.yml", "publish:\n  default: bucket\n  destinations:\n    bucket: {driver: s3, "+options+"}\n")
 		if _, e := resolvePublish(root, ""); e == nil || strings.Contains(e.Error(), "literal-secret") {
 			t.Fatal("credential literal accepted or exposed", options, e)
 		}
 	}
-	write(t, root, "settings.yml", "publish:\n  default: bucket\n  destinations:\n    bucket: {driver: s3, credentials: {secret_key: 'env(\"RESULTS_SECRET\")'}}\n")
-	if _, e := resolvePublish(root, ""); e != nil {
-		t.Fatal("environment reference rejected", e)
+	// Framework Cloud's rule: env("X") and env("X", "") pass, either quote.
+	for _, ref := range []string{`'env("RESULTS_SECRET")'`, `"env('RESULTS_SECRET', '')"`, `'env("RESULTS_SECRET", "")'`} {
+		write(t, root, "settings.yml", "publish:\n  default: bucket\n  destinations:\n    bucket: {driver: s3, credentials: {secret_key: "+ref+"}}\n")
+		if _, e := resolvePublish(root, ""); e != nil {
+			t.Fatal("environment reference rejected", ref, e)
+		}
 	}
 	write(t, root, "settings.yml", "default: {}\n")
 	write(t, root, ".framework/spec.json", `{"publish":{"default":"bucket","destinations":{"bucket":{"driver":"s3","secret_key":"literal-secret"}}}}`)
@@ -213,6 +217,13 @@ func TestDestinationAWSCredentialsUseEnvironment(t *testing.T) {
 	}
 	if found["AWS_ACCESS_KEY_ID"] != "example-access" || found["AWS_SECRET_ACCESS_KEY"] != "example-secret" {
 		t.Fatal("destination credentials were not passed to AWS CLI")
+	}
+	// env("X", "") takes its empty default when X is unset; env("X") is an error.
+	if v, e := resolveEnvOption(`env("FW_TEST_UNSET_VARIABLE", "")`); e != nil || v != "" {
+		t.Errorf("empty default: %q %v", v, e)
+	}
+	if _, e := resolveEnvOption(`env('FW_TEST_UNSET_VARIABLE')`); e == nil {
+		t.Error("unset without a default: no error")
 	}
 }
 

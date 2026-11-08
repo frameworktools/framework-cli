@@ -96,3 +96,71 @@ func TestCheckSpecProblems(t *testing.T) {
 		t.Error("not JSON: no error")
 	}
 }
+
+// Framework Cloud's credential rule: env("X") and env("X", "") pass, with
+// either quote; a non-empty default or a written-out value is flagged.
+func TestCredentialRule(t *testing.T) {
+	for value, literal := range map[any]bool{
+		`env("DB_PASSWORD")`:                false,
+		`env('DB_PASSWORD')`:                false,
+		` env( "DB_PASSWORD" , "" ) `:       false,
+		`env('DB_PASSWORD', '')`:            false,
+		`env("DB_PASSWORD", "hunter2")`:     true,
+		`env('DB_PASSWORD', 'hunter2')`:     true,
+		`!expr Sys.getenv("DB_PASSWORD")`:   false,
+		`!expr Sys.getenv("X", unset = "")`: false,
+		`!expr Sys.getenv("X", "hunter2")`:  true,
+		`!expr paste0("a", "b")`:            true,
+		"hunter2":                           true,
+		"":                                  false,
+		true:                                false,
+		nil:                                 false,
+		42.0:                                true,
+	} {
+		if got := LiteralSecret(value); got != literal {
+			t.Errorf("LiteralSecret(%#v) = %v; want %v", value, got, literal)
+		}
+	}
+	if m := (map[string]any{"a": map[string]any{}}); LiteralSecret(m) {
+		t.Error("a mapping is not a secret")
+	}
+	for key, want := range map[string]bool{"password": true, "PGPASSWORD": true, "pwd": true, "api-key": true, "apikey": true, "private_key": true,
+		"credentials": true, "session_token": true, "access_key_id": true, "host": false, "user": false, "database": false} {
+		if CredentialKey(key) != want {
+			t.Errorf("CredentialKey(%q) = %v", key, !want)
+		}
+	}
+	name, def, has, ok := EnvCall(`env('A_B', "")`)
+	if !ok || name != "A_B" || def != "" || !has {
+		t.Errorf("EnvCall: %q %q %v %v", name, def, has, ok)
+	}
+	if _, _, _, ok := EnvCall(`env("A', 'x")`); ok {
+		t.Error("mismatched quotes")
+	}
+
+	data := edit(t, func(doc map[string]any) {
+		doc["connections"] = map[string]any{"databases": map[string]any{
+			"main":  map[string]any{"driver": "postgres", "password": `env("PG_PASS", "")`, "user": "ada"},           // #nosec G101 -- test fixture
+			"other": map[string]any{"driver": "postgres", "password": `env("PG_PASS", "hunter2")`, "api_key": "abc"}, // #nosec G101 -- test fixture
+		}, "storage_buckets": map[string]any{}}
+	})
+	c, err := CheckSpec(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range c.Problems {
+		got = append(got, p.Path)
+		if strings.Contains(p.Message, "hunter2") || strings.Contains(p.Message, "abc") {
+			t.Errorf("printed a value: %s", p)
+		}
+	}
+	if strings.Join(got, ",") != "connections.databases.other.api_key,connections.databases.other.password" {
+		t.Errorf("problems %v", c.Problems)
+	}
+	var doc map[string]any
+	_ = json.Unmarshal(data, &doc)
+	if err := ValidateResolved(doc); err == nil || !strings.Contains(err.Error(), "connections.databases.other.api_key, connections.databases.other.password: a written-out secret") {
+		t.Errorf("ValidateResolved: %v", err)
+	}
+}

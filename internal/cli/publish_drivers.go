@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/frameworktools/framework-cli/internal/project"
@@ -33,8 +32,6 @@ type publishDestination struct {
 	Private    *bool          `yaml:"private" json:"private"`
 	Options    map[string]any `yaml:"-" json:"-"`
 }
-
-var envReference = regexp.MustCompile(`^env\(["']([A-Za-z_][A-Za-z0-9_]*)["']\)$`)
 
 func (d *publishDestination) UnmarshalYAML(node *yaml.Node) error {
 	var raw map[string]any
@@ -82,11 +79,19 @@ func (d *publishDestination) normalize() error {
 	}
 	return nil
 }
+
+// resolveEnvOption reads a setting written as env("VARIABLE") or
+// env("VARIABLE", "default") from the environment. An unset variable takes
+// the default when there is one, and is an error otherwise. Any other value
+// is used as written.
 func resolveEnvOption(value string) (string, error) {
-	if match := envReference.FindStringSubmatch(value); match != nil {
-		resolved, exists := os.LookupEnv(match[1])
+	if name, def, hasDefault, ok := spec.EnvCall(value); ok {
+		resolved, exists := os.LookupEnv(name)
 		if !exists {
-			return "", usageError("publishing environment variable is not set: " + match[1])
+			if hasDefault {
+				return def, nil
+			}
+			return "", usageError("publishing environment variable is not set: " + name)
 		}
 		return resolved, nil
 	}

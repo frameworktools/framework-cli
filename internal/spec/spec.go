@@ -106,6 +106,9 @@ func ValidateResolved(resolved map[string]any) error {
 	if e := ValidatePublishSecrets(resolved["publish"]); e != nil {
 		return e
 	}
+	if found := ConnectionSecrets(map[string]any{"connections": resolved["connections"]}); len(found) > 0 {
+		return fmt.Errorf("%s: %s", strings.Join(found, ", "), secretMessage)
+	}
 
 	// Round-trip through JSON so the validator sees plain JSON values
 	data, err := json.Marshal(resolved)
