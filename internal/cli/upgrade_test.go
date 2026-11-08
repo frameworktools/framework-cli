@@ -222,3 +222,67 @@ func TestUpgradeRAndPython(t *testing.T) {
 		t.Errorf("old python: %v", err)
 	}
 }
+
+// fw's Stata adopt and upgrade record tools.quarto when a folder adopt
+// scans has Quarto files, and never append negations after a .gitignore's
+// own rules.
+func TestStataQuartoAndNegations(t *testing.T) {
+	h := newHarness(t, nil)
+	dir := oldStudy(t, h.app.home)
+	writeTestFile(t, filepath.Join(dir, "IRB", "notes", "memo.qmd"), "---\ntitle: memo\n---\n")
+	out, _, err := h.run(t, "", "adopt", dir, "--lang", "stata", "--yes", "--json")
+	var res struct {
+		Quarto  bool     `json:"quarto"`
+		LeftOut []string `json:"gitignore_left_out"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || !res.Quarto || len(res.LeftOut) != 0 {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	// No .gitignore before: the rules go in whole, the negation too.
+	if ignore := readTestFile(t, filepath.Join(dir, ".gitignore")); !strings.Contains(ignore, "\n!.env.example\n") {
+		t.Errorf(".gitignore:\n%s", ignore)
+	}
+	var doc struct {
+		Tools map[string]bool `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(readTestFile(t, filepath.Join(dir, ".framework", "spec.json"))), &doc); err != nil || !doc.Tools["quarto"] {
+		t.Errorf("spec tools: %v %v", err, doc.Tools)
+	}
+	// Upgrading it reads the spec with quarto on and changes nothing about it.
+	h.app.cwd = dir
+	if out, errOut, err := h.run(t, "", "project", "upgrade"); err != nil || strings.Contains(out, ".framework/spec.json") {
+		t.Errorf("upgrade of the adopted project: %v\n%s%s", err, out, errOut)
+	}
+
+	// An old project with a _quarto.yml gets tools.quarto in its new spec, and
+	// its .gitignore, which has rules, gets no negation.
+	old := oldStataProject(t, t.TempDir())
+	writeTestFile(t, filepath.Join(old, "_quarto.yml"), "project:\n  type: default\n")
+	h.app.cwd = old
+	out, _, err = h.run(t, "", "project", "upgrade", "--apply", "--json")
+	var plan struct {
+		Changes []stata.UpgradeChange `json:"changes"`
+		Notes   []string              `json:"notes"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &plan) != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "with tools.quarto: true for its Quarto files") || !strings.Contains(strings.Join(plan.Notes, "\n"), ".gitignore: left out !.env.example") {
+		t.Errorf("plan:\n%s", out)
+	}
+	if ignore := readTestFile(t, filepath.Join(old, ".gitignore")); strings.Contains(ignore, "!") {
+		t.Errorf(".gitignore:\n%s", ignore)
+	}
+
+	// A spec without it gets it on the next upgrade.
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(readTestFile(t, filepath.Join(old, ".framework", "spec.json"))), &spec); err != nil {
+		t.Fatal(err)
+	}
+	delete(spec, "tools")
+	data, _ := json.Marshal(spec)
+	writeTestFile(t, filepath.Join(old, ".framework", "spec.json"), string(data))
+	if out, _, err := h.run(t, "", "project", "upgrade"); err != nil || !strings.Contains(out, "record tools.quarto: true (the project has Quarto files)") {
+		t.Errorf("spec without tools: %v\n%s", err, out)
+	}
+}

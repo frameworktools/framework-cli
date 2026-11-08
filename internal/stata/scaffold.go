@@ -656,7 +656,10 @@ var adoptIgnores = []string{".env", ".env.*", "!.env.example", "**/private/**", 
 func AdoptGitignore(private []string) []string {
 	lines := append([]string{}, adoptIgnores...)
 	for _, p := range private {
-		lines = append(lines, "/"+strings.Trim(p, "/")+"/")
+		// Never "//": a path of slashes or nothing names no folder
+		if p = strings.Trim(p, "/"); p != "" {
+			lines = append(lines, "/"+p+"/")
+		}
 	}
 	return lines
 }
@@ -665,6 +668,9 @@ func AdoptGitignore(private []string) []string {
 type AdoptResult struct {
 	Created   []string // files fw created
 	Gitignore []string // lines added to .gitignore
+	// GitignoreLeftOut lists the negations left out because .gitignore
+	// already had rules (project.MissingGitignoreLines).
+	GitignoreLeftOut []string
 }
 
 // Adopt turns an existing folder into a Stata project by writing
@@ -685,14 +691,14 @@ func Adopt(r Resolved, dir string, ignore []string) (AdoptResult, error) {
 		}
 	}
 	_, statErr := os.Stat(filepath.Join(dir, ".gitignore"))
-	added, err := project.AppendGitignore(dir, "Added by fw adopt: secrets and private data stay out of git", ignore)
+	added, leftOut, err := project.AppendGitignore(dir, "Added by fw adopt: secrets and private data stay out of git", ignore)
 	if err != nil {
 		return AdoptResult{Created: s.res.Created}, err
 	}
 	if errors.Is(statErr, fs.ErrNotExist) && len(added) > 0 {
 		s.res.Created = append(s.res.Created, ".gitignore")
 	}
-	res.Gitignore = added
+	res.Gitignore, res.GitignoreLeftOut = added, leftOut
 	if data, err := os.ReadFile(filepath.Join(dir, ".gitignore")); err == nil {
 		git := asMap(r.Doc["git"])
 		git["gitignore_content"] = string(data)

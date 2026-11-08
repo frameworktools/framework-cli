@@ -493,16 +493,20 @@ func TestAdoptStataGitignore(t *testing.T) {
 	out, errOut, err := h.run(t, "", "adopt", dir, "--lang", "stata", "--json")
 	var proposal struct {
 		Additions []string `json:"gitignore_additions"`
+		LeftOut   []string `json:"gitignore_left_out"`
 	}
-	if err != nil || json.Unmarshal([]byte(out), &proposal) != nil || strings.Join(proposal.Additions, " ") != ".env.* !.env.example **/private/** **/*_private/** /output/private/" ||
+	// The folder's .gitignore has rules, so no negation is appended after them.
+	if err != nil || json.Unmarshal([]byte(out), &proposal) != nil || strings.Join(proposal.Additions, " ") != ".env.* **/private/** **/*_private/** /output/private/" ||
+		strings.Join(proposal.LeftOut, " ") != "!.env.example" ||
 		!strings.Contains(errOut, "Warning: the files say r (from study.Rproj), but --lang says stata") {
 		t.Fatalf("%v %+v\n%s", err, proposal, errOut)
 	}
-	if _, _, err := h.run(t, "", "adopt", dir, "--lang", "stata", "--yes"); err != nil {
-		t.Fatal(err)
+	out, _, err = h.run(t, "", "adopt", dir, "--lang", "stata", "--yes")
+	if err != nil || !strings.Contains(out, "Left out of .gitignore: !.env.example.") {
+		t.Fatalf("%v\n%s", err, out)
 	}
 	ignore := readTestFile(t, filepath.Join(dir, ".gitignore"))
-	if !strings.HasPrefix(ignore, "# mine\n*.dta\n.env\n\n# Added by fw adopt") || strings.Count(ignore, "\n.env\n") != 1 {
+	if !strings.HasPrefix(ignore, "# mine\n*.dta\n.env\n\n# Added by fw adopt") || strings.Count(ignore, "\n.env\n") != 1 || strings.Contains(ignore, "!") {
 		t.Errorf(".gitignore:\n%s", ignore)
 	}
 }

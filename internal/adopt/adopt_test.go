@@ -209,3 +209,33 @@ func TestRestrictedAndMarkPrivate(t *testing.T) {
 		t.Errorf("unknown: %v", err)
 	}
 }
+
+// Quarto is found at the root or in any folder adopt scans, from
+// _quarto.yml, _quarto.yaml, or a .qmd file; not in skipped, hidden, or too
+// deep folders.
+func TestDetectQuarto(t *testing.T) {
+	rules := Shared()
+	cases := map[string]bool{
+		"_quarto.yml":                  true,
+		"site/_QUARTO.yaml":            true,
+		"analysis/reports/x/paper.qmd": true,
+		"notes.QMD":                    true,
+		"a/b/c/d/deep.qmd":             false,
+		".quarto/_quarto.yml":          false,
+		"renv/library/x.qmd":           false,
+		"docs/readme.md":               false,
+	}
+	for file, want := range cases {
+		root := t.TempDir()
+		p := filepath.Join(root, filepath.FromSlash(file))
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := rules.DetectQuarto(root); got != want {
+			t.Errorf("%s: %v; want %v", file, got, want)
+		}
+	}
+}

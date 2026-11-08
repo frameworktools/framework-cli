@@ -132,6 +132,7 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 		return plan, err
 	}
 	var resolved Resolved
+	quarto := adopt.Shared().DetectQuarto(root)
 	if hasSpec {
 		var doc map[string]any
 		if err := json.Unmarshal([]byte(specText), &doc); err != nil {
@@ -140,29 +141,41 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 		if resolved, err = FromSpec(doc); err != nil {
 			return plan, fmt.Errorf(".framework/spec.json: %w", err)
 		}
+		var did []string
 		if doc["type"] == "project_sensitive" && !resolved.View.Security.Sensitive {
 			security := asMap(doc["security"])
 			security["sensitive"] = true
 			doc["security"] = security
 			resolved.View.Security.Sensitive = true
+			did = append(did, "set security.sensitive to true, as the project_sensitive type says")
+		}
+		if quarto && !resolved.View.Tools["quarto"] {
+			setQuarto(&resolved)
+			did = append(did, "record tools.quarto: true (the project has Quarto files)")
+		}
+		if len(did) > 0 {
 			data, err := json.MarshalIndent(doc, "", "  ")
 			if err != nil {
 				return plan, err
 			}
 			plan.Changes = append(plan.Changes, UpgradeChange{File: ".framework/spec.json", Action: "update",
-				Summary: "set security.sensitive to true, as the project_sensitive type says", content: string(data) + "\n"})
+				Summary: strings.Join(did, "; "), content: string(data) + "\n"})
 		}
 	} else {
 		if resolved, err = rebuildSpec(root, settingsDo, hasMaster, fwVersion); err != nil {
 			return plan, err
+		}
+		summary := fmt.Sprintf("record the project's spec (type %s, %d folders from settings.do)", resolved.View.Type, len(resolved.View.Directories)+len(resolved.View.ExtraDirectories))
+		if quarto {
+			setQuarto(&resolved)
+			summary += ", with tools.quarto: true for its Quarto files"
 		}
 		data, err := json.MarshalIndent(resolved.Doc, "", "  ")
 		if err != nil {
 			return plan, err
 		}
 		plan.Changes = append(plan.Changes, UpgradeChange{File: ".framework/spec.json", Action: "create",
-			Summary: fmt.Sprintf("record the project's spec (type %s, %d folders from settings.do)", resolved.View.Type, len(resolved.View.Directories)+len(resolved.View.ExtraDirectories)),
-			content: string(data) + "\n"})
+			Summary: summary, content: string(data) + "\n"})
 	}
 	sensitive := resolved.View.Security.Sensitive
 
@@ -254,9 +267,13 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 		want = AdoptGitignore(private)
 	}
 	want = append(want, "/.framework/backups/")
-	missing, err := project.MissingGitignoreLines(root, want)
+	missing, leftOut, err := project.MissingGitignoreLines(root, want)
 	if err != nil {
 		return plan, err
+	}
+	if len(leftOut) > 0 {
+		plan.Notes = append(plan.Notes, fmt.Sprintf(".gitignore: left out %s. Added after your own rules, they would win over them and could make files in folders you ignore (README files in data folders) committable.",
+			strings.Join(leftOut, " ")))
 	}
 	if len(missing) > 0 {
 		current, _, _ := read(".gitignore")
@@ -454,4 +471,16 @@ func ApplyUpgrade(root string, plan UpgradePlan, backup bool, now time.Time) (st
 		}
 	}
 	return backupDir, nil
+}
+
+// setQuarto records tools.quarto: true, for a project with Quarto files
+// (adopt.Rules.DetectQuarto).
+func setQuarto(r *Resolved) {
+	tools := asMap(r.Doc["tools"])
+	tools["quarto"] = true
+	r.Doc["tools"] = tools
+	if r.View.Tools == nil {
+		r.View.Tools = map[string]bool{}
+	}
+	r.View.Tools["quarto"] = true
 }

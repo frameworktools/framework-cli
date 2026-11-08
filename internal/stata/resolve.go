@@ -205,7 +205,7 @@ func Resolve(env spec.Envelope, fwVersion string) (Resolved, error) {
 	legacyBare := kind == "bare" && !explicit
 	finalize(doc, legacyBare, merged.Gitignore)
 
-	view, err := prepare(doc)
+	view, err := prepare(doc, false)
 	if err != nil {
 		return Resolved{}, err
 	}
@@ -218,15 +218,17 @@ func FromSpec(doc map[string]any) (Resolved, error) {
 	if lang, _ := doc["language"].(string); lang != "stata" {
 		return Resolved{}, fmt.Errorf("this spec describes a %q project, not a Stata project", lang)
 	}
-	view, err := prepare(doc)
+	view, err := prepare(doc, true)
 	if err != nil {
 		return Resolved{}, err
 	}
 	return Resolved{Doc: doc, View: view}, nil
 }
 
-// prepare validates a resolved spec and returns its view.
-func prepare(doc map[string]any) (View, error) {
+// prepare validates a resolved spec and returns its view. existing allows
+// what a project fw adopted or upgraded may record, such as tools.quarto
+// for Quarto files it found.
+func prepare(doc map[string]any, existing bool) (View, error) {
 	if err := spec.ValidateResolved(doc); err != nil {
 		return View{}, err
 	}
@@ -238,7 +240,7 @@ func prepare(doc map[string]any) (View, error) {
 	if err := json.Unmarshal(data, &view); err != nil {
 		return View{}, err
 	}
-	if err := checkStata(view); err != nil {
+	if err := checkStata(view, existing); err != nil {
 		return View{}, err
 	}
 	view.CoreFiles = doc["core_files"] != false
@@ -324,11 +326,13 @@ var stataName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,31}$`)
 
 // checkStata rejects what the schema allows but Stata cannot use: tools,
 // workflows other than Scripts only, global names Stata does not accept,
-// and paths with characters that Stata expands inside quotes.
-func checkStata(v View) error {
+// and paths with characters that Stata expands inside quotes. In an
+// existing project, tools.quarto may be on: fw adopt and fw project upgrade
+// record it when the folder has Quarto files, and fw writes nothing for it.
+func checkStata(v View, existing bool) error {
 	var on []string
 	for id, enabled := range v.Tools {
-		if enabled {
+		if enabled && (!existing || id != "quarto") {
 			on = append(on, id)
 		}
 	}

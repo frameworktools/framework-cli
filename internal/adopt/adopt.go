@@ -500,3 +500,29 @@ func qmdLanguage(path string) string {
 	}
 	return "r"
 }
+
+// DetectQuarto reports whether the project at root uses Quarto: the root or
+// a folder Scan lists (at most MaxDepth deep, not hidden or skipped) has a
+// _quarto.yml, a _quarto.yaml, or a .qmd file. R: .adopt_detect_quarto().
+func (r Rules) DetectQuarto(root string) bool {
+	folders, err := r.Scan(root)
+	if err != nil {
+		return false
+	}
+	for _, folder := range append([]string{""}, folders...) {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(folder)))
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := strings.ToLower(e.Name())
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if name == "_quarto.yml" || name == "_quarto.yaml" || strings.HasSuffix(name, ".qmd") {
+				return true
+			}
+		}
+	}
+	return false
+}

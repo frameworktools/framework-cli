@@ -250,11 +250,14 @@ func newAdoptCmd(a *app) *cobra.Command {
 			".framework/spec.json, and adds lines that keep secrets and private\n" +
 			"folders out of git to .gitignore. It moves and overwrites no files, never\n" +
 			"changes a line already in .gitignore, and stops if the folder is already\n" +
-			"a project. Python projects are adopted by framework-py (0.1.0.dev13 or\n" +
-			"later), and R projects by the framework R package's adopt(). fw runs them\n" +
-			"for you. To change a folder's role in an R project, run framework::adopt()\n" +
-			"in R instead. An existing Framework project is not adopted: run\n" +
-			"fw project upgrade in it.\n\n" +
+			"a project. A .gitignore that already has rules gets no negations (!...),\n" +
+			"which would win over them; fw lists the ones it left out. The spec\n" +
+			"records tools.quarto when a _quarto.yml, _quarto.yaml, or .qmd file is\n" +
+			"at the top or in a folder fw scans. Python projects are adopted by\n" +
+			"framework-py (0.1.0.dev13 or later), and R projects by the framework R\n" +
+			"package's adopt(). fw runs them for you. To change a folder's role in an\n" +
+			"R project, run framework::adopt() in R instead. An existing Framework\n" +
+			"project is not adopted: run fw project upgrade in it.\n\n" +
 			"fw infers the type from the folders: course when two or more course\n" +
 			"folders (slides, modules, assignments, ...) are at the top, project_sensitive\n" +
 			"when private and public data folders map, project when any folder maps,\n" +
@@ -559,15 +562,15 @@ func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string, o engi
 	res := map[string]any{
 		"path": dir, "language": lang, "language_source": source, "adopted": false, "type": m.Type, "sensitive": sensitive,
 		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "render_dirs": m.RenderDirs, "warnings": m.Warnings,
-		"marked_private": nonNil(m.MarkedPrivate), "restricted_candidates": candidates,
+		"marked_private": nonNil(m.MarkedPrivate), "restricted_candidates": candidates, "quarto": rules.DetectQuarto(dir),
 	}
 	// fw writes Stata projects itself, so it knows what .gitignore gets
 	if lang == "stata" {
-		missing, err := project.MissingGitignoreLines(dir, stataIgnores(m))
+		missing, leftOut, err := project.MissingGitignoreLines(dir, stataIgnores(m))
 		if err != nil {
 			return err
 		}
-		res["gitignore_additions"] = nonNil(missing)
+		res["gitignore_additions"], res["gitignore_left_out"] = nonNil(missing), nonNil(leftOut)
 	}
 	return writeJSON(cmd.OutOrStdout(), res)
 }
@@ -659,6 +662,17 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 		return nil, err
 	}
 	resolved.Doc["skills"] = map[string]any{}
+	// Quarto files anywhere adopt looks: recorded, as R's adopt() does. fw
+	// writes nothing for Quarto in a Stata project.
+	quarto := rules.DetectQuarto(dir)
+	if quarto {
+		tools := map[string]any{}
+		if t, ok := resolved.Doc["tools"].(map[string]any); ok {
+			tools = t
+		}
+		tools["quarto"] = true
+		resolved.Doc["tools"] = tools
+	}
 	// The layer resolves as bare, so no built-in folders are added; the
 	// given or inferred type is the label.
 	resolved.Doc["type"], resolved.View.Type = m.Type, m.Type
@@ -669,14 +683,17 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 
 	out := cmd.OutOrStdout()
 	result := map[string]any{"path": dir, "language": "stata", "type": resolved.View.Type, "sensitive": sensitive,
-		"created": res.Created, "gitignore_additions": nonNil(res.Gitignore),
-		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings, "marked_private": nonNil(m.MarkedPrivate)}
+		"created": res.Created, "gitignore_additions": nonNil(res.Gitignore), "gitignore_left_out": nonNil(res.GitignoreLeftOut),
+		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings, "marked_private": nonNil(m.MarkedPrivate), "quarto": quarto}
 	if a.jsonOut {
 		return result, nil
 	}
 	fmt.Fprintf(out, "%s is a Framework Stata project. fw wrote %s.\n", name, strings.Join(res.Created, ", "))
 	if len(res.Gitignore) > 0 {
 		fmt.Fprintf(out, "Added to .gitignore: %s\n", strings.Join(res.Gitignore, " "))
+	}
+	if len(res.GitignoreLeftOut) > 0 {
+		fmt.Fprintf(out, "Left out of .gitignore: %s. Added after the folder's own rules, they could make files in ignored folders committable.\n", strings.Join(res.GitignoreLeftOut, " "))
 	}
 	fmt.Fprintln(out, "fw moved and overwrote nothing.")
 	fmt.Fprintln(out, "Next: open Stata in that folder and run: do settings.do")
