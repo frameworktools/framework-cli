@@ -104,6 +104,9 @@ func (a *app) createLink(cmd *cobra.Command, root string, o createOptions) (crea
 	if s.Language == "" {
 		s.Language = "r"
 	}
+	if data, err = checkSpecForCloud(cmd.ErrOrStderr(), data, "fw project link --create"); err != nil {
+		return createdLink{}, err
+	}
 	if project.EnvTracked(root) {
 		return createdLink{}, fmt.Errorf("git tracks %s, so the project token would be committed. Run `git rm --cached .env`, then fw project link --create again", filepath.Join(root, ".env"))
 	}

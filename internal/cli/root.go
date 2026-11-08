@@ -30,6 +30,8 @@ type exitError struct {
 	// reason is a stable name for the problem in --json errors. found and
 	// hint add what fw found and the command to run instead.
 	reason, found, hint string
+	// problems lists what is wrong, one line each, for --json errors.
+	problems []string
 }
 
 func (e *exitError) Error() string {
@@ -110,7 +112,7 @@ func report(w io.Writer, a *app, err error) {
 	if a != nil && a.jsonOut {
 		e := jsonError{Error: err.Error(), Code: exitCode(err)}
 		if exit != nil {
-			e.Reason, e.Found, e.Hint = exit.reason, exit.found, exit.hint
+			e.Reason, e.Found, e.Hint, e.Problems = exit.reason, exit.found, exit.hint, exit.problems
 		}
 		data, _ := json.Marshal(e)
 		fmt.Fprintln(w, string(data))

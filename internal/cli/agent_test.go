@@ -399,17 +399,50 @@ func TestPushSpec(t *testing.T) {
 	if _, _, err := h.run(t, "", "project", "push-spec"); err == nil || !strings.Contains(err.Error(), "no .framework/spec.json") {
 		t.Errorf("no spec: %v", err)
 	}
-	spec := `{"spec_version":1,"name":"Study","language":"r","security":{"sensitive":true},"env":{}}`
+	spec := specWith(t, map[string]any{"name": "Study", "language": "r", "security": map[string]any{"sensitive": true}})
 	write(t, root, ".framework/spec.json", spec)
 	out, errOut, err := h.run(t, "", "project", "push-spec")
 	if err != nil || !strings.Contains(out, "recorded the new spec") || strings.Contains(out, "version") || lastSpec != spec ||
-		!strings.Contains(errOut, "5 sections") || !strings.Contains(errOut, "sensitive project") {
+		!strings.Contains(errOut, "19 sections") || !strings.Contains(errOut, "sensitive project") {
 		t.Errorf("push-spec: %v\n%s\n%s\nsent %s", err, out, errOut, lastSpec)
 	}
 
-	write(t, root, ".framework/spec.json", `{"env":{"DB_PASSWORD":"hunter2"}}`)
+	write(t, root, ".framework/spec.json", specWith(t, map[string]any{"env": map[string]any{"DB_PASSWORD": "hunter2"}}))
 	if _, _, err := h.run(t, "", "project", "push-spec"); err == nil || !strings.Contains(err.Error(), "DB_PASSWORD looks secret") {
 		t.Errorf("rejected spec: %v", err)
+	}
+}
+
+// push-spec checks the spec against spec.v1 first. The keys upgrade() in
+// an older upgrade() wrote are left out with a warning; anything else stops it
+// with the keys named and nothing sent.
+func TestPushSpecChecksSchema(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProject(t, h, srv.URL)
+
+	stale := specWith(t, map[string]any{"scaffold": map[string]any{"seed_on_scaffold": false, "seed": "", "positron": true},
+		"source": map[string]any{"origin": "r", "upgraded_from": "1.1.0"}})
+	write(t, root, ".framework/spec.json", stale)
+	lastSpec = ""
+	out, errOut, err := h.run(t, "", "project", "push-spec", "--json")
+	if err != nil || !strings.Contains(out, `"changed": true`) || strings.Contains(lastSpec, "positron") || strings.Contains(lastSpec, "upgraded_from") ||
+		!strings.Contains(lastSpec, `"seed_on_scaffold":false`) || !strings.Contains(lastSpec, `"origin":"r"`) ||
+		!strings.Contains(errOut, "Warning: .framework/spec.json has scaffold.positron and source.upgraded_from") || !strings.Contains(errOut, "fw project upgrade --apply") {
+		t.Errorf("stale keys: %v\n%s\n%s\nsent %s", err, out, errOut, lastSpec)
+	}
+	if readTestFile(t, filepath.Join(root, ".framework", "spec.json")) != stale {
+		t.Error("the file changed")
+	}
+
+	bad := specWith(t, map[string]any{"ai": map[string]any{"enabled": false, "assistants": map[string]any{}, "agents_md": "none", "model": "x"}, "author": nil})
+	write(t, root, ".framework/spec.json", bad)
+	lastSpec = ""
+	_, errOut, err = h.run(t, "", "project", "push-spec", "--json")
+	var e *exitError
+	if !errors.As(err, &e) || e.code != exitFailure || lastSpec != "" || e.reason != "spec_invalid" || e.hint != "fw project upgrade --apply" ||
+		strings.Join(e.problems, "|") != "ai.model: not part of spec.v1|author: missing" || !strings.Contains(e.Error(), "Nothing was sent") {
+		t.Errorf("bad spec: %v\n%s", err, errOut)
 	}
 }
 
@@ -435,7 +468,7 @@ func TestPushSpecPrivatePath(t *testing.T) {
 	srv := fakeCloud(t)
 	h := newHarness(t, nil)
 	root := linkedProjectAt(t, h, srv.URL, "PRIVATE-study")
-	write(t, root, ".framework/spec.json", `{"spec_version":1}`)
+	write(t, root, ".framework/spec.json", adoptedSpec)
 	lastSpec = ""
 	if _, _, err := h.run(t, "", "project", "push-spec"); exitCode(err) != exitPrivate || lastSpec != "" || !strings.Contains(err.Error(), "PRIVATE-study") {
 		t.Errorf("private path without a terminal: exit %d %v", exitCode(err), err)

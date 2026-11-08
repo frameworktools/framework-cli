@@ -112,4 +112,6 @@ type jsonError struct {
 	Reason string `json:"reason,omitempty"`
 	Found  string `json:"found,omitempty"`
 	Hint   string `json:"hint,omitempty"`
+	// Problems lists what is wrong, such as the spec keys spec.v1 refuses.
+	Problems []string `json:"problems,omitempty"`
 }

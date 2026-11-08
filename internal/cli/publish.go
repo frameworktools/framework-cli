@@ -545,6 +545,13 @@ func newPushSpecCmd(a *app) *cobra.Command {
 			"it on the project page. The spec describes the project's structure:\n" +
 			"folders, settings, packages, and templates. It never holds data, and the\n" +
 			"server refuses secret values in it. It uses the project token in .env.\n\n" +
+			"fw first checks the spec against spec.v1, the schema the server checks it\n" +
+			"against. It leaves out scaffold.positron and source.upgraded_from, which\n" +
+			"an older upgrade() wrote and spec.v1 doesn't allow, and says so; the\n" +
+			"file keeps them until fw project upgrade --apply rewrites it. Any\n" +
+			"other problem stops fw before it sends anything, with the keys named.\n" +
+			"fw project upgrade --apply rewrites the spec (in R projects, with a\n" +
+			"framework package newer than 2.0.1).\n\n" +
 			"When the project's full path contains \"private\", fw warns and asks\n" +
 			"first. With --json or no terminal, it stops with exit code 6 unless you\n" +
 			"pass --include-private.",
@@ -566,6 +573,9 @@ func newPushSpecCmd(a *app) *cobra.Command {
 			var doc map[string]json.RawMessage
 			if err := json.Unmarshal(data, &doc); err != nil {
 				return fmt.Errorf(".framework/spec.json is not valid JSON: %w", err)
+			}
+			if data, err = checkSpecForCloud(cmd.ErrOrStderr(), data, "fw project push-spec"); err != nil {
+				return err
 			}
 			sections := make([]string, 0, len(doc))
 			for k := range doc {

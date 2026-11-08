@@ -194,6 +194,15 @@ slug held by a project in your Trash can't be reused; restore that
 project and link to it, or choose another slug. An older self-hosted server builds the project from your
 defaults, and fw sends the spec separately.
 
+Both commands check the spec against spec.v1 before sending it, as Framework
+Cloud does. A spec that an older `upgrade()` wrote can hold
+`scaffold.positron` and `source.upgraded_from`, which spec.v1 doesn't
+allow; fw leaves them out of what it sends, with a warning, and
+`fw project upgrade --apply` (in R, with a framework package newer than
+2.0.1) drops them from the file. Any other problem stops fw before it
+sends anything, with each key named; fix it with
+`fw project upgrade --apply`.
+
 `fw structures import --type` records the project type a saved layout is
 for, such as `bare` or `project_sensitive`.
 

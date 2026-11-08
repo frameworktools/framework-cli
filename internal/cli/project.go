@@ -43,6 +43,7 @@ func newProjectCmd(a *app) *cobra.Command {
 			"(--from) instead and creates nothing; a slug held by a project in your\n" +
 			"Trash can't be reused. Framework Cloud projects are private to your\n" +
 			"account. A project with no spec needs fw project upgrade --apply first.\n" +
+			"fw checks the spec against spec.v1 before sending it, as push-spec does.\n" +
 			"An older self-hosted server, from before the spec API, builds the project\n" +
 			"from your defaults instead; fw then sends the spec separately.",
 		Example: "  fw project link --from vaccine-study\n" +

@@ -173,9 +173,36 @@ func adoptedProject(t *testing.T, root, name, spec string) string {
 	return dir
 }
 
+// adoptedSpec matches spec.v1, as the specs fw adopt and the packages
+// write do.
 const adoptedSpec = `{"spec_version":1,"name":"old-study","type":"bare","language":"stata",
+"author":{"name":"Ada","email":"ada@example.edu","affiliation":""},
 "directories":{"do":"do","inputs_raw":"data/raw"},"extra_directories":{"irb":{"label":"IRB","path":"IRB"}},
-"security":{"sensitive":false},"git":{"use_git":false},"ai":{"enabled":false},"source":{"origin":"cli","adopted":true}}`
+"render_dirs":{},"packages":{"use_renv":false,"default_packages":{}},"scaffold":{"seed_on_scaffold":false,"seed":""},"connections":{"databases":{},"storage_buckets":{}},
+"security":{"sensitive":false},"git":{"use_git":false,"hooks":{},"gitignore_content":""},"ai":{"enabled":false,"assistants":{},"agents_md":"none"},
+"env":{},"data_hooks":{},"files":{},"skills":{},"source":{"origin":"cli","adopted":true}}`
+
+// specWith is adoptedSpec with top-level fields replaced, or removed when
+// nil.
+func specWith(t *testing.T, fields map[string]any) string {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(adoptedSpec), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range fields {
+		if v == nil {
+			delete(doc, k)
+		} else {
+			doc[k] = v
+		}
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
 
 func TestLinkCreate(t *testing.T) {
 	f, srv := newFakeProjects(t)
@@ -245,7 +272,8 @@ func TestLinkCreate(t *testing.T) {
 func TestLinkCreateSlugAndName(t *testing.T) {
 	f, srv := newFakeProjects(t)
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
-	spec := `{"spec_version":1,"name":"Survey","type":"project_sensitive","language":"r","directories":{"inputs_private_raw":"inputs/private/raw"},"tools":{"quarto":true,"renv":false},"data_hooks":{},"security":{"sensitive":true},"source":{"origin":"r"}}`
+	spec := specWith(t, map[string]any{"name": "Survey", "type": "project_sensitive", "language": "r", "directories": map[string]any{"inputs_private_raw": "inputs/private/raw"},
+		"extra_directories": map[string]any{}, "tools": map[string]any{"quarto": true, "renv": false}, "security": map[string]any{"sensitive": true}, "source": map[string]any{"origin": "r"}})
 	dir := adoptedProject(t, h.app.home, "survey", spec)
 	h.app.cwd = dir
 
@@ -268,6 +296,25 @@ func TestLinkCreateSlugAndName(t *testing.T) {
 	}
 	if !strings.Contains(readTestFile(t, filepath.Join(dir, ".env")), "FW_PROJECT_TOKEN=tok-survey-2026") {
 		t.Error("not linked")
+	}
+}
+
+// link --create refuses a spec that breaks spec.v1 before creating
+// anything, and leaves out the keys an older upgrade() wrote.
+func TestLinkCreateChecksSchema(t *testing.T) {
+	f, srv := newFakeProjects(t)
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
+	dir := adoptedProject(t, h.app.home, "old-study", specWith(t, map[string]any{"directories": map[string]any{"Bad Key": "x"}}))
+	h.app.cwd = dir
+	_, _, err := h.run(t, "", "project", "link", "--create")
+	if err == nil || !strings.Contains(err.Error(), "directories.Bad Key: not an allowed key name") || !strings.Contains(err.Error(), "then run fw project link --create again") || len(f.requests) != 0 {
+		t.Errorf("bad spec: %v %v", err, f.requests)
+	}
+
+	writeTestFile(t, filepath.Join(dir, ".framework", "spec.json"), specWith(t, map[string]any{"source": map[string]any{"origin": "r", "upgraded_from": "1.1.0"}}))
+	_, errOut, err := h.run(t, "", "project", "link", "--create")
+	if err != nil || len(f.creates) != 1 || strings.Contains(f.creates[0], "upgraded_from") || !strings.Contains(errOut, "has source.upgraded_from, which") {
+		t.Errorf("stale key: %v\n%s\n%v", err, errOut, f.creates)
 	}
 }
 
