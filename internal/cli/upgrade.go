@@ -39,16 +39,38 @@ func newProjectUpgradeCmd(a *app) *cobra.Command {
 			"folders deep. It never removes or changes a line of a text file: it\n" +
 			"only creates files, inserts lines, and appends. Each file it changes\n" +
 			"is copied to .framework/backups/<timestamp>/ first, unless --no-backup.\n" +
-			"Running it again changes nothing.",
-		Example: "  fw project upgrade\n  fw project upgrade --apply\n  fw project upgrade --apply --no-backup",
-		Args:    cobra.NoArgs,
+			"Running it again changes nothing.\n\n" +
+			"--type changes the project's type, as R's upgrade(type =) does. To\n" +
+			"project_sensitive it turns on security: sensitive and adds the Privacy\n" +
+			"Sensitive layout's private and public folders the project lacks, keeping\n" +
+			"its own; the .gitignore rules, the private folders, and the guard that\n" +
+			"keeps Claude Code out of them follow. A sensitive project changed to\n" +
+			"another type stays sensitive. In Stata, fw adds the new folders to\n" +
+			"settings.yml and settings.do. --move-settings moves settings keys outside\n" +
+			"the environment sections into settings/<key>.yml (R and Python). R\n" +
+			"passes them as upgrade(type =, move_settings = TRUE), which needs a\n" +
+			"framework package newer than 2.0.1, and Python as --type and\n" +
+			"--move-settings, which need a framework-py newer than 0.1.0.dev13; fw\n" +
+			"says when the package lacks them.",
+		Example: "  fw project upgrade\n  fw project upgrade --apply\n  fw project upgrade --apply --no-backup\n" +
+			"  fw project upgrade --type project_sensitive\n  fw project upgrade --apply --move-settings",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root := a.upgradeRoot()
 			if root == "" {
 				return errors.New("not inside a Framework project (no .framework folder, settings.yml, settings.yaml, settings.do, or Framework config.yml found). To make this folder one, run fw adopt")
 			}
+			if o.Type != "" && !contains(adoptTypes, o.Type) {
+				return usageError("--type takes project, project_sensitive, course, presentation, or bare")
+			}
 			p := a.engines.Detect(root)
 			if p.Language == "stata" {
+				if o.Type != "" && !contains(stata.Types, o.Type) {
+					return usageError("Stata projects take --type project, project_sensitive, or bare")
+				}
+				if o.MoveSettings {
+					return usageError("--move-settings is for R and Python projects; a Stata project's settings.yml has no environment sections to move keys out of")
+				}
 				return a.upgradeStata(cmd, root, o)
 			}
 			if a.jsonOut {
@@ -72,6 +94,8 @@ func newProjectUpgradeCmd(a *app) *cobra.Command {
 	f := cmd.Flags()
 	f.BoolVar(&o.Apply, "apply", false, "make the changes (default: print them only)")
 	f.BoolVar(&o.NoBackup, "no-backup", false, "don't copy changed files to .framework/backups first")
+	f.StringVar(&o.Type, "type", "", "change the project's type: project, project_sensitive, course, presentation, or bare (Stata: project, project_sensitive, or bare)")
+	f.BoolVar(&o.MoveSettings, "move-settings", false, "move settings keys outside the environment sections into settings/<key>.yml (R and Python)")
 	f.BoolVar(&a.jsonOut, "json", false, jsonHelp+" (Stata projects)")
 	return cmd
 }
@@ -96,7 +120,7 @@ func (a *app) upgradeRoot() string {
 
 // upgradeStata plans, and with --apply makes, a Stata project's upgrade.
 func (a *app) upgradeStata(cmd *cobra.Command, root string, o engine.UpgradeOptions) error {
-	plan, err := stata.PlanUpgrade(root, version)
+	plan, err := stata.PlanUpgrade(root, version, stata.UpgradeOptions{Type: o.Type})
 	if err != nil {
 		return err
 	}

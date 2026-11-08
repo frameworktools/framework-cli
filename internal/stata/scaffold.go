@@ -282,22 +282,44 @@ func (s *scaffolder) gitignore() error {
 // restricted lists every directory with a "private" segment, collapsed to
 // that segment, as R does for the agent deny rules.
 func (s *scaffolder) restricted() []string {
-	seen := map[string]bool{}
-	var out []string
+	// R's .spec_restricted_paths(): each folder's path up to its first
+	// segment named private or ending in _private, and each directories
+	// path whose key says private and not public; then without ".",
+	// paths outside the project, and paths inside another one.
+	var found []string
 	for _, g := range s.globals() {
 		parts := strings.Split(g.Path, "/")
 		for i, part := range parts {
-			if part == "private" {
-				p := strings.Join(parts[:i+1], "/")
-				if !seen[p] {
-					seen[p] = true
-					out = append(out, p)
-				}
+			if lower := strings.ToLower(part); lower == "private" || strings.HasSuffix(lower, "_private") {
+				found = append(found, strings.Join(parts[:i+1], "/"))
 				break
 			}
 		}
 	}
-	sort.Strings(out)
+	for k, p := range s.r.View.Directories {
+		if strings.Contains(k, "private") && !strings.Contains(k, "public") {
+			found = append(found, p)
+		}
+	}
+	var clean []string
+	for _, p := range found {
+		p = path.Clean(p)
+		if p == "." || p == ".." || strings.HasPrefix(p, "../") || path.IsAbs(p) {
+			continue
+		}
+		clean = append(clean, p)
+	}
+	sort.Strings(clean)
+	var out []string
+	for _, p := range clean {
+		inside := false
+		for _, o := range out {
+			inside = inside || p == o || strings.HasPrefix(p, o+"/")
+		}
+		if !inside {
+			out = append(out, p)
+		}
+	}
 	return out
 }
 

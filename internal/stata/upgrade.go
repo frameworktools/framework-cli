@@ -103,10 +103,41 @@ func knownKeys() map[string]bool {
 	return known
 }
 
+// UpgradeOptions are fw project upgrade's choices for a Stata project.
+type UpgradeOptions struct {
+	// Type changes the project's type: project, project_sensitive, or
+	// bare, as R's upgrade(type =) does. Empty keeps it.
+	Type string
+}
+
 // PlanUpgrade works out what upgrading the Stata project at root would
 // change, without changing anything.
-func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
+func PlanUpgrade(root, fwVersion string, o UpgradeOptions) (UpgradePlan, error) {
 	plan := UpgradePlan{Changes: []UpgradeChange{}, Notes: []string{}}
+	// Several steps can change one file; each builds on the content the
+	// steps before planned, and the plan has one change per file.
+	planned := map[string]int{}
+	current := func(rel, onDisk string) string {
+		if i, ok := planned[rel]; ok {
+			return plan.Changes[i].content
+		}
+		return onDisk
+	}
+	change := func(c UpgradeChange) {
+		i, ok := planned[c.File]
+		if !ok {
+			planned[c.File] = len(plan.Changes)
+			plan.Changes = append(plan.Changes, c)
+			return
+		}
+		prev := &plan.Changes[i]
+		prev.content = c.content
+		prev.Summary += "; " + c.Summary
+		prev.Lines = append(prev.Lines, c.Lines...)
+		if prev.Action != "create" && prev.Action != c.Action {
+			prev.Action = "update"
+		}
+	}
 	read := func(rel string) (string, bool, error) {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if errors.Is(err, fs.ErrNotExist) {
@@ -133,6 +164,8 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 	}
 	var resolved Resolved
 	quarto := adopt.Shared().DetectQuarto(root)
+	var did []string
+	specAction := "update"
 	if hasSpec {
 		var doc map[string]any
 		if err := json.Unmarshal([]byte(specText), &doc); err != nil {
@@ -141,7 +174,6 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 		if resolved, err = FromSpec(doc); err != nil {
 			return plan, fmt.Errorf(".framework/spec.json: %w", err)
 		}
-		var did []string
 		if doc["type"] == "project_sensitive" && !resolved.View.Security.Sensitive {
 			security := asMap(doc["security"])
 			security["sensitive"] = true
@@ -153,29 +185,32 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 			setQuarto(&resolved)
 			did = append(did, "record tools.quarto: true (the project has Quarto files)")
 		}
-		if len(did) > 0 {
-			data, err := json.MarshalIndent(doc, "", "  ")
-			if err != nil {
-				return plan, err
-			}
-			plan.Changes = append(plan.Changes, UpgradeChange{File: ".framework/spec.json", Action: "update",
-				Summary: strings.Join(did, "; "), content: string(data) + "\n"})
-		}
 	} else {
 		if resolved, err = rebuildSpec(root, settingsDo, hasMaster, fwVersion); err != nil {
 			return plan, err
 		}
+		specAction = "create"
 		summary := fmt.Sprintf("record the project's spec (type %s, %d folders from settings.do)", resolved.View.Type, len(resolved.View.Directories)+len(resolved.View.ExtraDirectories))
 		if quarto {
 			setQuarto(&resolved)
 			summary += ", with tools.quarto: true for its Quarto files"
 		}
+		did = append(did, summary)
+	}
+	// --type: the new type, and for project_sensitive the guards and the
+	// private and public folders, as R's upgrade(type =) does
+	var added []global
+	if o.Type != "" {
+		d, a, notes := convertType(&resolved, o.Type)
+		did, added = append(did, d...), a
+		plan.Notes = append(plan.Notes, notes...)
+	}
+	if len(did) > 0 {
 		data, err := json.MarshalIndent(resolved.Doc, "", "  ")
 		if err != nil {
 			return plan, err
 		}
-		plan.Changes = append(plan.Changes, UpgradeChange{File: ".framework/spec.json", Action: "create",
-			Summary: summary, content: string(data) + "\n"})
+		change(UpgradeChange{File: ".framework/spec.json", Action: specAction, Summary: strings.Join(did, "; "), content: string(data) + "\n"})
 	}
 	sensitive := resolved.View.Security.Sensitive
 
@@ -190,13 +225,22 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 		if err := s.renderSettingsYml(&b); err != nil {
 			return plan, err
 		}
-		plan.Changes = append(plan.Changes, UpgradeChange{File: "settings.yml", Action: "create",
+		change(UpgradeChange{File: "settings.yml", Action: "create",
 			Summary: "the settings framework-stata 0.2.0 reads: project name, folders, data catalog, and publishing", content: b.String()})
-	} else if sensitive {
-		if change, note := securityChange(settingsYml); change != nil {
-			plan.Changes = append(plan.Changes, *change)
-		} else if note != "" {
-			plan.Notes = append(plan.Notes, note)
+	} else {
+		if len(added) > 0 {
+			if c, note := directoriesChange(settingsYml, added); c != nil {
+				change(*c)
+			} else {
+				plan.Notes = append(plan.Notes, note)
+			}
+		}
+		if sensitive {
+			if c, note := securityChange(current("settings.yml", settingsYml)); c != nil {
+				change(*c)
+			} else if note != "" {
+				plan.Notes = append(plan.Notes, note)
+			}
 		}
 	}
 
@@ -206,11 +250,20 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 	case strings.Contains(settingsDo, oldHeaderLine):
 		content, ok := insertAfter(settingsDo, func(l string) bool { return strings.TrimSpace(l) == oldHeaderLine }, headerNote)
 		if ok {
-			plan.Changes = append(plan.Changes, UpgradeChange{File: "settings.do", Action: "insert",
+			change(UpgradeChange{File: "settings.do", Action: "insert",
 				Summary: "say in the header that settings.yml lists the same folders", Lines: headerNote, content: content})
 		}
 	default:
 		plan.Notes = append(plan.Notes, "settings.do's header is not fw's, so fw left it alone. Folders change in settings.do and settings.yml together.")
+	}
+	// The folders --type added get their globals, and mkdir lines when
+	// settings.do makes its folders.
+	if len(added) > 0 {
+		if c, note := globalsChange(current("settings.do", settingsDo), added); c != nil {
+			change(*c)
+		} else {
+			plan.Notes = append(plan.Notes, note)
+		}
 	}
 
 	// 4. master.do loads the project through framework-stata 0.2.0 or later.
@@ -299,7 +352,247 @@ func PlanUpgrade(root, fwVersion string) (UpgradePlan, error) {
 		plan.Changes = append(plan.Changes, UpgradeChange{File: ".gitignore", Action: action,
 			Summary: "add the rules fw's Stata projects have now; no line is removed", Lines: missing, content: content})
 	}
+
+	// 7. A sensitive project keeps Claude Code out of its private folders,
+	// whatever its AI settings say, as R's upgrade() does.
+	if sensitive {
+		text, has, err := read(".claude/settings.json")
+		if err != nil {
+			return plan, err
+		}
+		c, note, err := guardChange(&scaffolder{r: resolved}, text, has)
+		if err != nil {
+			return plan, err
+		}
+		if c != nil {
+			change(*c)
+			if !resolved.View.AI.Enabled || !resolved.View.AI.Assistants["claude"] {
+				plan.Notes = append(plan.Notes, "The project's AI settings leave Claude Code out; fw adds its guard anyway, so it stays out of the private folders if someone uses it.")
+			}
+		}
+		if note != "" {
+			plan.Notes = append(plan.Notes, note)
+		}
+	}
 	return plan, nil
+}
+
+// convertType changes the project's type in the resolved spec, as R's
+// upgrade(type =) does. To project_sensitive it turns security.sensitive
+// on and adds the project_sensitive layout's private and public folders
+// whose keys and paths the project doesn't have yet; existing folders stay,
+// so code that names them keeps working. From a sensitive project to
+// another type, the flag stays on, with a note. It returns what it did, the
+// folders it added, and notes.
+func convertType(r *Resolved, kind string) (did []string, added []global, notes []string) {
+	if r.View.Type != kind {
+		did = append(did, fmt.Sprintf("set type to %s (was %s)", kind, r.View.Type))
+		r.Doc["type"], r.View.Type = kind, kind
+	}
+	if kind != "project_sensitive" {
+		if r.View.Security.Sensitive {
+			notes = append(notes, "The project stays sensitive (security: sensitive: true): fw doesn't turn Framework's guards off with a type. Set it to false in settings.yml and the spec by hand if the project holds no restricted data.")
+		}
+		return did, nil, notes
+	}
+	if !r.View.Security.Sensitive {
+		security := asMap(r.Doc["security"])
+		security["sensitive"] = true
+		r.Doc["security"] = security
+		r.View.Security.Sensitive = true
+		did = append(did, "set security.sensitive to true")
+	}
+	dirs := asMap(r.Doc["directories"])
+	paths := map[string]bool{}
+	for _, p := range r.View.Directories {
+		paths[p] = true
+	}
+	for _, e := range r.View.ExtraDirectories {
+		paths[e.Path] = true
+	}
+	layout := asMap(defaults("project_sensitive")["directories"])
+	keys := make([]string, 0, len(layout))
+	for k := range layout {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var names []string
+	for _, k := range keys {
+		p, _ := layout[k].(string)
+		_, isDir := r.View.Directories[k]
+		_, isExtra := r.View.ExtraDirectories[k]
+		if !strings.Contains(k, "_private_") && !strings.Contains(k, "_public_") || isDir || isExtra || paths[p] {
+			continue
+		}
+		dirs[k] = p
+		if r.View.Directories == nil {
+			r.View.Directories = map[string]string{}
+		}
+		r.View.Directories[k] = p
+		paths[p] = true
+		added = append(added, global{k, p})
+		names = append(names, k)
+	}
+	r.Doc["directories"] = dirs
+	if len(added) > 0 {
+		did = append(did, "add the private and public folders of project_sensitive: "+strings.Join(names, ", "))
+	}
+	return did, added, notes
+}
+
+// directoriesChange inserts the added folders at the end of settings.yml's
+// directories: block, or says why it can't.
+func directoriesChange(text string, added []global) (*UpgradeChange, string) {
+	var lines []string
+	for _, g := range added {
+		lines = append(lines, "    "+g.Name+": "+yamlScalar(g.Path))
+	}
+	byHand := "settings.yml's directories: section isn't a block fw can add to, so add these under default: directories: by hand:\n  " + strings.Join(lines, "\n  ")
+	all := strings.Split(text, "\n")
+	start := -1
+	for i, l := range all {
+		if strings.TrimRight(l, " \r") == "  directories:" {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil, byHand
+	}
+	last := start
+	for i := start + 1; i < len(all); i++ {
+		if !strings.HasPrefix(all[i], "    ") {
+			break
+		}
+		last = i
+	}
+	out := append(append(append([]string{}, all[:last+1]...), lines...), all[last+1:]...)
+	content := strings.Join(out, "\n")
+	var check struct {
+		Default struct {
+			Directories map[string]string `yaml:"directories"`
+		} `yaml:"default"`
+	}
+	if yaml.Unmarshal([]byte(content), &check) != nil {
+		return nil, byHand
+	}
+	for _, g := range added {
+		if check.Default.Directories[g.Name] != g.Path {
+			return nil, byHand
+		}
+	}
+	return &UpgradeChange{File: "settings.yml", Action: "insert", Summary: "list the folders project_sensitive adds", Lines: lines, content: content}, ""
+}
+
+var mkdirLine = regexp.MustCompile("^capture mkdir `\"\\$root/(.+)\"'\\s*$")
+
+// globalsChange inserts the added folders' globals after settings.do's last
+// folder global, and, when settings.do makes its folders, mkdir lines for
+// the ones it lacks after its last mkdir line.
+func globalsChange(text string, added []global) (*UpgradeChange, string) {
+	var globals []string
+	for _, g := range added {
+		globals = append(globals, fmt.Sprintf("global %s `\"$root/%s\"'", g.Name, g.Path))
+	}
+	all := strings.Split(text, "\n")
+	lastGlobal, lastMkdir := -1, -1
+	made := map[string]bool{}
+	for i, l := range all {
+		l = strings.TrimRight(l, "\r")
+		if m := globalLine.FindStringSubmatch(l); m != nil && m[1] != "root" {
+			lastGlobal = i
+		}
+		if m := mkdirLine.FindStringSubmatch(l); m != nil {
+			lastMkdir = i
+			made[m[1]] = true
+		}
+	}
+	if lastGlobal < 0 {
+		return nil, "settings.do has no folder globals fw recognizes, so add these by hand:\n  " + strings.Join(globals, "\n  ")
+	}
+	var mkdirs []string
+	if lastMkdir > lastGlobal {
+		for _, f := range folders(added) {
+			if !made[f] {
+				mkdirs = append(mkdirs, fmt.Sprintf("capture mkdir `\"$root/%s\"'", f))
+			}
+		}
+	}
+	out := append([]string{}, all[:lastGlobal+1]...)
+	out = append(out, globals...)
+	if len(mkdirs) > 0 {
+		out = append(out, all[lastGlobal+1:lastMkdir+1]...)
+		out = append(out, mkdirs...)
+		out = append(out, all[lastMkdir+1:]...)
+	} else {
+		out = append(out, all[lastGlobal+1:]...)
+	}
+	return &UpgradeChange{File: "settings.do", Action: "insert", Summary: "add globals for the folders project_sensitive adds",
+		Lines: append(globals, mkdirs...), content: strings.Join(out, "\n")}, ""
+}
+
+// guardChange adds what .claude/settings.json lacks of the guard that keeps
+// Claude Code out of the project's private folders and .env: deny rules for
+// its file tools and the sandbox's denyRead list. Other settings stay.
+func guardChange(s *scaffolder, text string, has bool) (*UpgradeChange, string, error) {
+	restricted := s.restricted()
+	if len(restricted) == 0 {
+		return nil, "", nil
+	}
+	settings := map[string]any{}
+	if has {
+		if err := json.Unmarshal([]byte(text), &settings); err != nil {
+			return nil, ".claude/settings.json isn't valid JSON, so fw did not add the guard that keeps Claude Code out of " + strings.Join(restricted, ", ") + ".", nil
+		}
+	}
+	var deny, sandbox []string
+	for _, p := range restricted {
+		deny = append(deny, "Read(/"+p+"/**)", "Edit(/"+p+"/**)")
+		sandbox = append(sandbox, "./"+p)
+	}
+	deny = append(deny, "Read(/.env)")
+	sandbox = append(sandbox, "./.env")
+	addTo := func(list any, items []string) ([]any, []string) {
+		have, _ := list.([]any)
+		var added []string
+		for _, it := range items {
+			found := false
+			for _, h := range have {
+				found = found || h == it
+			}
+			if !found {
+				have = append(have, it)
+				added = append(added, it)
+			}
+		}
+		return have, added
+	}
+	permissions := asMap(settings["permissions"])
+	var newDeny []string
+	permissions["deny"], newDeny = addTo(permissions["deny"], deny)
+	settings["permissions"] = permissions
+	box, hadBox := settings["sandbox"].(map[string]any)
+	if !hadBox {
+		box = map[string]any{"enabled": true, "failIfUnavailable": true}
+	}
+	fsys := asMap(box["filesystem"])
+	var newRead []string
+	fsys["denyRead"], newRead = addTo(fsys["denyRead"], sandbox)
+	box["filesystem"] = fsys
+	settings["sandbox"] = box
+	if len(newDeny)+len(newRead) == 0 {
+		return nil, "", nil
+	}
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return nil, "", err
+	}
+	action := "update"
+	if !has {
+		action = "create"
+	}
+	return &UpgradeChange{File: ".claude/settings.json", Action: action,
+		Summary: "keep Claude Code out of " + strings.Join(restricted, ", "), Lines: append(newDeny, newRead...), content: string(data) + "\n"}, "", nil
 }
 
 const upgradeIgnoreHeader = "Added by fw project upgrade"

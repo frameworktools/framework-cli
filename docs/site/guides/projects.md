@@ -191,6 +191,21 @@ changes. R projects run `framework::upgrade()`, Python projects
 never removes a line, and backs up each file it changes to
 `.framework/backups/`.
 
+`fw project upgrade --type TYPE` changes a project's type, as R's
+`upgrade(type =)` does. To `project_sensitive` it turns on
+`security: sensitive` and adds the Privacy Sensitive layout's private and
+public folders the project lacks, keeping its own folders; the `.gitignore`
+rules, the private folders, and the guard that keeps Claude Code out of
+them follow in the same pass. A sensitive project changed to another type
+stays sensitive. `--move-settings` moves settings keys outside the
+environment sections into `settings/<key>.yml` (R and Python). fw passes
+both to R's `upgrade()` (a framework package newer than 2.0.1) and to
+framework-py (newer than 0.1.0.dev13), and says when the installed package
+lacks them. In Stata, fw makes the change itself, adding the new folders to
+`settings.yml` and `settings.do`, and takes `project`, `project_sensitive`,
+or `bare`. fw also creates a Stata project's missing private folders, which
+git doesn't keep, in `fw project upgrade` and `fw project bootstrap`.
+
 The project stays on this machine until you create it on Framework Cloud.
 `fw project link --create` sends `.framework/spec.json` to Framework Cloud,
 which makes the project from exactly that spec (its folders, type,

@@ -323,13 +323,17 @@ func (f Finder) AdoptPython(dir string, yes bool, o AdoptOptions) (Command, erro
 
 // pythonAdoptFlags is a script that exits 0 when python -m framework adopt
 // --help lists every flag.
-func pythonAdoptFlags(flags []string) string {
+func pythonAdoptFlags(flags []string) string { return pythonHelpLists("adopt", flags) }
+
+// pythonHelpLists is a script that exits 0 when python -m framework
+// COMMAND --help lists every flag.
+func pythonHelpLists(command string, flags []string) string {
 	quoted := make([]string, len(flags))
 	for i, flag := range flags {
 		quoted[i] = `"` + flag + `"`
 	}
 	return `import contextlib, io, runpy, sys
-sys.argv = ["framework", "adopt", "--help"]
+sys.argv = ["framework", "` + command + `", "--help"]
 out = io.StringIO()
 with contextlib.redirect_stdout(out):
     try:

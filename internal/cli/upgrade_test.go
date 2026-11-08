@@ -326,3 +326,127 @@ func TestUpgradeStataCreatesPrivateFolders(t *testing.T) {
 		t.Errorf("again: %v\n%s", err, out)
 	}
 }
+
+// --type project_sensitive turns a Stata project sensitive the way R's
+// upgrade(type =) does: the flag, the layout's private and public folders
+// (its own stay), settings.yml and settings.do, the private folders, the
+// .gitignore rules, and the Claude Code guard, in one pass.
+func TestUpgradeStataType(t *testing.T) {
+	h := newHarness(t, nil)
+	if _, errOut, err := h.run(t, "", "new", "trial", "--lang", "stata", "--type", "project"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	dir := filepath.Join(h.app.home, "trial")
+	h.app.cwd = dir
+	if _, _, err := h.run(t, "", "project", "upgrade", "--apply"); err != nil { // the backups rule
+		t.Fatal(err)
+	}
+	before := map[string]string{}
+	for _, f := range []string{"settings.do", "settings.yml", ".gitignore"} {
+		before[f] = readTestFile(t, filepath.Join(dir, f))
+	}
+
+	if _, _, err := h.run(t, "", "project", "upgrade", "--type", "course"); exitCode(err) != exitUsage {
+		t.Errorf("course in Stata: %v", err)
+	}
+	if _, _, err := h.run(t, "", "project", "upgrade", "--move-settings"); exitCode(err) != exitUsage {
+		t.Errorf("--move-settings in Stata: %v", err)
+	}
+
+	out, errOut, err := h.run(t, "", "project", "upgrade", "--type", "project_sensitive", "--apply")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	for _, want := range []string{"set type to project_sensitive (was project); set security.sensitive to true; add the private and public folders of project_sensitive: inputs_private_final",
+		"insert  settings.do", "+ global inputs_private_raw `\"$root/inputs/private/raw\"'", "+ capture mkdir `\"$root/inputs/private\"'",
+		"settings.yml", "+     outputs_public_tables: outputs/public/tables", "+   security:",
+		"mkdir   inputs/private/raw/", "keep Claude Code out of inputs/private, outputs/private"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plan lacks %q:\n%s", want, out)
+		}
+	}
+	for f, text := range before {
+		if after := readTestFile(t, filepath.Join(dir, f)); !keeps(text, after) {
+			t.Errorf("%s lost a line:\n%s", f, after)
+		}
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(readTestFile(t, filepath.Join(dir, ".framework", "spec.json"))), &doc); err != nil {
+		t.Fatal(err)
+	}
+	r, err := stata.FromSpec(doc)
+	if err != nil || r.View.Type != "project_sensitive" || !r.View.Security.Sensitive || r.View.Directories["inputs_raw"] != "inputs/raw" ||
+		r.View.Directories["inputs_private_raw"] != "inputs/private/raw" || r.View.Directories["outputs_public_figures"] != "outputs/public/figures" {
+		t.Errorf("spec: %v %+v", err, r.View)
+	}
+	settings := readTestFile(t, filepath.Join(dir, "settings.do"))
+	if got := stata.SettingsGlobals(settings); got["outputs_private_tables"] != "outputs/private/tables" || got["inputs_raw"] != "inputs/raw" {
+		t.Errorf("settings.do globals: %v", got)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "outputs", "private", "tables")); err != nil || !info.IsDir() {
+		t.Errorf("private folder: %v", err)
+	}
+	if guard := readTestFile(t, filepath.Join(dir, ".claude", "settings.json")); !strings.Contains(guard, `"Read(/inputs/private/**)"`) || !strings.Contains(guard, `"./outputs/private"`) {
+		t.Errorf("guard:\n%s", guard)
+	}
+	if ignore := readTestFile(t, filepath.Join(dir, ".gitignore")); !strings.Contains(ignore, "**/private/**") {
+		t.Errorf(".gitignore:\n%s", ignore)
+	}
+	// One pass: nothing is left to do.
+	if out, _, err := h.run(t, "", "project", "upgrade", "--type", "project_sensitive"); err != nil || !strings.Contains(out, "Nothing to upgrade") {
+		t.Errorf("second pass: %v\n%s", err, out)
+	}
+	// Back to project: the label changes, the project stays sensitive.
+	out, _, err = h.run(t, "", "project", "upgrade", "--type", "project", "--apply", "--json")
+	var res struct {
+		Changes []stata.UpgradeChange `json:"changes"`
+		Notes   []string              `json:"notes"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || len(res.Changes) != 1 || res.Changes[0].File != ".framework/spec.json" ||
+		!strings.Contains(strings.Join(res.Notes, " "), "The project stays sensitive") {
+		t.Errorf("to project: %v\n%s", err, out)
+	}
+}
+
+// R and Python get --type and --move-settings when their package takes them.
+func TestUpgradeTypePassedOn(t *testing.T) {
+	h := newHarness(t, nil)
+	f := &fakeEngines{}
+	f.install(h, "Rscript", "uv")
+	r := filepath.Join(h.app.home, "old-r")
+	writeTestFile(t, filepath.Join(r, "settings.yml"), "default:\n  project_type: project\n")
+	h.app.cwd = r
+	if _, _, err := h.run(t, "", "project", "upgrade", "--type", "spaceship"); exitCode(err) != exitUsage {
+		t.Errorf("bad type: %v", err)
+	}
+	if _, _, err := h.run(t, "", "project", "upgrade", "--apply", "--type", "project_sensitive", "--move-settings"); err != nil ||
+		f.ran[0].Args[1] != `framework::upgrade(dry_run = FALSE, type = "project_sensitive", move_settings = TRUE)` {
+		t.Errorf("R: %v %v", err, f.ran)
+	}
+	var probes []string
+	h.app.engines.Probe = func(c engine.Command) bool {
+		probes = append(probes, strings.Join(c.Args, " "))
+		return !strings.Contains(strings.Join(c.Args, " "), "move_settings")
+	}
+	if _, _, err := h.run(t, "", "project", "upgrade", "--move-settings"); err == nil || !strings.Contains(err.Error(), "has no upgrade() that takes move_settings yet") || len(f.ran) != 1 ||
+		!strings.Contains(probes[0], `c("move_settings") %in% names(formals(get("upgrade"`) {
+		t.Errorf("old R: %v %v", err, probes)
+	}
+
+	py := filepath.Join(h.app.home, "py")
+	writeTestFile(t, filepath.Join(py, "pyproject.toml"), "[project]\n")
+	writeTestFile(t, filepath.Join(py, "uv.lock"), "")
+	writeTestFile(t, filepath.Join(py, ".framework", "spec.json"), `{"language":"python"}`)
+	h.app.cwd = py
+	probes = nil
+	h.app.engines.Probe = func(c engine.Command) bool { probes = append(probes, strings.Join(c.Args, " ")); return true }
+	if _, _, err := h.run(t, "", "project", "upgrade", "--type", "course", "--move-settings"); err != nil ||
+		!strings.HasSuffix(f.ran[1].String(), "uv run python -m framework upgrade --type course --move-settings") ||
+		len(probes) != 1 || !strings.Contains(probes[0], `sys.argv = ["framework", "upgrade", "--help"]`) || !strings.Contains(probes[0], `["--type", "--move-settings"]`) {
+		t.Errorf("python: %v %v %q", err, f.ran, probes)
+	}
+	h.app.engines.Probe = func(engine.Command) bool { return false }
+	if _, _, err := h.run(t, "", "project", "upgrade", "--type", "course"); err == nil || !strings.Contains(err.Error(), "has no upgrade that takes --type yet") {
+		t.Errorf("old python: %v", err)
+	}
+}

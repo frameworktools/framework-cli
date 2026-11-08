@@ -1,10 +1,18 @@
 package engine
 
+import "strings"
+
 // UpgradeOptions are fw project upgrade's flags. Without Apply, the
 // language package only prints its plan.
 type UpgradeOptions struct {
 	Apply    bool
 	NoBackup bool
+	// Type changes the project's type (project, project_sensitive, course,
+	// presentation, or bare); empty keeps it.
+	Type string
+	// MoveSettings moves settings keys outside the environment sections
+	// into settings/<key>.yml.
+	MoveSettings bool
 }
 
 // Upgrade returns the command that brings an R or Python project to the
@@ -30,16 +38,29 @@ func (f Finder) Upgrade(p Project, o UpgradeOptions) (Command, error) {
 	}
 	if p.Language == "r" {
 		expr := "framework::upgrade(dry_run = " + rBool(!o.Apply)
-		need := `!exists("upgrade", envir = asNamespace("framework"), inherits = FALSE)`
+		var takes []string
 		if o.NoBackup {
 			expr += ", backup = FALSE"
-			need += ` || !("backup" %in% names(formals(get("upgrade", envir = asNamespace("framework")))))`
+			takes = append(takes, "backup")
+		}
+		if o.Type != "" {
+			// One of a fixed list of type names, so it can go in the code
+			expr += `, type = "` + o.Type + `"`
+			takes = append(takes, "type")
+		}
+		if o.MoveSettings {
+			expr += ", move_settings = TRUE"
+			takes = append(takes, "move_settings")
+		}
+		need := `!exists("upgrade", envir = asNamespace("framework"), inherits = FALSE)`
+		if len(takes) > 0 {
+			need += ` || !all(c("` + strings.Join(takes, `", "`) + `") %in% names(formals(get("upgrade", envir = asNamespace("framework")))))`
 		}
 		probe := run(p.Runner, "-e", `if (!requireNamespace("framework", quietly = TRUE)) quit(status = 3); if (`+need+`) quit(status = 4)`)
 		if !f.Probe(probe) {
 			what := "upgrade()"
-			if o.NoBackup {
-				what = "upgrade() that takes backup = FALSE"
+			if len(takes) > 0 {
+				what = "upgrade() that takes " + strings.Join(takes, " and ")
 			}
 			return Command{}, &UnavailableError{Msg: "the framework R package in this project's environment is missing or has no " + what + " yet: framework 2.0.1 and earlier don't. " +
 				"Update it with pak::pak(\"frameworktools/framework\") (or renv::update(\"framework\") in an renv project), then run fw project upgrade again. Nothing was changed. " +
@@ -55,9 +76,25 @@ func (f Finder) Upgrade(p Project, o UpgradeOptions) (Command, error) {
 	if o.NoBackup {
 		args = append(args, "--no-backup")
 	}
+	var flags []string
+	if o.Type != "" {
+		args = append(args, "--type", o.Type)
+		flags = append(flags, "--type")
+	}
+	if o.MoveSettings {
+		args = append(args, "--move-settings")
+		flags = append(flags, "--move-settings")
+	}
 	missing := &UnavailableError{Msg: "framework-py has no upgrade command yet: 0.1.0.dev12 and earlier don't. Update framework-py in the project's environment " +
 		"(uv add -U framework-py, or pip install -U framework-py), then run fw project upgrade again. Nothing was changed."}
-	if len(p.Runner) > 0 && f.Probe(run(p.Runner, "-m", "framework", "upgrade", "--help")) {
+	// --type and --move-settings need a framework-py whose upgrade lists them
+	help := []string{"-m", "framework", "upgrade", "--help"}
+	if len(flags) > 0 {
+		help = []string{"-c", pythonHelpLists("upgrade", flags)}
+		missing.Msg = "the framework-py that fw runs has no upgrade that takes " + strings.Join(flags, " and ") + " yet: they came after framework-py 0.1.0.dev13. " +
+			"Update framework-py in the project's environment (uv add -U framework-py, or pip install -U framework-py), then run fw project upgrade again. Nothing was changed."
+	}
+	if len(p.Runner) > 0 && f.Probe(run(p.Runner, help...)) {
 		return run(p.Runner, args...), nil
 	}
 	if exists(p.Root, "pyproject.toml") || exists(p.Root, "uv.lock") {
@@ -70,7 +107,7 @@ func (f Finder) Upgrade(p Project, o UpgradeOptions) (Command, error) {
 		return Command{}, err
 	}
 	command.Dir = p.Root
-	probe, err := f.python([]string{"-m", "framework", "upgrade", "--help"})
+	probe, err := f.python(help)
 	if err != nil || !f.Probe(probe) {
 		return Command{}, missing
 	}
