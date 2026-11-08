@@ -123,8 +123,21 @@ func TestAdoptPython(t *testing.T) {
 		t.Errorf("force: got %s %v", cmd, err)
 	}
 	// An older framework-py, whose adopt has no --type: say so, and run nothing.
-	if _, err := finder(map[string]string{"uv": "uv"}, false, nil).AdoptPython("/w/old", true, AdoptOptions{Sensitive: true}); err == nil || !strings.Contains(err.Error(), "does not take --type or --sensitive") {
+	if _, err := finder(map[string]string{"uv": "uv"}, false, nil).AdoptPython("/w/old", true, AdoptOptions{Sensitive: true}); err == nil || !strings.Contains(err.Error(), "does not take --sensitive in adopt") {
 		t.Errorf("old framework-py: %v", err)
+	}
+	// --private, once per folder, needs a framework-py that lists it.
+	var probed []string
+	f := finder(map[string]string{"uv": "uv"}, true, nil)
+	f.Probe = func(c Command) bool { probed = append(probed, c.Args[len(c.Args)-1]); return true }
+	cmd, err = f.AdoptPython("/w/old", true, AdoptOptions{Sensitive: true, Private: []string{"reports", "data files"}})
+	if err != nil || !strings.HasSuffix(cmd.String(), "adopt --path /w/old --yes --sensitive --private reports --private 'data files'") ||
+		len(probed) != 1 || !strings.Contains(probed[0], `["--sensitive", "--private"]`) {
+		t.Errorf("private: %s %v %q", cmd, err, probed)
+	}
+	if _, err := finder(map[string]string{"uv": "uv"}, false, nil).AdoptPython("/w/old", true, AdoptOptions{Private: []string{"reports"}}); err == nil ||
+		!strings.Contains(err.Error(), "does not take --private in adopt yet; --private came after framework-py 0.1.0.dev13") {
+		t.Errorf("old framework-py, --private: %v", err)
 	}
 	// Without them, nothing is checked.
 	if _, err := finder(map[string]string{"uv": "uv"}, false, nil).AdoptPython("/w/old", true, AdoptOptions{}); err != nil {
@@ -147,8 +160,25 @@ func TestAdoptR(t *testing.T) {
 	if _, err := f.AdoptR("/w/old", AdoptOptions{Sensitive: true}); !errors.As(err, &missing) || !strings.Contains(err.Error(), "does not take type or sensitive") {
 		t.Errorf("old R package: %v", err)
 	}
-	if len(checked) == 0 || !strings.Contains(checked[0], `c("type", "sensitive") %in% names(formals(`) {
+	if len(checked) == 0 || !strings.Contains(checked[0], `c("sensitive") %in% names(formals(`) {
 		t.Errorf("checked %v", checked)
+	}
+
+	// private = takes the folders after the other arguments.
+	f.Probe = func(Command) bool { return true }
+	cmd, err = f.AdoptR("/w/old", AdoptOptions{Type: "project", Private: []string{"reports", "data-files"}})
+	if err != nil || cmd.Args[1] != "a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE, type = a[2], private = a[3:length(a)])" ||
+		strings.Join(cmd.Args[2:], ",") != "/w/old,project,reports,data-files" {
+		t.Errorf("private: %v %v", cmd.Args, err)
+	}
+	checked = nil
+	f.Probe = func(c Command) bool {
+		checked = append(checked, c.Args[1])
+		return !strings.Contains(c.Args[1], "formals")
+	}
+	if _, err := f.AdoptR("/w/old", AdoptOptions{Private: []string{"reports"}}); !errors.As(err, &missing) ||
+		!strings.Contains(err.Error(), "does not take private, which came after framework 2.0.1. Update it") || !strings.Contains(checked[0], `c("private")`) {
+		t.Errorf("old R package, private: %v %v", err, checked)
 	}
 }
 

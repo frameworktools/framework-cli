@@ -175,3 +175,37 @@ func TestScanSkipGlobs(t *testing.T) {
 		t.Errorf("map: %+v", m)
 	}
 }
+
+// R's a2cps-ehr-data-quality case: reports, data-files, and export-data may
+// hold restricted data, and marking keeps their paths with private keys.
+func TestRestrictedAndMarkPrivate(t *testing.T) {
+	rules := Shared()
+	m := rules.Map([]string{"reports", "data-files", "export-data", "scripts", "inputs/raw", "inputs/private", "cohort_private", "notes"}, "r", "")
+	got := rules.RestrictedCandidates(m)
+	if strings.Join(got, ",") != "inputs/raw,reports,data-files,export-data" {
+		t.Errorf("candidates %v (mapping %+v)", got, m)
+	}
+	for _, f := range []string{"reports", "./data-files/", "export-data", "inputs/raw"} {
+		var err error
+		if m, err = rules.MarkPrivate(m, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := map[string]string{"outputs_private_reports": "reports", "inputs_private_data_files": "data-files", "outputs_private_export_data": "export-data", "inputs_private_raw": "inputs/raw"}
+	for k, v := range want {
+		if m.Directories[k] != v {
+			t.Errorf("%s = %q; directories %v", k, m.Directories[k], m.Directories)
+		}
+	}
+	if len(rules.RestrictedCandidates(m)) != 0 || strings.Join(m.MarkedPrivate, ",") != "reports,data-files,export-data,inputs/raw" {
+		t.Errorf("after marking: %v %v", rules.RestrictedCandidates(m), m.MarkedPrivate)
+	}
+	// Marking again changes nothing; a folder not mapped is an error.
+	again, err := rules.MarkPrivate(m, "reports")
+	if err != nil || len(again.MarkedPrivate) != 4 {
+		t.Errorf("again: %v %v", err, again.MarkedPrivate)
+	}
+	if _, err := rules.MarkPrivate(m, "nope"); err == nil || !strings.Contains(err.Error(), "'nope' isn't a folder adopt maps here") {
+		t.Errorf("unknown: %v", err)
+	}
+}

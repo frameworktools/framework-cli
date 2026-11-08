@@ -172,6 +172,16 @@ projects it shows the proposal and runs `framework::adopt()` to accept it.
 To change a folder's role in an R project, run `framework::adopt()` in R.
 `--json` without `--yes` prints the proposal and changes nothing.
 
+In a sensitive project, fw lists the folders that may hold restricted data
+(inputs and outputs folders, `data`, `cache`, `scratch`, and folders named
+like data, exports, reports, results, raw, tables, figures, or cohorts)
+and, at a terminal, asks about each. `--private FOLDER`, repeatable, marks
+a folder without asking: it keeps its path and gets a private key
+(`inputs_raw` becomes `inputs_private_raw`; another folder becomes
+`outputs_private_<name>` or `inputs_private_<name>`), and `.gitignore`
+keeps it out of git. R needs a framework package newer than 2.0.1 for it,
+and Python a framework-py newer than 0.1.0.dev13.
+
 fw adopt stops without changing anything if the folder is already a
 Framework project, and names the file it found. A `config.yml` counts only
 when it is Framework's own. Upgrade an existing project instead:

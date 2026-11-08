@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -261,6 +262,15 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"presentation, or bare; Stata takes the first two and bare), and\n" +
 			"--sensitive turns on Framework's guards for private data. Both need an R\n" +
 			"or Python package recent enough to take them; fw says when it isn't.\n\n" +
+			"In a sensitive project fw lists the folders that may hold restricted\n" +
+			"data (inputs and outputs folders, data, cache, scratch, and folders named\n" +
+			"like data, exports, reports, results, raw, tables, figures, or cohorts)\n" +
+			"and, at a terminal, asks about each. --private FOLDER, repeatable, marks a\n" +
+			"folder without asking: it keeps its path and gets a private key\n" +
+			"(inputs_raw becomes inputs_private_raw; another folder becomes\n" +
+			"outputs_private_<name> or inputs_private_<name>), and .gitignore keeps it\n" +
+			"out of git. --private needs a framework package newer than 2.0.1 in R,\n" +
+			"and a framework-py newer than 0.1.0.dev13 in Python.\n\n" +
 			"The project stays on this machine unless you pass --cloud, which then\n" +
 			"creates it on Framework Cloud from its spec, links it with a project token\n" +
 			"in .env, and sends the spec, as fw project link --create does later.\n\n" +
@@ -276,6 +286,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 		Example: "  fw adopt ~/projects/old-study --lang stata\n" +
 			"  fw adopt --json\n" +
 			"  fw adopt --yes --type project --sensitive\n" +
+			"  fw adopt --yes --sensitive --private reports --private data-files\n" +
 			"  fw adopt --yes --cloud",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -321,6 +332,9 @@ func newAdoptCmd(a *app) *cobra.Command {
 			if lang == "stata" && (o.Type == "course" || o.Type == "presentation") {
 				return usageError("Stata projects take --type project, project_sensitive, or bare")
 			}
+			for i, p := range o.Private {
+				o.Private[i] = strings.TrimRight(strings.TrimPrefix(filepath.ToSlash(p), "./"), "/")
+			}
 			if a.jsonOut && !yes {
 				return a.adoptProposal(cmd, dir, lang, source, o)
 			}
@@ -357,6 +371,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 	f.BoolVarP(&yes, "yes", "y", false, "accept the proposed mapping without asking")
 	f.StringVar(&o.Type, "type", "", "the project type: project, project_sensitive, course, presentation, or bare (default: inferred from the folders)")
 	f.BoolVar(&o.Sensitive, "sensitive", false, "the project holds sensitive data: turn on Framework's guards for private folders")
+	f.StringArrayVar(&o.Private, "private", nil, "map `FOLDER`, a path from the project folder, to a private key, keeping its path; repeat for more")
 	f.BoolVar(&toCloud, "cloud", false, "after adopting, create the project on Framework Cloud and link it, as fw project link --create does")
 	f.StringVar(&co.slug, "slug", "", "with --cloud: the project's slug on Framework Cloud (default: made from the folder's name)")
 	f.BoolVar(&co.includePrivate, "include-private", false, "with --cloud: send the spec without asking when the project's path contains \"private\"")
@@ -400,6 +415,9 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOpt
 		return nil, err
 	}
 	m := mapFolders(rules, folders, "r", o.Type)
+	if m, err = markPrivate(rules, m, o.Private); err != nil {
+		return nil, err
+	}
 	if !yes {
 		errOut := cmd.ErrOrStderr()
 		if m.Empty() {
@@ -423,6 +441,18 @@ func (a *app) adoptR(cmd *cobra.Command, dir string, yes bool, o engine.AdoptOpt
 		if !ok {
 			return nil, errors.New("canceled; nothing was changed")
 		}
+		// R asks about these only in an R session, so fw asks and passes
+		// the answers on as private = ...
+		_, marked, err := a.offerPrivate(cmd, rules, m, o.Sensitive || m.Type == "project_sensitive", false)
+		if err != nil {
+			return nil, err
+		}
+		if len(marked) > 0 {
+			o.Private = append(o.Private, marked...)
+			if command, err = a.engines.AdoptR(dir, o); err != nil {
+				return nil, err
+			}
+		}
 	}
 	sensitiveHint(cmd, m, o)
 	return a.runAdopt(cmd, command, dir, "r", "framework::adopt()")
@@ -435,8 +465,20 @@ func (a *app) adoptPython(cmd *cobra.Command, dir string, yes bool, o engine.Ado
 		return nil, err
 	}
 	rules := adopt.Shared()
-	if folders, err := rules.Scan(dir); err == nil && yes {
-		sensitiveHint(cmd, mapFolders(rules, folders, "python", o.Type), o)
+	folders, err := rules.Scan(dir)
+	if err != nil {
+		return nil, err
+	}
+	m, err := markPrivate(rules, mapFolders(rules, folders, "python", o.Type), o.Private)
+	if err != nil {
+		return nil, err
+	}
+	// Without --yes, framework-py reviews the mapping and asks itself
+	if yes {
+		sensitiveHint(cmd, m, o)
+		if _, _, err := a.offerPrivate(cmd, rules, m, o.Sensitive || m.Type == "project_sensitive", true); err != nil {
+			return nil, err
+		}
 	}
 	return a.runAdopt(cmd, command, dir, "python", "framework-py")
 }
@@ -505,10 +547,19 @@ func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string, o engi
 	if err != nil {
 		return err
 	}
-	m := mapFolders(rules, folders, lang, o.Type)
+	m, err := markPrivate(rules, mapFolders(rules, folders, lang, o.Type), o.Private)
+	if err != nil {
+		return err
+	}
+	sensitive := o.Sensitive || m.Type == "project_sensitive"
+	candidates := []string{}
+	if sensitive {
+		candidates = nonNil(rules.RestrictedCandidates(m))
+	}
 	res := map[string]any{
-		"path": dir, "language": lang, "language_source": source, "adopted": false, "type": m.Type, "sensitive": o.Sensitive || m.Type == "project_sensitive",
+		"path": dir, "language": lang, "language_source": source, "adopted": false, "type": m.Type, "sensitive": sensitive,
 		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "render_dirs": m.RenderDirs, "warnings": m.Warnings,
+		"marked_private": nonNil(m.MarkedPrivate), "restricted_candidates": candidates,
 	}
 	// fw writes Stata projects itself, so it knows what .gitignore gets
 	if lang == "stata" {
@@ -523,9 +574,14 @@ func (a *app) adoptProposal(cmd *cobra.Command, dir, lang, source string, o engi
 
 // stataIgnores lists the .gitignore lines fw adopt adds to a Stata project.
 func stataIgnores(m adopt.Mapping) []string {
-	private := make([]string, 0, len(m.Warnings))
+	private := make([]string, 0, len(m.Warnings)+len(m.MarkedPrivate))
 	for _, w := range m.Warnings {
 		private = append(private, w.Path)
+	}
+	for _, p := range m.MarkedPrivate {
+		if !slices.Contains(private, p) {
+			private = append(private, p)
+		}
 	}
 	return stata.AdoptGitignore(private)
 }
@@ -566,8 +622,11 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	if err != nil {
 		return nil, err
 	}
-	m, err := a.reviewMapping(cmd, rules, mapFolders(rules, folders, "stata", o.Type), "stata", yes)
+	m, err := markPrivate(rules, mapFolders(rules, folders, "stata", o.Type), o.Private)
 	if err != nil {
+		return nil, err
+	}
+	if m, err = a.reviewMapping(cmd, rules, m, "stata", yes); err != nil {
 		return nil, err
 	}
 	sensitive := o.Sensitive || m.Type == "project_sensitive"
@@ -575,6 +634,9 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 		if sensitive, err = a.askYes(cmd, "Does this project hold sensitive data? Framework will treat its outputs as private by default."); err != nil {
 			return nil, err
 		}
+	}
+	if m, _, err = a.offerPrivate(cmd, rules, m, sensitive, yes); err != nil {
+		return nil, err
 	}
 
 	extras := map[string]any{}
@@ -608,7 +670,7 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 	out := cmd.OutOrStdout()
 	result := map[string]any{"path": dir, "language": "stata", "type": resolved.View.Type, "sensitive": sensitive,
 		"created": res.Created, "gitignore_additions": nonNil(res.Gitignore),
-		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings}
+		"directories": m.Directories, "extra_directories": m.ExtraDirectories, "warnings": m.Warnings, "marked_private": nonNil(m.MarkedPrivate)}
 	if a.jsonOut {
 		return result, nil
 	}
@@ -635,4 +697,61 @@ func (a *app) adoptStata(cmd *cobra.Command, dir string, yes bool, o engine.Adop
 		}
 	}
 	return result, nil
+}
+
+// markPrivate maps each --private folder to a private key, as R's
+// adopt(private = ...) does. A folder the mapping doesn't have is a usage
+// error.
+func markPrivate(rules adopt.Rules, m adopt.Mapping, private []string) (adopt.Mapping, error) {
+	for _, p := range private {
+		var err error
+		if m, err = rules.MarkPrivate(m, p); err != nil {
+			return m, usageError(err.Error() + ". --private takes a folder from that list")
+		}
+	}
+	return m, nil
+}
+
+// restrictedHint is the line that lists folders that may hold restricted
+// data in a sensitive adopt, with the flags that mark them.
+func restrictedHint(candidates []string) string {
+	flags := make([]string, len(candidates))
+	for i, c := range candidates {
+		flags[i] = "--private " + engine.Command{Program: c}.String()
+	}
+	return fmt.Sprintf("May hold restricted data (mark private?): %s. To map them to private keys, which Framework's checks and agent guards cover, add %s.",
+		strings.Join(candidates, ", "), strings.Join(flags, " "))
+}
+
+// offerPrivate handles the folders that may hold restricted data in a
+// sensitive adopt. At a terminal, without --yes, fw asks about each
+// (default yes) and marks the ones the person accepts; otherwise it lists
+// them with the flags that mark them. It returns the mapping and the
+// folders marked here.
+func (a *app) offerPrivate(cmd *cobra.Command, rules adopt.Rules, m adopt.Mapping, sensitive, yes bool) (adopt.Mapping, []string, error) {
+	if !sensitive {
+		return m, nil, nil
+	}
+	candidates := rules.RestrictedCandidates(m)
+	if len(candidates) == 0 {
+		return m, nil, nil
+	}
+	if yes || !a.interactive {
+		fmt.Fprintln(cmd.ErrOrStderr(), restrictedHint(candidates))
+		return m, nil, nil
+	}
+	var marked []string
+	for _, c := range candidates {
+		ok, err := a.askYesDefault(cmd, fmt.Sprintf("'%s' may hold restricted data. Mark it private?", c), true)
+		if err != nil {
+			return m, nil, err
+		}
+		if ok {
+			if m, err = rules.MarkPrivate(m, c); err != nil {
+				return m, nil, err
+			}
+			marked = append(marked, c)
+		}
+	}
+	return m, marked, nil
 }

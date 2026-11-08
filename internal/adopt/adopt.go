@@ -93,6 +93,9 @@ type Mapping struct {
 	ExtraDirectories map[string]Extra  `json:"extra_directories"`
 	RenderDirs       map[string]string `json:"render_dirs"`
 	Warnings         []Warning         `json:"warnings"`
+	// MarkedPrivate lists the folders marked private (MarkPrivate), which
+	// are gitignored like the folders that look private.
+	MarkedPrivate []string `json:"marked_private,omitempty"`
 }
 
 // Empty reports whether no folder was mapped.

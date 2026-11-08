@@ -161,6 +161,87 @@ func TestAdoptR(t *testing.T) {
 	}
 }
 
+// --private maps folders to private keys, keeping their paths: fw does it
+// for Stata and passes the folders to R and Python. A sensitive adopt lists
+// the folders that may hold restricted data, and asks about each at a
+// terminal.
+func TestAdoptPrivate(t *testing.T) {
+	h := newHarness(t, nil)
+	dir := oldStudy(t, h.app.home)
+	for _, d := range []string{"reports", "data-files"} {
+		if err := os.MkdirAll(filepath.Join(dir, d), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A folder the mapping doesn't have is a usage error, before anything runs.
+	if _, _, err := h.run(t, "", "adopt", dir, "--json", "--private", "nope"); exitCode(err) != exitUsage || !strings.Contains(err.Error(), "'nope' isn't a folder adopt maps here") {
+		t.Errorf("unknown folder: %v", err)
+	}
+
+	// The proposal shows what is marked and what may hold restricted data.
+	out, _, err := h.run(t, "", "adopt", dir, "--json", "--sensitive", "--private", "./reports/")
+	var prop struct {
+		Directories map[string]string `json:"directories"`
+		Marked      []string          `json:"marked_private"`
+		Candidates  []string          `json:"restricted_candidates"`
+		Gitignore   []string          `json:"gitignore_additions"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &prop) != nil || prop.Directories["outputs_private_reports"] != "reports" ||
+		strings.Join(prop.Marked, ",") != "reports" || strings.Join(prop.Candidates, ",") != "data/raw,data/clean,data-files,output" ||
+		!contains(prop.Gitignore, "/reports/") {
+		t.Errorf("proposal: %v\n%s", err, out)
+	}
+
+	// With --yes, the rest are listed with the flags that mark them.
+	_, errOut, err := h.run(t, "", "adopt", dir, "--yes", "--sensitive", "--private", "reports", "--private", "data-files")
+	if err != nil || !strings.Contains(errOut, "May hold restricted data (mark private?): data/raw, data/clean, output.") ||
+		!strings.Contains(errOut, "--private data/raw --private data/clean --private output") {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if yml := readTestFile(t, filepath.Join(dir, "settings.yml")); !strings.Contains(yml, "outputs_private_reports: reports") || !strings.Contains(yml, "inputs_private_data_files: data-files") {
+		t.Errorf("settings.yml:\n%s", yml)
+	}
+	if ignore := readTestFile(t, filepath.Join(dir, ".gitignore")); !strings.Contains(ignore, "\n/reports/\n") || !strings.Contains(ignore, "\n/data-files/\n") {
+		t.Errorf(".gitignore:\n%s", ignore)
+	}
+
+	// At a terminal, fw asks about each candidate, yes by default.
+	other := oldStudy(t, t.TempDir())
+	h.app.interactive = true
+	if _, errOut, err := h.run(t, "a\n\nn\n\n", "adopt", other, "--sensitive"); err != nil || !strings.Contains(errOut, "'data/raw' may hold restricted data. Mark it private? [Y/n]") {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if yml := readTestFile(t, filepath.Join(other, "settings.yml")); !strings.Contains(yml, "inputs_private_raw: data/raw") || !strings.Contains(yml, "inputs_final: data/clean") ||
+		!strings.Contains(yml, "outputs_private_output: output") {
+		t.Errorf("asked: settings.yml:\n%s", yml)
+	}
+	h.app.interactive = false
+
+	// R and Python get the folders.
+	f := &fakeEngines{}
+	f.install(h, "Rscript", "uv")
+	r := oldStudy(t, t.TempDir())
+	if err := os.MkdirAll(filepath.Join(r, "reports"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, err := h.run(t, "", "adopt", r, "--lang", "r", "--yes", "--private", "reports", "--private", "data/raw"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if len(f.ran) != 1 || !strings.Contains(f.ran[0].Args[1], "private = a[2:length(a)]") || strings.Join(f.ran[0].Args[2:], ",") != r+",reports,data/raw" {
+		t.Errorf("R: %v", f.ran)
+	}
+	if _, errOut, err := h.run(t, "", "adopt", r, "--lang", "python", "--yes", "--private", "reports"); err != nil {
+		t.Fatalf("%v\n%s", err, errOut)
+	}
+	if len(f.ran) != 2 || !strings.Contains(f.ran[1].String(), "adopt --path "+r+" --yes --private reports --force") {
+		t.Errorf("Python: %v", f.ran[1:])
+	}
+	if _, _, err := h.run(t, "", "adopt", r, "--lang", "r", "--yes", "--private", "nope"); exitCode(err) != exitUsage || len(f.ran) != 2 {
+		t.Errorf("R, unknown folder: %v", err)
+	}
+}
+
 func TestStructureImport(t *testing.T) {
 	srv := fakeCloud(t)
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})

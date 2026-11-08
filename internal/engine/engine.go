@@ -3,7 +3,6 @@
 package engine
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -170,27 +169,42 @@ type AdoptOptions struct {
 	// Force adopts the folder in the named language even when its files
 	// suggest another. fw sets it when --lang was given explicitly.
 	Force bool
+	// Private lists folders, as paths from the project folder, to map to
+	// private keys (fw adopt --private).
+	Private []string
 }
 
 // AdoptR returns the command that hands an existing folder to the framework
 // R package's adopt(), accepting its proposed mapping. R reviews a mapping
-// only in an interactive R session, which Rscript is not. A type or
-// sensitive setting needs an adopt() that takes them.
+// only in an interactive R session, which Rscript is not. A type, sensitive,
+// or private setting needs an adopt() that takes it.
 func (f Finder) AdoptR(dir string, o AdoptOptions) (Command, error) {
-	if o.Type == "" && !o.Sensitive {
-		return f.rCommand("a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE)", []string{dir}, rHas("adopt"), "has no adopt()")
-	}
 	expr := "a <- commandArgs(TRUE); framework::adopt(a[1], yes = TRUE"
 	args := []string{dir}
+	var takes []string
 	if o.Type != "" {
 		expr += ", type = a[2]"
 		args = append(args, o.Type)
+		takes = append(takes, "type")
 	}
 	if o.Sensitive {
 		expr += ", sensitive = TRUE"
+		takes = append(takes, "sensitive")
 	}
-	need := rHas("adopt") + ` || !all(c("type", "sensitive") %in% names(formals(get("adopt", envir = asNamespace("framework")))))`
-	return f.rCommand(expr+")", args, need, "has an adopt() that does not take type or sensitive, which came after framework 2.0.1")
+	if len(o.Private) > 0 {
+		expr += fmt.Sprintf(", private = a[%d:length(a)]", len(args)+1)
+		args = append(args, o.Private...)
+		takes = append(takes, "private")
+	}
+	if len(takes) == 0 {
+		return f.rCommand(expr+")", args, rHas("adopt"), "has no adopt()")
+	}
+	need := rHas("adopt") + ` || !all(c("` + strings.Join(takes, `", "`) + `") %in% names(formals(get("adopt", envir = asNamespace("framework")))))`
+	lacks := "has an adopt() that does not take type or sensitive, which came after framework 2.0.1"
+	if len(o.Private) > 0 {
+		lacks = "has an adopt() that does not take " + strings.Join(takes, ", ") + ", which came after framework 2.0.1"
+	}
+	return f.rCommand(expr+")", args, need, lacks)
 }
 
 // rHas is an R condition that is true when the framework package lacks one
@@ -263,40 +277,58 @@ func (f Finder) createPython(req Request) (Command, error) {
 }
 
 // AdoptPython returns the command that hands an existing folder to
-// framework-py's adopt. A type or sensitive setting needs a framework-py
-// whose adopt takes --type and --sensitive; fw checks its help first.
+// framework-py's adopt. A type, sensitive, or private setting needs a
+// framework-py whose adopt takes the flag; fw checks its help first.
 func (f Finder) AdoptPython(dir string, yes bool, o AdoptOptions) (Command, error) {
 	args := []string{"-m", "framework", "adopt", "--path", dir}
 	if yes {
 		args = append(args, "--yes")
 	}
+	var flags []string
 	if o.Type != "" {
 		args = append(args, "--type", o.Type)
+		flags = append(flags, "--type")
 	}
 	if o.Sensitive {
 		args = append(args, "--sensitive")
+		flags = append(flags, "--sensitive")
+	}
+	for _, p := range o.Private {
+		args = append(args, "--private", p)
+	}
+	if len(o.Private) > 0 {
+		flags = append(flags, "--private")
 	}
 	if o.Force {
 		args = append(args, "--force")
 	}
 	command, err := f.python(args)
-	if err != nil || o.Type == "" && !o.Sensitive {
+	if err != nil || len(flags) == 0 {
 		return command, err
 	}
-	probe, err := f.python([]string{"-c", pythonAdoptFlags})
+	probe, err := f.python([]string{"-c", pythonAdoptFlags(flags)})
 	if err != nil {
 		return Command{}, err
 	}
 	if !f.Probe(probe) {
-		return Command{}, errors.New("the framework-py that fw runs does not take --type or --sensitive in adopt yet; they came after framework-py 0.1.0.dev12. " +
-			"Update it (or set FW_PYTHON_PACKAGE to a framework-py that has them), or run fw adopt without --type and --sensitive")
+		since := "--type and --sensitive came after framework-py 0.1.0.dev12"
+		if len(o.Private) > 0 {
+			since = "--private came after framework-py 0.1.0.dev13"
+		}
+		return Command{}, fmt.Errorf("the framework-py that fw runs does not take %s in adopt yet; %s. "+
+			"Update it (or set FW_PYTHON_PACKAGE to a framework-py that has them), or run fw adopt without %s", strings.Join(flags, " or "), since, strings.Join(flags, " and "))
 	}
 	return command, nil
 }
 
-// pythonAdoptFlags exits 0 when python -m framework adopt --help lists
-// --type and --sensitive.
-const pythonAdoptFlags = `import contextlib, io, runpy, sys
+// pythonAdoptFlags is a script that exits 0 when python -m framework adopt
+// --help lists every flag.
+func pythonAdoptFlags(flags []string) string {
+	quoted := make([]string, len(flags))
+	for i, flag := range flags {
+		quoted[i] = `"` + flag + `"`
+	}
+	return `import contextlib, io, runpy, sys
 sys.argv = ["framework", "adopt", "--help"]
 out = io.StringIO()
 with contextlib.redirect_stdout(out):
@@ -304,7 +336,8 @@ with contextlib.redirect_stdout(out):
         runpy.run_module("framework", run_name="__main__")
     except BaseException:
         pass
-sys.exit(0 if "--type" in out.getvalue() and "--sensitive" in out.getvalue() else 4)`
+sys.exit(0 if all(flag in out.getvalue() for flag in [` + strings.Join(quoted, ", ") + `]) else 4)`
+}
 
 // python runs framework-py's module with args: through FW_PYTHON, uv with
 // framework-py MinPython or later, or a python3 whose framework-py has
