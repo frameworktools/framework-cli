@@ -179,7 +179,7 @@ func TestPushStata(t *testing.T) {
 
 	// The registry changed on Cloud: the skill is pushed, the registry isn't
 	writeTestFile(t, filepath.Join(dir, ".framework", "data.lock.json"), `{"schema":1,"revision":"data-0"}`)
-	pullFirst := "The data registry on Framework Cloud changed since this project last pulled it (revision data-1). Pull first: fw pull. fw push --force replaces Cloud's changes"
+	pullFirst := "Framework Cloud's data registry changed since this project last pulled it (revision data-1). Pull first: fw pull. fw push --force replaces Cloud's changes"
 	if out, _, err = h.run(t, "", "push", "--dry-run"); err != nil || !strings.Contains(out, "Data registry: can't push. "+pullFirst+".\n") {
 		t.Fatalf("dry run conflict: %v\n%s", err, out)
 	}

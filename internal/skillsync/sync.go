@@ -61,6 +61,9 @@ type State struct {
 type Options struct {
 	Root, Path, Direction, ID, Variant, Resolve string
 	DryRun                                      bool
+	// ProjectToken, when set, names the project the push comes from: Cloud
+	// then lists a pushed copy of a built-in skill in the project's setup.
+	ProjectToken string
 }
 type Result struct {
 	Action     string   `json:"action"`
@@ -685,6 +688,9 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 			identity = remote.ID
 		}
 		body := map[string]any{"request_id": entry.Pending.RequestID, "skill_id": identity, "expected_version": expected, "variant": entry.Variant, "bundle": files, "client": map[string]string{"app": "framework-cli"}}
+		if opts.ProjectToken != "" {
+			body["project_token"] = opts.ProjectToken
+		}
 		if err = client.Do(ctx, "POST", "/api/v1/skills/sync", body, &remote); err != nil {
 			return result, err
 		}

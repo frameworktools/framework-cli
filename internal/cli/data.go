@@ -442,7 +442,8 @@ func planDataPush(ctx context.Context, client *cloud.Client, root string, remove
 			if current, gerr := fetchData(ctx, client); gerr == nil {
 				latest = current.Revision
 			}
-			return reply, fmt.Errorf("the data registry on Framework Cloud changed since this project last pulled it (revision %s). Pull first: %s. %s --force replaces Cloud's changes", latest, pullCmd, pushCmd)
+			// Worded as R and Python word it, so it starts with the product's name
+			return reply, fmt.Errorf("Framework Cloud's data registry changed since this project last pulled it (revision %s). Pull first: %s. %s --force replaces Cloud's changes", latest, pullCmd, pushCmd) //nolint:staticcheck // ST1005
 		}
 		if err != nil {
 			return reply, dataError(client, err)
@@ -502,7 +503,7 @@ func applyDataPush(w io.Writer, client *cloud.Client, root string, p *dataPushPl
 				parts = append(parts, fmt.Sprintf("%d %s", n.n, n.word))
 			}
 		}
-		fmt.Fprintf(w, "Data registry pushed: revision %s (%s)\n", reply.Revision, strings.Join(parts, ", "))
+		fmt.Fprintf(w, "✓ Data registry pushed: revision %s (%s)\n", reply.Revision, strings.Join(parts, ", "))
 	} else {
 		fmt.Fprintln(w, "Already up to date.")
 	}

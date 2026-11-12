@@ -212,6 +212,16 @@ func (a *app) setupClient(root string) (*cloud.Client, string, error) {
 	return cloud.NewClient(server.URL, token), "", nil
 }
 
+// projectTokenFor is the project's token when the project is on the server
+// at url, so a skill push can name the project; otherwise empty.
+func (a *app) projectTokenFor(root, url string) string {
+	client, _, err := a.setupClient(root)
+	if err != nil || client == nil || strings.TrimRight(client.URL, "/") != strings.TrimRight(url, "/") {
+		return ""
+	}
+	return client.Token
+}
+
 // fetchSetup reads GET /api/v1/projects/setup, explaining failures.
 func fetchSetup(ctx context.Context, client *cloud.Client) (cloudSetup, error) {
 	var s cloudSetup
@@ -661,7 +671,7 @@ func (a *app) planSkillsPart(ctx context.Context, root, server string, force boo
 	part.pending = len(push) > 0
 	part.apply = func() error {
 		if client != nil && part.pending {
-			applySkillPush(ctx, client, root, *items)
+			applySkillPush(ctx, client, root, a.projectTokenFor(root, client.URL), *items)
 		}
 		var pushed, bad []string
 		for _, it := range *items {

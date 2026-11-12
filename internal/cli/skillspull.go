@@ -481,13 +481,13 @@ func planSkillPush(ctx context.Context, client *cloud.Client, root string, chang
 
 // applySkillPush pushes each skill with status push. Each becomes pushed,
 // refused, failed, or unchanged.
-func applySkillPush(ctx context.Context, client *cloud.Client, root string, items []pushItem) {
+func applySkillPush(ctx context.Context, client *cloud.Client, root, projectToken string, items []pushItem) {
 	for i := range items {
 		it := &items[i]
 		if it.Status != "push" {
 			continue
 		}
-		o := skillsync.Options{Root: root, Path: it.Path, Direction: "push", Variant: it.variant}
+		o := skillsync.Options{Root: root, Path: it.Path, Direction: "push", Variant: it.variant, ProjectToken: projectToken}
 		if it.forced {
 			o.Resolve = "local"
 		}
@@ -534,7 +534,7 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 		if err := a.confirm(cmd, yes, "Continue?"); err != nil {
 			return err
 		}
-		applySkillPush(ctx, client, root, items)
+		applySkillPush(ctx, client, root, a.projectTokenFor(root, client.URL), items)
 	}
 	counts := map[string]int{"pushed": 0, "push": 0, "refused": 0, "untracked": 0, "failed": 0}
 	for _, it := range items {

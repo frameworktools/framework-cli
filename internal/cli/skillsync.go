@@ -66,6 +66,7 @@ func newSkillSyncCmd(a *app) *cobra.Command {
 					opts.Variant = lang
 				}
 			}
+			opts.ProjectToken = a.projectTokenFor(opts.Root, client.URL)
 			result, err := skillsync.Sync(cmd.Context(), client, opts)
 			if err != nil {
 				return explain(err, client.URL)

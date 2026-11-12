@@ -357,8 +357,9 @@ func TestSkillsPush(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res.Counts["pushed"] != 1 || c.own == nil {
 		t.Fatalf("built-in: %v\n%s", err, out)
 	}
-	if last := c.posts[len(c.posts)-1]; last["skill_id"] != "framework:framework-stata" {
-		t.Errorf("built-in push sent %v", last["skill_id"])
+	// The project's token names the project, so Cloud lists the copy in its setup
+	if last := c.posts[len(c.posts)-1]; last["skill_id"] != "framework:framework-stata" || last["project_token"] != "proj-tok" {
+		t.Errorf("built-in push sent %v and %v", last["skill_id"], last["project_token"])
 	}
 }
 

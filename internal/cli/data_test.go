@@ -172,7 +172,7 @@ func TestDataPushStata(t *testing.T) {
 	}
 	out, _, err = h.run(t, "", "data", "push", "--yes", "--force", "--remove")
 	if err != nil || !strings.Contains(out, "Entries to remove: inputs.old") || !strings.Contains(out, "Cloud's newer data registry changes will be replaced") ||
-		!strings.Contains(out, "Data registry pushed: revision rev-2 (1 added, 1 removed)") || !strings.Contains(readFile(t, filepath.Join(dir, ".framework", "data.lock.json")), `"revision": "rev-2"`) {
+		!strings.Contains(out, "✓ Data registry pushed: revision rev-2 (1 added, 1 removed)") || !strings.Contains(readFile(t, filepath.Join(dir, ".framework", "data.lock.json")), `"revision": "rev-2"`) {
 		t.Fatalf("force: %v\n%s", err, out)
 	}
 }
