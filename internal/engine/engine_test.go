@@ -243,3 +243,29 @@ func TestPyCallPrintsFrameworkErrorsAsOneLine(t *testing.T) {
 		t.Errorf("other error: %d %q", code, out)
 	}
 }
+
+// fw setup push rewrites the packages' "Pull first" advice to name fw's
+// command and flag.
+func TestPushSetupAdvice(t *testing.T) {
+	f := finder(map[string]string{"uv": "uv"}, true, nil)
+	dir := t.TempDir()
+	cmd, err := f.PushSetup(Project{Root: dir, Language: "python", Runner: []string{"python3"}}, SetupOptions{}, SetupConfirmed)
+	if err != nil || cmd.Rewrite == nil {
+		t.Fatalf("%v %+v", err, cmd)
+	}
+	for in, want := range map[string]string{
+		// R's stop() and push_skills()
+		"Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: pull_setup(). push_setup(force = TRUE) replaces Cloud's changes.": "Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: fw setup pull. fw setup push --force replaces Cloud's changes.",
+		"  Pull first: analysis changed on Cloud since this project pulled it. push_skills(force = TRUE) replaces it.":                                                         "  Pull first: analysis changed on Cloud since this project pulled it. fw setup push --force replaces it.",
+		// Python's
+		"Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: pull_setup(). push_setup(force=True) replaces Cloud's changes.": "Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: fw setup pull. fw setup push --force replaces Cloud's changes.",
+		"  Pull first: analysis changed on Cloud since this project pulled it. push_skills(force=True) replaces it.":                                                         "  Pull first: analysis changed on Cloud since this project pulled it. fw setup push --force replaces it.",
+	} {
+		if got := cmd.Rewrite.Replace(in); got != want {
+			t.Errorf("got  %s\nwant %s", got, want)
+		}
+	}
+	if pull, _ := f.PullSetup(Project{Root: dir, Language: "python", Runner: []string{"python3"}}, SetupOptions{}, SetupDryRun); pull.Rewrite != nil {
+		t.Error("pull_setup() output is rewritten")
+	}
+}

@@ -189,3 +189,21 @@ func TestSetupMissingPackageFunction(t *testing.T) {
 		t.Fatalf("missing: %v %v", err, f.ran)
 	}
 }
+
+func TestLineRewriter(t *testing.T) {
+	var got strings.Builder
+	l := &lineRewriter{w: &got, r: strings.NewReplacer("push_setup(force = TRUE)", "fw setup push --force")}
+	// A phrase split across writes is still replaced; the last line has no newline
+	for _, p := range []string{"Error: Pull first. push_setup(for", "ce = TRUE) replaces it.\nnext ", "push_setup(force = TRUE)"} {
+		if n, err := l.Write([]byte(p)); err != nil || n != len(p) {
+			t.Fatalf("write: %d %v", n, err)
+		}
+	}
+	if got.String() != "Error: Pull first. fw setup push --force replaces it.\n" {
+		t.Fatalf("before flush: %q", got.String())
+	}
+	l.Flush()
+	if got.String() != "Error: Pull first. fw setup push --force replaces it.\nnext fw setup push --force" {
+		t.Errorf("after flush: %q", got.String())
+	}
+}

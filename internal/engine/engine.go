@@ -21,6 +21,9 @@ type Command struct {
 	// StdoutToStderr sends the program's output to stderr, so fw's own
 	// --json output is the only thing on stdout.
 	StdoutToStderr bool
+	// Rewrite, when set, is applied to each line the program writes to
+	// stderr, so a package's advice can name fw's commands and flags.
+	Rewrite *strings.Replacer
 }
 
 // String renders the command for a POSIX shell.

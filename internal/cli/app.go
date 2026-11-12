@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -161,10 +162,18 @@ func runAttached(c engine.Command) (int, error) {
 	cmd := exec.Command(c.Program, c.Args...) // #nosec G204 -- programs fw found itself
 	cmd.Dir = c.Dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	var rewrite *lineRewriter
+	if c.Rewrite != nil {
+		rewrite = &lineRewriter{w: os.Stderr, r: c.Rewrite}
+		cmd.Stderr = rewrite
+	}
 	if c.StdoutToStderr {
-		cmd.Stdout = os.Stderr
+		cmd.Stdout = cmd.Stderr
 	}
 	err := cmd.Run()
+	if rewrite != nil {
+		rewrite.Flush()
+	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		return exit.ExitCode(), nil
@@ -173,4 +182,30 @@ func runAttached(c engine.Command) (int, error) {
 		return 0, fmt.Errorf("running %s: %w", c.Program, err)
 	}
 	return 0, nil
+}
+
+// lineRewriter applies r to each complete line written through it, so a
+// phrase split across writes is still replaced. Flush writes what is left.
+type lineRewriter struct {
+	w   io.Writer
+	r   *strings.Replacer
+	buf []byte
+}
+
+func (l *lineRewriter) Write(p []byte) (int, error) {
+	l.buf = append(l.buf, p...)
+	if i := bytes.LastIndexByte(l.buf, '\n'); i >= 0 {
+		if _, err := io.WriteString(l.w, l.r.Replace(string(l.buf[:i+1]))); err != nil {
+			return 0, err
+		}
+		l.buf = append(l.buf[:0], l.buf[i+1:]...)
+	}
+	return len(p), nil
+}
+
+func (l *lineRewriter) Flush() {
+	if len(l.buf) > 0 {
+		_, _ = io.WriteString(l.w, l.r.Replace(string(l.buf)))
+		l.buf = l.buf[:0]
+	}
 }

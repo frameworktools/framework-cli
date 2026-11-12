@@ -31,8 +31,20 @@ func (f Finder) PullSetup(p Project, o SetupOptions, mode SetupMode) (Command, e
 func (f Finder) PushSetup(p Project, o SetupOptions, mode SetupMode) (Command, error) {
 	r := []string{"remove = " + rBool(o.Remove), "force = " + rBool(o.Force)}
 	py := []string{"remove=" + pyBool(o.Remove), "force=" + pyBool(o.Force)}
-	return f.packageCall(p, "push_setup", "fw setup push", setupArgs(r, py, mode))
+	c, err := f.packageCall(p, "push_setup", "fw setup push", setupArgs(r, py, mode))
+	c.Rewrite = pushSetupAdvice
+	return c, err
 }
+
+// pushSetupAdvice turns the packages' "Pull first" advice, which names their
+// functions and arguments, into fw's commands and flags.
+var pushSetupAdvice = strings.NewReplacer(
+	"Pull first: pull_setup().", "Pull first: fw setup pull.",
+	"push_setup(force = TRUE)", "fw setup push --force",
+	"push_setup(force=True)", "fw setup push --force",
+	"push_skills(force = TRUE)", "fw setup push --force",
+	"push_skills(force=True)", "fw setup push --force",
+)
 
 // setupArgs adds dry_run = TRUE, or confirm = TRUE, to each language's
 // arguments.
