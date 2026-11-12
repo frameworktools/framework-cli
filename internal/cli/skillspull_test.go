@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,6 +26,7 @@ type skillsCloud struct {
 	layerVer int                  // the version the project's layers name
 	posts    []map[string]any
 	own      *skillsync.Snapshot // the copy a built-in push made
+	noSetup  bool                // GET /api/v1/projects/setup answers 404
 }
 
 func skillText(name, body string) string {
@@ -68,6 +70,19 @@ func newSkillsCloud(t *testing.T) *skillsCloud {
 			map[string]any{"kind": "project", "key": "trial", "layer": map[string]any{"language": "stata"}},
 		}}
 		_ = json.NewEncoder(w).Encode(env)
+	})
+	mux.HandleFunc("GET /api/v1/projects/setup", func(w http.ResponseWriter, r *http.Request) {
+		if c.noSetup {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if auth(r) != "proj-tok" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, _ = fmt.Fprintf(w, `{"revision":"rev-%d","language":"stata","packages":[],"skills":[]}`, c.layerVer)
 	})
 	mux.HandleFunc("GET /api/v1/skills/sync/{id}", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "user-tok" {

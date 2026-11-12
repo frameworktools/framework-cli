@@ -31,7 +31,7 @@ var refCategories = []refCategory{
 // refCategoryOf assigns each command to a category. A test fails when a
 // command is missing.
 var refCategoryOf = map[string]string{
-	"skills sync": "cloud", "skills pull": "cloud", "skills push": "cloud",
+	"skills sync": "cloud", "skills pull": "cloud", "skills push": "cloud", "setup pull": "cloud", "setup push": "cloud",
 	"login": "account", "logout": "account", "status": "account",
 	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud",
 	"structures list": "cloud", "tools list": "cloud", "package-sets list": "cloud", "skills list": "cloud",
@@ -43,7 +43,7 @@ var refCategoryOf = map[string]string{
 // refSince records the release that added each command.
 var refSince = map[string]string{
 	"skills sync": "0.4.2",
-	"skills pull": "0.4.10", "skills push": "0.4.10",
+	"skills pull": "0.4.10", "skills push": "0.4.10", "setup pull": "0.4.10", "setup push": "0.4.10",
 	"projects list": "0.1.0", "login": "0.1.0", "logout": "0.1.0", "status": "0.1.0", "new": "0.1.0",
 	"project link": "0.1.0", "project status": "0.1.0", "project bootstrap": "0.1.0",
 	"config path": "0.1.0", "config sync": "0.1.0", "doctor": "0.1.0", "version": "0.1.0",
@@ -70,6 +70,8 @@ var refSeeAlso = map[string][]string{
 	"skills list":       {"blueprints list", "new"},
 	"skills pull":       {"skills push", "skills sync", "guide:agents"},
 	"skills push":       {"skills pull", "skills sync", "guide:agents"},
+	"setup pull":        {"setup push", "skills pull", "guide:agents"},
+	"setup push":        {"setup pull", "skills push", "guide:agents"},
 	"publish":           {"project link", "guide:publishing", "r:ref:publish"},
 	"new":               {"project bootstrap", "project link", "guide:projects"},
 	"project link":      {"publish", "project push-spec", "adopt"},
@@ -109,6 +111,8 @@ var refReturns = map[string]string{
 	"skills pull": "With `--json`, for Stata projects, `{\"source\", \"dry_run\", \"skills\", \"counts\", \"message\", \"notes\", \"backups\"}`. `source` is `cloud`, or `package` when Framework Cloud gave no list. " +
 		"Each skill has `name`, `status` (added, updated, current, edited, replaced, removed, or unavailable), and `paths`. `counts` has a number for each status. R and Python projects print their package's own summary.",
 	"skills push":       "With `--json`, `{\"dry_run\", \"skills\", \"counts\", \"message\"}`. Each skill has `name`, `path`, `status` (push in a dry run, pushed, refused, failed, or untracked), and `message`; a pushed skill also has `skill_id` and `version`.",
+	"setup pull":        "With `--json`, for Stata projects, `{\"revision\", \"dry_run\", \"applied\", \"changes\", \"skills\"}`. `skills` is the object `fw skills pull --json` prints. R and Python projects print their package's own summary.",
+	"setup push":        "With `--json`, for Stata projects, the object `fw skills push --json` prints: packages aren't managed for Stata projects. R and Python projects print their package's own summary.",
 	"project push-spec": "With `--json`, `received_at`, `spec_version`, and `changed`, which is false when the cloud already had this spec.",
 }
 

@@ -55,7 +55,7 @@ object as `fw status --json`.
 
 These commands take `--json`: `login`, `status`, `projects list`,
 `project show`, `blueprints list`, `project status`, `publish`,
-`project push-spec`, `skills pull` (Stata projects), and `skills push`. The output goes to stdout as one JSON document, and
+`project push-spec`, `skills pull` and `setup pull` (Stata projects), `skills push`, and `setup push` (Stata projects). The output goes to stdout as one JSON document, and
 messages for people go to stderr. Each command's reference page lists its
 fields. Token values never appear in the output.
 
@@ -88,7 +88,9 @@ if they confirm the upload.
 ## Confirmation prompts
 
 fw asks before it connects a machine (`fw login`), before it uploads
-(`fw publish`), and before it sends new skill versions (`fw skills push`). Without a terminal it cannot ask, so these need `--yes`.
+(`fw publish`), before it sends new skill versions (`fw skills push`), and
+before it applies or sends a project's setup (`fw setup pull`,
+`fw setup push`). Without a terminal it cannot ask, so these need `--yes`.
 fw prints what it is about to do first, so an agent can show it to the
 person. `fw project push-spec` asks only when the project's path contains
 "private". `fw new` with cloud choices such as `--blueprint` never creates
@@ -128,6 +130,37 @@ person the plan from `--dry-run` first.
 fw skills push --dry-run
 fw skills push --yes --json
 ```
+
+## Project setup
+
+A project's setup on Framework Cloud is its packages and skills. Folders and
+structure are not part of it. `fw setup pull` lists the changes, then asks
+"Apply these changes?" before applying them. It adds packages to the
+project's settings and installs them, then pulls the skills as
+`fw skills pull` does. It never removes a local package. It keeps local edits
+such as version pins unless you pass `--overwrite`. It saves the setup's
+revision in `.framework/setup.lock.json`.
+
+`fw setup push` shows what would change on Framework Cloud, with a warning
+that new setups, ZIP downloads, and Update on GitHub will use it. It asks
+"Push these changes?", then pushes edited skills as `fw skills push` does.
+When the setup changed on Framework Cloud since the last pull, it says "Pull
+first". `--force` replaces Cloud's newer changes. `--remove` also removes
+packages the project doesn't have.
+
+```sh
+fw setup pull --dry-run
+fw setup pull --yes
+fw setup push --dry-run
+fw setup push --yes
+```
+
+Without a terminal, both commands need `--yes`, or `--dry-run` to only list
+the changes. Show the person the `--dry-run` list first. In R and Python
+projects, fw runs the package's `pull_setup()` and `push_setup()`. At a
+terminal, fw runs them once as a dry run, asks, and then applies. Packages
+aren't managed for Stata projects, so for those, these commands pull and
+push skills only.
 
 ## Uploads and private paths
 

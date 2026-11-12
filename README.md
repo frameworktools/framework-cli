@@ -33,6 +33,7 @@ fw adopt [DIR]                      make an existing folder a Framework project
 fw structures import [DIR]          save a folder's layout as a structure
 fw project bootstrap                prepare a cloned project
 fw project push-spec                send the project's spec to Framework Cloud
+fw setup pull | push                bring a project's packages and skills up to date; send them back
 fw skills pull | push               bring a project's skills up to date; send edited ones back
 fw skills sync PATH                 synchronize one skill directory
 fw publish PATH [--to github]       publish a rendered notebook or HTML file
@@ -60,6 +61,27 @@ Python projects run their package's `pull_skills()`. `fw skills push` sends
 edited skills to Framework Cloud as new versions of your own skills, after
 asking. It refuses when the Cloud copy changed since the last pull; `--force`
 overrides that. An edited built-in skill becomes your own copy.
+
+### Project setup
+
+```sh
+fw setup pull --dry-run
+fw setup pull
+fw setup push
+```
+
+A project's setup on Framework Cloud is its packages and skills. Folders and
+structure are not part of it. `fw setup pull` lists the changes and asks
+before it applies them: packages to add, packages whose settings differ,
+packages only in the project, and skills to add or update. It never removes a
+local package, and it keeps local edits such as version pins unless you pass
+`--overwrite`. `fw setup push` shows what would change on Framework Cloud and
+asks before it sends the project's package list and edited skills. It refuses
+when the setup changed on Framework Cloud since the last pull; `--force`
+overrides that. `--remove` also removes packages the project doesn't have.
+R and Python projects run their package's `pull_setup()` and `push_setup()`.
+Packages aren't managed for Stata projects, so for those, these commands pull
+and push skills only.
 
 ### Skill sync
 

@@ -139,13 +139,27 @@ func newSkillsPullCmd(a *app) *cobra.Command {
 // pullStataSkills is fw skills pull for a Stata project, whose skills fw
 // ships itself.
 func (a *app) pullStataSkills(cmd *cobra.Command, root string, overwrite, dryRun bool) error {
+	out, err := a.stataSkills(cmd.Context(), root, overwrite, dryRun)
+	if err != nil {
+		return err
+	}
+	if a.jsonOut {
+		return writeJSON(cmd.OutOrStdout(), out)
+	}
+	printPull(cmd.OutOrStdout(), out)
+	return nil
+}
+
+// stataSkills pulls a Stata project's skills, or with dryRun says what a
+// pull would do, and returns the result unprinted.
+func (a *app) stataSkills(ctx context.Context, root string, overwrite, dryRun bool) (pullJSON, error) {
 	local := readSkillsSpec(root)
 	dirs := projectSkillsDirs(root, local)
 	out := pullJSON{Source: "cloud", DryRun: dryRun, Notes: []string{}, Backups: []string{}}
 
-	wanted, reason, err := a.cloudSkills(cmd.Context(), root, &out.Notes)
+	wanted, reason, err := a.cloudSkills(ctx, root, &out.Notes)
 	if err != nil {
-		return err
+		return out, err
 	}
 	if reason != "" {
 		out.Source = "package"
@@ -162,7 +176,7 @@ func (a *app) pullStataSkills(cmd *cobra.Command, root string, overwrite, dryRun
 
 	res, err := skillsync.Pull(skillsync.PullOptions{Root: root, Dirs: dirs, Skills: wanted, Overwrite: overwrite, DryRun: dryRun, Variant: "stata"})
 	if err != nil {
-		return err
+		return out, err
 	}
 	out.Skills, out.Counts = res.Skills, res.Counts
 	if res.Backups != nil {
@@ -177,17 +191,13 @@ func (a *app) pullStataSkills(cmd *cobra.Command, root string, overwrite, dryRun
 	if !dryRun {
 		names := orderedSkills(root, dirs[0], wanted)
 		if file, err := skillsync.RefreshSkillsTable(root, dirs[0], names); err != nil {
-			return err
+			return out, err
 		} else if file != "" {
 			out.Notes = append(out.Notes, "Refreshed the Skills table in "+file+".")
 		}
 	}
 	out.Message = pullSummary(out.Counts, dryRun)
-	if a.jsonOut {
-		return writeJSON(cmd.OutOrStdout(), out)
-	}
-	printPull(cmd.OutOrStdout(), out)
-	return nil
+	return out, nil
 }
 
 // orderedSkills lists the skill folders in dir: the setup's order first,
@@ -374,17 +384,10 @@ func newSkillsPushCmd(a *app) *cobra.Command {
 			if server == "" {
 				server, _ = cmd.Parent().PersistentFlags().GetString("url")
 			}
-			// The project's server, where its skills came from, with the
-			// person's own login
-			srv, err := a.server(server, cloud.ProjectScope)
+			client, err := a.skillsClient(server)
 			if err != nil {
 				return err
 			}
-			found, ok := a.tokens().Lookup(srv.URL)
-			if !ok {
-				return &errNotLoggedIn{fmt.Sprintf("pushing skills needs your login: not logged in to %s. Run: %s", cloud.Host(srv.URL), loginCommand(srv.URL))}
-			}
-			client := cloud.NewClient(srv.URL, found.Token)
 			return a.pushSkills(cmd, client, root, force, yes, dryRun)
 		},
 	}
@@ -394,6 +397,20 @@ func newSkillsPushCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be pushed without sending anything")
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
+}
+
+// skillsClient is the project's server, where its skills came from, with
+// the person's own login.
+func (a *app) skillsClient(server string) (*cloud.Client, error) {
+	srv, err := a.server(server, cloud.ProjectScope)
+	if err != nil {
+		return nil, err
+	}
+	found, ok := a.tokens().Lookup(srv.URL)
+	if !ok {
+		return nil, &errNotLoggedIn{fmt.Sprintf("pushing skills needs your login: not logged in to %s. Run: %s", cloud.Host(srv.URL), loginCommand(srv.URL))}
+	}
+	return cloud.NewClient(srv.URL, found.Token), nil
 }
 
 func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, force, yes, dryRun bool) error {
