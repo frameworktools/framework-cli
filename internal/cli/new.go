@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,9 @@ type newOptions struct {
 	workflow  string
 	pieces    pieceOptions
 	dest      destOptions
+	// ownerProjectsDir is the project owner's Projects folder, sent with
+	// --pull-token's layers
+	ownerProjectsDir string
 }
 
 // cloudLink is how a project created from the cloud gets its .env entries.
@@ -91,7 +95,9 @@ func newNewCmd(a *app) *cobra.Command {
 			"(2.0.0) and framework-py's create (0.1.0.dev10) have no option to skip git,\n" +
 			"so fw has no --no-git. Turn git off in your defaults, or delete .git after.\n\n" +
 			"--dir names the project folder. Without it fw asks at a terminal, offering\n" +
-			"./<name>; answer n to give another folder, which holds the project folder.\n" +
+			"./<name>, or <Projects folder>/<name> when a Projects folder is set in\n" +
+			"Framework Cloud Settings (with --pull-token, the project owner's comes\n" +
+			"first); answer n to give another folder, which holds the project folder.\n" +
 			"Without a terminal, or with --headless, fw stops and asks for --dir. This\n" +
 			"covers --pull-token, --zip, and a clone from --github too.\n\n" +
 			"At a terminal, fw new with no name asks for the name, language, and\n" +
@@ -208,7 +214,7 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		if err != nil {
 			return err
 		}
-		raw, err := cloud.NewClient(server.URL, token).PullLayers(ctx)
+		raw, ownerProjectsDir, err := cloud.NewClient(server.URL, token).Pull(ctx)
 		if err != nil {
 			if cloud.StatusOf(err) == 403 {
 				return fmt.Errorf("%w. --pull-token needs a project token from the project's page on %s", err, cloud.Host(server.URL))
@@ -221,6 +227,7 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		}
 		env = &e
 		link = &cloudLink{token: token, url: server.URL}
+		o.ownerProjectsDir = ownerProjectsDir
 	}
 
 	language := o.language
@@ -481,7 +488,8 @@ func slugify(name string) string {
 }
 
 // newProjectDir returns the folder for a new project. --dir names it outright.
-// Without it, fw asks at a terminal, offering <cwd>/<slug>, and otherwise
+// Without it, fw asks at a terminal, offering <Projects folder>/<slug> when a
+// Projects folder is set and <cwd>/<slug> otherwise, and without a terminal
 // stops and asks for --dir, so a project never lands somewhere unasked.
 // --print creates nothing, so it takes <cwd>/<slug> without asking.
 func (a *app) newProjectDir(cmd *cobra.Command, o newOptions, name string) (string, error) {
@@ -499,18 +507,44 @@ func (a *app) newProjectDir(cmd *cobra.Command, o newOptions, name string) (stri
 	if !a.interactive || o.headless {
 		return "", usageError(fmt.Sprintf("no project location given. Pass --dir, the folder to create, such as --dir %s", suggested))
 	}
-	return a.askLocation(cmd, slug)
+	projectsDir := o.ownerProjectsDir
+	if projectsDir == "" {
+		projectsDir = a.settingsProjectsDir(cmd, o)
+	}
+	return a.askLocation(cmd, slug, projectsDir)
+}
+
+// settingsProjectsDir returns the Projects folder set in Framework Cloud
+// Settings: from the server when logged in, else from the settings copy R
+// and Python keep (cloud-settings.yml). "" when unset.
+func (a *app) settingsProjectsDir(cmd *cobra.Command, o newOptions) string {
+	if !o.offline {
+		if client, err := a.userClient(o.url); err == nil {
+			ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+			defer cancel()
+			if dir, err := client.ProjectsDir(ctx); err == nil {
+				return dir
+			}
+		}
+	}
+	return a.dirs.SyncedProjectsDir()
 }
 
 // askLocation asks where a new project goes, as framework::new_project()
-// does in R. Yes takes <cwd>/<slug>. No asks for the parent folder; a path
-// that already ends in the slug is the project folder itself.
-func (a *app) askLocation(cmd *cobra.Command, slug string) (string, error) {
+// does in R. Yes takes <projectsDir>/<slug>, or <cwd>/<slug> when projectsDir
+// is "". No asks for the parent folder; a path that already ends in the slug
+// is the project folder itself.
+func (a *app) askLocation(cmd *cobra.Command, slug, projectsDir string) (string, error) {
 	errOut := cmd.ErrOrStderr()
 	suggested := filepath.Join(a.cwd, slug)
+	question := fmt.Sprintf("Create the project here (%s)? [y/n] ", suggested)
 	noAnswer := usageError(fmt.Sprintf("no answer given. Pass --dir, the folder to create, such as --dir %s", suggested))
+	if projectsDir != "" {
+		suggested = filepath.Join(a.absPath(projectsDir), slug)
+		question = fmt.Sprintf("Create the project in %s? [y/n] ", suggested)
+	}
 	for {
-		fmt.Fprintf(errOut, "Create the project here (%s)? [y/n] ", suggested)
+		fmt.Fprint(errOut, question)
 		answer, err := a.readLine()
 		if errors.Is(err, io.EOF) {
 			return "", noAnswer

@@ -40,7 +40,19 @@ you give answer their questions, and without a terminal fw never asks.
 Create the project here (/home/ada/survey)? [y/n]
 ```
 
-Enter or `y` takes the current directory. `n` asks for another folder, which
+With a Projects folder set in Framework Cloud Settings, fw offers a folder
+there instead:
+
+```text
+Create the project in /home/ada/research/survey? [y/n]
+```
+
+Logged in, fw asks the server for it; otherwise, or offline, it reads the
+copy of your settings that R's and Python's `cloud_sync()` keep. With
+`--pull-token`, the project owner's Projects folder, sent with the project,
+comes first. A missing Projects folder is created with the project.
+
+Enter or `y` takes the offered folder. `n` asks for another folder, which
 holds the project folder. A path that already ends in the project's folder
 name is used as is, and `~` is your home folder. Without a terminal, or with
 `--headless`, fw stops and asks for `--dir`. This covers `--pull-token`,

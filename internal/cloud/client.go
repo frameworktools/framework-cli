@@ -241,9 +241,54 @@ func (c *Client) ProjectLayers(ctx context.Context, slug string) (json.RawMessag
 
 // PullLayers fetches the layers of the project a project token belongs to.
 func (c *Client) PullLayers(ctx context.Context) (json.RawMessage, error) {
-	var raw json.RawMessage
-	err := c.Do(ctx, http.MethodGet, "/api/v1/projects/pull", nil, &raw)
+	raw, _, err := c.Pull(ctx)
 	return raw, err
+}
+
+// ProjectsDirHeader carries the project owner's Projects folder on
+// GET /api/v1/projects/pull, percent-encoded UTF-8. Servers omit it when the
+// owner has none, and older servers never send it.
+const ProjectsDirHeader = "Framework-Projects-Dir"
+
+// Pull fetches the layers of the project a project token belongs to, and the
+// owner's Projects folder from the Framework-Projects-Dir header ("" when
+// absent).
+func (c *Client) Pull(ctx context.Context) (json.RawMessage, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+"/api/v1/projects/pull", nil)
+	if err != nil {
+		return nil, "", err
+	}
+	var raw json.RawMessage
+	header, err := c.doHeader(req, &raw)
+	if err != nil {
+		return nil, "", err
+	}
+	return raw, DecodeProjectsDir(header.Get(ProjectsDirHeader)), nil
+}
+
+// DecodeProjectsDir decodes a Framework-Projects-Dir header value. A value
+// that isn't valid percent-encoding counts as absent.
+func DecodeProjectsDir(value string) string {
+	decoded, err := url.PathUnescape(value)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(decoded)
+}
+
+// ProjectsDir returns the Projects folder set in the user's Framework Cloud
+// Settings, projects_dir on GET /api/v1/defaults, or "" when unset.
+func (c *Client) ProjectsDir(ctx context.Context) (string, error) {
+	var defaults struct {
+		ProjectsDir *string `json:"projects_dir"`
+	}
+	if err := c.Do(ctx, http.MethodGet, "/api/v1/defaults", nil, &defaults); err != nil {
+		return "", err
+	}
+	if defaults.ProjectsDir == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(*defaults.ProjectsDir), nil
 }
 
 // PullToken is a new project token and the server that issued it.

@@ -129,3 +129,33 @@ func TestPiecesFilterByLanguage(t *testing.T) {
 		}
 	}
 }
+
+func TestPullReadsTheProjectsDirHeader(t *testing.T) {
+	cases := map[string]struct{ header, want string }{
+		"absent":  {"", ""},
+		"plain":   {"~/research", "~/research"},
+		"encoded": {"~/My%20Projects/%C3%A9tudes", "~/My Projects/études"},
+		"invalid": {"~/bad%zz", ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/projects/pull" {
+					t.Errorf("path %s", r.URL.Path)
+				}
+				if c.header != "" {
+					w.Header().Set(ProjectsDirHeader, c.header)
+				}
+				_, _ = w.Write([]byte(`{"spec_version":1}`))
+			}))
+			defer srv.Close()
+			raw, dir, err := NewClient(srv.URL, "proj-tok").Pull(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if dir != c.want || string(raw) != `{"spec_version":1}` {
+				t.Errorf("got %q, %s", dir, raw)
+			}
+		})
+	}
+}
