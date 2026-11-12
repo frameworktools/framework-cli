@@ -604,14 +604,21 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 		route = "/api/v1/skills/sync/" + url.PathEscape(entry.Origin.ID) + "?variant=" + entry.Variant + "&hash=" + entry.Origin.Hash
 	}
 	if route != "" {
-		if err = client.Do(ctx, "GET", route, nil, &remote); err != nil {
+		err = client.Do(ctx, "GET", route, nil, &remote)
+		switch {
+		case err == nil:
+			h, e := Hash(remote.Bundle)
+			if e != nil || h != remote.Hash {
+				return result, fmt.Errorf("cloud skill verification failed")
+			}
+			hasRemote = true
+		case id == "" && cloud.StatusOf(err) == 409:
+			// Cloud never published this built-in copy (fw shipped its own
+			// text): an edited one is pushed as a new skill of your own
+			remote = Snapshot{}
+		default:
 			return result, err
 		}
-		h, e := Hash(remote.Bundle)
-		if e != nil || h != remote.Hash {
-			return result, fmt.Errorf("cloud skill verification failed")
-		}
-		hasRemote = true
 	}
 	base := ""
 	if entry.ID != "" {
@@ -622,9 +629,12 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 	action := "conflict"
 	switch {
 	case !hasRemote:
-		if files == nil {
+		switch {
+		case files == nil:
 			action = "missing"
-		} else {
+		case entry.ID == "" && base != "" && localHash == base:
+			action = "unchanged"
+		default:
 			action = "push"
 		}
 	case localHash == remote.Hash:

@@ -167,11 +167,11 @@ func TestSetupRunsLanguagePackage(t *testing.T) {
 	writeTestFile(t, filepath.Join(py, ".framework", "spec.json"), `{"language":"python"}`)
 	h.app.cwd = py
 	if _, _, err := h.run(t, "", "setup", "pull", "--dry-run"); err != nil ||
-		!strings.HasSuffix(f.ran[len(f.ran)-1].String(), "uv run python -c 'import framework; framework.pull_setup(overwrite=False, dry_run=True)'") {
+		!strings.HasSuffix(f.ran[len(f.ran)-1].String(), "; framework.pull_setup(overwrite=False, dry_run=True)'") {
 		t.Fatalf("Python pull: %v %v", err, f.ran)
 	}
 	if _, _, err := h.run(t, "", "setup", "push", "--yes", "--remove", "--force"); err != nil ||
-		!strings.HasSuffix(f.ran[len(f.ran)-1].String(), "uv run python -c 'import framework; framework.push_setup(remove=True, force=True, confirm=True)'") {
+		!strings.HasSuffix(f.ran[len(f.ran)-1].String(), "; framework.push_setup(remove=True, force=True, confirm=True)'") {
 		t.Fatalf("Python push: %v %v", err, f.ran)
 	}
 }

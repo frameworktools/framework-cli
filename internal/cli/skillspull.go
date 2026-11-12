@@ -179,6 +179,16 @@ func (a *app) stataSkills(ctx context.Context, root string, overwrite, dryRun bo
 		return out, err
 	}
 	out.Skills, out.Counts = res.Skills, res.Counts
+	if out.Source == "package" {
+		// Without Cloud's list, other skill folders aren't known to be gone from the setup
+		kept := out.Skills[:0]
+		for _, s := range out.Skills {
+			if s.Status != skillsync.StatusRemoved {
+				kept = append(kept, s)
+			}
+		}
+		out.Skills, out.Counts[skillsync.StatusRemoved] = kept, 0
+	}
 	if res.Backups != nil {
 		out.Backups = res.Backups
 	}

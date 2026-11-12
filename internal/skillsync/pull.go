@@ -234,6 +234,10 @@ func pullOne(root string, state *State, relative string, w Wanted, o PullOptions
 		status = StatusAdded
 	case current == fresh:
 		status = StatusCurrent
+	case w.Sync != nil && tracks && entry.ID == w.Sync.ID && current == entry.Hash && entry.Version > w.Sync.Version:
+		// A newer version than the setup names, as after fw skills push.
+		// Without a login the setup's older one is all a pull has: keep it.
+		return StatusCurrent, false, nil
 	case w.Package && entry.ID != "" && !strings.HasPrefix(entry.ID, "framework:"):
 		// The person's own copy of a built-in skill
 		status = StatusEdited

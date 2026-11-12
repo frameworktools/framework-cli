@@ -252,12 +252,14 @@ func TestSkillsPullOffline(t *testing.T) {
 		t.Fatalf("no token: %v\n%s", err, out)
 	}
 
-	// Cloud down
+	// Cloud down. A Cloud skill pulled earlier isn't reported as gone from
+	// the setup: without Cloud, the setup is unknown.
+	writeTestFile(t, filepath.Join(dir, ".claude/skills/lab-notes/SKILL.md"), "---\nname: lab-notes\ndescription: x\n---\n")
 	writeTestFile(t, filepath.Join(dir, ".env"), "FW_CLOUD_URL=http://127.0.0.1:1\nFW_PROJECT_TOKEN=proj-tok\n")
 	out, _, err = h.run(t, "", "skills", "pull", "--json")
 	var res pullJSON
 	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res.Source != "package" || res.Counts["current"] != 1 ||
-		!strings.Contains(res.Notes[0], "cannot reach 127.0.0.1:1") {
+		res.Counts["removed"] != 0 || len(res.Skills) != 1 || !strings.Contains(res.Notes[0], "cannot reach 127.0.0.1:1") {
 		t.Fatalf("offline: %v\n%s", err, out)
 	}
 }
@@ -282,7 +284,7 @@ func TestSkillsPullRunsLanguagePackage(t *testing.T) {
 	writeTestFile(t, filepath.Join(py, ".framework", "spec.json"), `{"language":"python"}`)
 	h.app.cwd = py
 	if _, _, err := h.run(t, "", "skills", "pull", "--dry-run"); err != nil || len(f.ran) != 2 ||
-		!strings.HasSuffix(f.ran[1].String(), "uv run python -c 'import framework; framework.pull_skills(overwrite=False, dry_run=True)'") {
+		!strings.HasSuffix(f.ran[1].String(), "; framework.pull_skills(overwrite=False, dry_run=True)'") {
 		t.Fatalf("Python: %v %v", err, f.ran)
 	}
 }

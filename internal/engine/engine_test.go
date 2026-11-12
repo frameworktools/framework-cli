@@ -2,7 +2,9 @@ package engine
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -211,5 +213,33 @@ func TestRCapabilityChecks(t *testing.T) {
 	cmd, err = f.AdoptR("/w/old", AdoptOptions{})
 	if err != nil || !strings.Contains(cmd.Args[1], "framework::adopt(a[1], yes = TRUE)") || cmd.Args[2] != "/w/old" || !strings.Contains(probes[len(probes)-1], `"adopt"`) {
 		t.Errorf("adopt: %v %v", cmd, err)
+	}
+}
+
+// Framework's own errors from a Python call print as one "Error:" line,
+// as R's do; others keep their traceback.
+func TestPyCallPrintsFrameworkErrorsAsOneLine(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3")
+	}
+	dir := t.TempDir()
+	module := "class FrameworkError(Exception):\n    pass\n\n" +
+		"def pull_setup(**kwargs):\n    raise FrameworkError(\"Pull first: pull_setup().\")\n\n" +
+		"def push_setup(**kwargs):\n    raise ValueError(\"bug\")\n"
+	if err := os.WriteFile(filepath.Join(dir, "framework.py"), []byte(module), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(call string) (string, int) {
+		cmd := exec.Command(python, "-c", pyCall(call)) //nolint:gosec // python3 from PATH, running the test's own module
+		cmd.Dir = dir
+		out, _ := cmd.CombinedOutput()
+		return string(out), cmd.ProcessState.ExitCode()
+	}
+	if out, code := run("pull_setup(confirm=True)"); out != "Error: Pull first: pull_setup().\n" || code != 1 {
+		t.Errorf("framework error: %d %q", code, out)
+	}
+	if out, code := run("push_setup(confirm=True)"); !strings.Contains(out, "Traceback") || code != 1 {
+		t.Errorf("other error: %d %q", code, out)
 	}
 }

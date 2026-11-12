@@ -79,7 +79,7 @@ func (f Finder) packageCall(p Project, fn, again string, args [2]string) (Comman
 		}
 		return run(p.Runner, "-e", "invisible(framework::"+fn+"("+args[0]+"))"), nil
 	}
-	code := "import framework; framework." + fn + "(" + args[1] + ")"
+	code := pyCall(fn + "(" + args[1] + ")")
 	check := []string{"-c", "import framework; framework." + fn}
 	missing := &UnavailableError{Msg: "framework-py has no " + fn + "() yet. Update framework-py in the project's environment " +
 		"(uv add -U framework-py, or pip install -U framework-py), then run " + again + " again. Nothing was changed."}
@@ -99,4 +99,12 @@ func (f Finder) packageCall(p Project, fn, again string, args [2]string) (Comman
 		return Command{}, missing
 	}
 	return command, nil
+}
+
+// pyCall is Python code that runs framework.<call>. Framework's own errors
+// (offline, Pull first, no confirmation) print as one line, as R's stop()
+// does, rather than as a traceback; other errors keep theirs.
+func pyCall(call string) string {
+	return "import sys, framework; sys.excepthook = lambda t, e, tb: print(\"Error:\", e, file=sys.stderr) " +
+		"if issubclass(t, framework.FrameworkError) else sys.__excepthook__(t, e, tb); framework." + call
 }

@@ -147,7 +147,7 @@ func (f Finder) PullSkills(p Project, overwrite, dryRun bool) (Command, error) {
 		}
 		return "False"
 	}
-	code := "import framework; framework.pull_skills(overwrite=" + pyBool(overwrite) + ", dry_run=" + pyBool(dryRun) + ")"
+	code := pyCall("pull_skills(overwrite=" + pyBool(overwrite) + ", dry_run=" + pyBool(dryRun) + ")")
 	check := []string{"-c", "import framework; framework.pull_skills"}
 	missing := &UnavailableError{Msg: "framework-py has no pull_skills() yet. Update framework-py in the project's environment " +
 		"(uv add -U framework-py, or pip install -U framework-py), then run fw skills pull again. Nothing was changed."}
