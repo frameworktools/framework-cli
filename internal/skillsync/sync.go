@@ -2,6 +2,7 @@
 package skillsync
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -136,6 +137,18 @@ func Validate(files []File) error {
 	}
 	return nil
 }
+
+// hashBytes is a file's bytes as hashed. Text files hash with LF line
+// endings, so a CRLF checkout (git's core.autocrlf on Windows) matches its LF
+// twin. A file with a NUL byte is binary and hashes raw. R, Python, and Cloud
+// normalize the same way.
+func hashBytes(raw []byte) []byte {
+	if bytes.IndexByte(raw, 0) >= 0 {
+		return raw
+	}
+	return bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n"))
+}
+
 func Hash(files []File) (string, error) {
 	if err := Validate(files); err != nil {
 		return "", err
@@ -146,6 +159,7 @@ func Hash(files []File) (string, error) {
 	manifest.WriteString("framework-skill-bundle-v1\n")
 	for _, f := range files {
 		raw, _ := base64.StdEncoding.DecodeString(f.Content)
+		raw = hashBytes(raw)
 		sum := sha256.Sum256(raw)
 		mode := "644"
 		if f.Executable {

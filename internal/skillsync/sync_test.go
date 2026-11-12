@@ -21,6 +21,29 @@ func check(t *testing.T, err error) {
 	}
 }
 
+func TestCRLFHash(t *testing.T) {
+	data, err := os.ReadFile("testdata/skill-bundle-crlf.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		LF           []File `json:"lf"`
+		CRLF         []File `json:"crlf"`
+		Hash         string `json:"hash"`
+		BinaryLF     []File `json:"binary_lf"`
+		BinaryLFHash string `json:"binary_lf_hash"`
+	}
+	check(t, json.Unmarshal(data, &f))
+	for name, c := range map[string]struct {
+		files []File
+		want  string
+	}{"lf": {f.LF, f.Hash}, "crlf": {f.CRLF, f.Hash}, "binary_lf": {f.BinaryLF, f.BinaryLFHash}} {
+		if hash, err := Hash(c.files); err != nil || hash != c.want {
+			t.Errorf("%s: hash %s expected %s: %v", name, hash, c.want, err)
+		}
+	}
+}
+
 func TestSharedHash(t *testing.T) {
 	data, err := os.ReadFile("testdata/skill-bundle-v1.json")
 	if err != nil {
