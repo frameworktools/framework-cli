@@ -114,6 +114,16 @@ func TestSetupPushStata(t *testing.T) {
 		!strings.Contains(out, "1 to push") || len(c.posts) != 0 {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
+	// --json matches push_setup()'s result: packages aren't pushed
+	out, _, err = h.run(t, "", "setup", "push", "--dry-run", "--json")
+	var res map[string]any
+	if err != nil || json.Unmarshal([]byte(out), &res) != nil || res["applied"] != false || res["dry_run"] != true {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	// fw skills push --json has no applied
+	if out, _, err = h.run(t, "", "skills", "push", "--dry-run", "--json"); err != nil || strings.Contains(out, `"applied"`) {
+		t.Fatalf("skills push json: %v\n%s", err, out)
+	}
 	if _, _, err = h.run(t, "", "setup", "push"); err == nil || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("no terminal: %v", err)
 	}

@@ -151,7 +151,7 @@ func newSetupPushCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.pushSkills(cmd, client, root, force, yes, dryRun)
+			return a.pushSkills(cmd, client, root, force, yes, dryRun, true)
 		},
 	}
 	cmd.Flags().StringVar(&server, "url", "", "Framework Cloud server")

@@ -112,7 +112,7 @@ var refReturns = map[string]string{
 		"Each skill has `name`, `status` (added, updated, current, edited, replaced, removed, or unavailable), and `paths`. `counts` has a number for each status. R and Python projects print their package's own summary.",
 	"skills push":       "With `--json`, `{\"dry_run\", \"skills\", \"counts\", \"message\"}`. Each skill has `name`, `path`, `status` (push in a dry run, pushed, refused, failed, or untracked), and `message`; a pushed skill also has `skill_id` and `version`.",
 	"setup pull":        "With `--json`, for Stata projects, `{\"revision\", \"dry_run\", \"applied\", \"changes\", \"skills\"}`. `skills` is the object `fw skills pull --json` prints. R and Python projects print their package's own summary.",
-	"setup push":        "With `--json`, for Stata projects, the object `fw skills push --json` prints: packages aren't managed for Stata projects. R and Python projects print their package's own summary.",
+	"setup push":        "With `--json`, for Stata projects, the object `fw skills push --json` prints, with `\"applied\": false`: packages aren't managed for Stata projects. R and Python projects print their package's own summary.",
 	"project push-spec": "With `--json`, `received_at`, `spec_version`, and `changed`, which is false when the cloud already had this spec.",
 }
 

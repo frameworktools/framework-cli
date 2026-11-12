@@ -364,7 +364,10 @@ type pushItem struct {
 }
 
 type pushJSON struct {
-	DryRun  bool           `json:"dry_run"`
+	DryRun bool `json:"dry_run"`
+	// Applied is fw setup push's: false for Stata projects, whose packages
+	// aren't managed, as R's and Python's push_setup() report.
+	Applied *bool          `json:"applied,omitempty"`
 	Skills  []pushItem     `json:"skills"`
 	Counts  map[string]int `json:"counts"`
 	Message string         `json:"message"`
@@ -398,7 +401,7 @@ func newSkillsPushCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.pushSkills(cmd, client, root, force, yes, dryRun)
+			return a.pushSkills(cmd, client, root, force, yes, dryRun, false)
 		},
 	}
 	cmd.Flags().StringVar(&server, "url", "", "Framework Cloud server")
@@ -423,7 +426,9 @@ func (a *app) skillsClient(server string) (*cloud.Client, error) {
 	return cloud.NewClient(srv.URL, found.Token), nil
 }
 
-func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, force, yes, dryRun bool) error {
+// pushSkills is fw skills push. With setup, it is fw setup push in a Stata
+// project, and its JSON also has applied: false.
+func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, force, yes, dryRun, setup bool) error {
 	ctx := cmd.Context()
 	w := cmd.OutOrStdout()
 	if a.jsonOut {
@@ -518,6 +523,9 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 		counts[it.Status]++
 	}
 	out := pushJSON{DryRun: dryRun, Skills: items, Counts: counts, Message: pushSummary(counts, dryRun)}
+	if setup {
+		out.Applied = new(bool)
+	}
 	if out.Skills == nil {
 		out.Skills = []pushItem{}
 	}
