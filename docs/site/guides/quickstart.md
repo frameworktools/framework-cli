@@ -35,7 +35,8 @@ fw projects list
 fw new --from vaccine-study
 ```
 
-fw fetches the project's layers and hands them to the project's language
+fw asks where to create the project, offering a folder named for it in the
+current directory. `--dir` names the folder instead. fw fetches the project's layers and hands them to the project's language
 package: R, framework-py, or fw's own Stata scaffolding. It then links the
 project to the cloud by adding `FW_PROJECT_TOKEN` and `FW_CLOUD_URL` to its
 `.env`.

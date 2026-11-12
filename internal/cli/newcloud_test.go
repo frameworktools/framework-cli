@@ -20,7 +20,7 @@ func TestNewFromCloudChoices(t *testing.T) {
 
 	// Without a terminal or --cloud, the project stays on this machine.
 	lastChoices = ""
-	_, errOut, err := h.run(t, "", "new", "Survey", "--blueprint", "framework/project", "--tool", "renv", "--no-tool", "quarto",
+	_, errOut, err := h.run(t, "", "new", "--dir", "survey", "Survey", "--blueprint", "framework/project", "--tool", "renv", "--no-tool", "quarto",
 		"--package-set", "framework/tidyverse-analysis", "--skill-set", "framework/ggplot2", "--sensitive", "--ai=false")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
@@ -41,7 +41,7 @@ func TestNewFromCloudChoices(t *testing.T) {
 	}
 
 	// --defaults sends only the name, and --cloud creates and links it.
-	_, errOut, err = h.run(t, "", "new", "Second", "--defaults", "--cloud")
+	_, errOut, err = h.run(t, "", "new", "--dir", "second", "Second", "--defaults", "--cloud")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
@@ -55,20 +55,20 @@ func TestNewFromCloudChoices(t *testing.T) {
 	// At a terminal fw asks, defaulting to No.
 	h.app.interactive = true
 	lastChoices = ""
-	_, errOut, err = h.run(t, "\n", "new", "Third", "--structure", "framework/project")
+	_, errOut, err = h.run(t, "\n\n", "new", "Third", "--structure", "framework/project")
 	if err != nil || !strings.Contains(errOut, "Also create this project on") || project.EnvValue(filepath.Join(h.app.home, "third"), "FW_PROJECT_TOKEN") != "" {
 		t.Errorf("declined: %v\n%s", err, errOut)
 	}
-	if _, _, err = h.run(t, "y\n", "new", "Fourth", "--structure", "framework/project"); err != nil || project.EnvValue(filepath.Join(h.app.home, "fourth"), "FW_PROJECT_TOKEN") != "created-tok" {
+	if _, _, err = h.run(t, "\ny\n", "new", "Fourth", "--structure", "framework/project"); err != nil || project.EnvValue(filepath.Join(h.app.home, "fourth"), "FW_PROJECT_TOKEN") != "created-tok" {
 		t.Errorf("accepted: %v", err)
 	}
-	if _, errOut, err = h.run(t, "", "new", "Fifth", "--structure", "framework/project", "--no-cloud"); err != nil || strings.Contains(errOut, "Also create") {
+	if _, errOut, err = h.run(t, "\n", "new", "Fifth", "--structure", "framework/project", "--no-cloud"); err != nil || strings.Contains(errOut, "Also create") {
 		t.Errorf("--no-cloud asked: %v\n%s", err, errOut)
 	}
 	h.app.interactive = false
 
 	// The server's field errors come through.
-	if _, _, err := h.run(t, "", "new", "Sixth", "--lang", "stata", "--structure", "framework/project", "--tool", "quarto"); err == nil || !strings.Contains(err.Error(), "Stata projects have no tools") {
+	if _, _, err := h.run(t, "", "new", "--dir", "sixth", "Sixth", "--lang", "stata", "--structure", "framework/project", "--tool", "quarto"); err == nil || !strings.Contains(err.Error(), "Stata projects have no tools") {
 		t.Errorf("422: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(h.app.home, "sixth")); !os.IsNotExist(err) {
@@ -97,7 +97,7 @@ func TestNewTypeConflictNamesTheFlags(t *testing.T) {
 
 func TestNewFromCloudChoicesNeedsLogin(t *testing.T) {
 	h := newHarness(t, nil)
-	_, _, err := h.run(t, "", "new", "Survey", "--blueprint", "framework/project")
+	_, _, err := h.run(t, "", "new", "--dir", "survey", "Survey", "--blueprint", "framework/project")
 	if exitCode(err) != exitAuth || !strings.Contains(err.Error(), "need a login") {
 		t.Errorf("logged out: exit %d %v", exitCode(err), err)
 	}

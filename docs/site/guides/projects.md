@@ -32,6 +32,20 @@ At a terminal, `fw new` with no name walks you through it. It asks for the
 project's name and language and, when you are logged in, a blueprint. Flags
 you give answer their questions, and without a terminal fw never asks.
 
+## Project location
+
+`--dir` names the project folder. Without it, fw asks at a terminal:
+
+```text
+Create the project here (/home/ada/survey)? [y/n]
+```
+
+Enter or `y` takes the current directory. `n` asks for another folder, which
+holds the project folder. A path that already ends in the project's folder
+name is used as is, and `~` is your home folder. Without a terminal, or with
+`--headless`, fw stops and asks for `--dir`. This covers `--pull-token`,
+`--zip`, and a GitHub project cloned here too.
+
 ## Build location
 
 When you are logged in and the server offers more than one build location,

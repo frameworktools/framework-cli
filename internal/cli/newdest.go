@@ -324,12 +324,12 @@ func (a *app) newOnCloud(cmd *cobra.Command, o newOptions, name, dest string) er
 	}
 	host := cloud.Host(client.URL)
 
-	dir, err := targetDir(a, o.dir, name)
-	if err != nil {
-		return err
-	}
-	cloneInto := dest == destZip || (dest == destGitHub && !o.dest.noClone)
-	if cloneInto {
+	// Only a download or a clone makes a folder here, so only they ask where
+	dir := ""
+	if dest == destZip || (dest == destGitHub && !o.dest.noClone) {
+		if dir, err = a.newProjectDir(cmd, o, name); err != nil {
+			return err
+		}
 		if err := checkEmptyTarget(dir); err != nil {
 			return err
 		}
@@ -367,13 +367,15 @@ func (a *app) newOnCloud(cmd *cobra.Command, o newOptions, name, dest string) er
 		if err != nil {
 			return fmt.Errorf("created %s, but downloading it failed: %w. Try again with: fw new --from %s", created.Slug, explain(err, client.URL), created.Slug)
 		}
+		fmt.Fprintf(errOut, "Creating the project at %s\n", dir)
 		if err := unzipProject(data, dir); err != nil {
 			return fmt.Errorf("created %s, but unpacking the download failed: %w", created.Slug, err)
 		}
 		if err := linkProject(cmd, link, dir); err != nil {
 			return fmt.Errorf("the project was downloaded, but linking it to the cloud failed: %w", err)
 		}
-		fmt.Fprintf(out, "Downloaded %s into %s.\n", created.Name, dir)
+		fmt.Fprintf(out, "Downloaded %s.\n", created.Name)
+		fmt.Fprintf(out, "Project ready at %s\n", dir)
 		printOpenHint(out, created.Language, dir)
 		return nil
 	}
@@ -403,6 +405,7 @@ func (a *app) newOnCloud(cmd *cobra.Command, o newOptions, name, dest string) er
 		fmt.Fprintf(out, "Git isn't installed here. In VS Code or Positron, choose Clone Repository and paste %s\n", cloneURL)
 		return nil
 	}
+	fmt.Fprintf(errOut, "Creating the project at %s\n", dir)
 	code, err := a.run(engine.Command{Program: git, Args: []string{"clone", cloneURL, dir}, Dir: a.cwd})
 	if err != nil {
 		return err
@@ -413,6 +416,7 @@ func (a *app) newOnCloud(cmd *cobra.Command, o newOptions, name, dest string) er
 	if err := linkProject(cmd, link, dir); err != nil {
 		return fmt.Errorf("the project was cloned, but linking it to the cloud failed: %w", err)
 	}
+	fmt.Fprintf(out, "Project ready at %s\n", dir)
 	printOpenHint(out, created.Language, dir)
 	return nil
 }

@@ -133,7 +133,7 @@ func TestNewZipDownloadsTheBuiltProject(t *testing.T) {
 	srv := newDestCloud(t, allDestinations)
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
 
-	out, errOut, err := h.run(t, "", "new", "Survey", "--lang", "python", "--blueprint", "framework/project", "--zip")
+	out, errOut, err := h.run(t, "", "new", "--dir", "survey", "Survey", "--lang", "python", "--blueprint", "framework/project", "--zip")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
@@ -153,7 +153,7 @@ func TestNewZipDownloadsTheBuiltProject(t *testing.T) {
 	if env, _ := os.ReadFile(filepath.Join(dir, ".env")); string(env) != "FW_CLOUD_URL="+srv.URL+"\nFW_PROJECT_TOKEN=created-tok\n" {
 		t.Errorf("the placeholder was not replaced in place: %q", env)
 	}
-	if !strings.Contains(out, "Downloaded Survey into") || !strings.Contains(out, "Positron") {
+	if !strings.Contains(out, "Project ready at "+filepath.Join(h.app.home, "survey")) || !strings.Contains(out, "Positron") {
 		t.Errorf("output: %s", out)
 	}
 	sent := srv.created[0]
@@ -162,7 +162,7 @@ func TestNewZipDownloadsTheBuiltProject(t *testing.T) {
 	}
 
 	// The folder must be empty, checked before anything is created
-	if _, _, err := h.run(t, "", "new", "Survey", "--zip"); err == nil || !strings.Contains(err.Error(), "not empty") || len(srv.created) != 1 {
+	if _, _, err := h.run(t, "", "new", "--dir", "survey", "Survey", "--zip"); err == nil || !strings.Contains(err.Error(), "not empty") || len(srv.created) != 1 {
 		t.Errorf("into a full folder: %v, %d created", err, len(srv.created))
 	}
 }
@@ -172,7 +172,7 @@ func TestNewGitHubWaitsAndClones(t *testing.T) {
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
 	ran := gitClone(h)
 
-	out, errOut, err := h.run(t, "", "new", "Survey", "--github", "lab/study-repo")
+	out, errOut, err := h.run(t, "", "new", "--dir", "survey", "Survey", "--github", "lab/study-repo")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
@@ -214,7 +214,7 @@ func TestNewGitHubReportsAFailedScaffold(t *testing.T) {
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
 	ran := gitClone(h)
 
-	_, _, err := h.run(t, "", "new", "Survey", "--github", "ada")
+	_, _, err := h.run(t, "", "new", "--dir", "survey", "Survey", "--github", "ada")
 	if err == nil || !strings.Contains(err.Error(), "the workflow failed") || !strings.Contains(err.Error(), "/projects/survey/github") {
 		t.Errorf("err: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestNewWalksThroughAtATerminal(t *testing.T) {
 	h.app.interactive = true
 
 	// Name, Stata, the Standard blueprint (Course doesn't support Stata), download
-	_, errOut, err := h.run(t, "Survey\n3\n2\n2\n", "new")
+	_, errOut, err := h.run(t, "Survey\n3\n2\n2\n\n", "new")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
@@ -256,7 +256,7 @@ func TestNewAsksForGitHubDetails(t *testing.T) {
 	gitClone(h)
 
 	// A name given: only where it goes, then owner, repository, and private
-	_, errOut, err := h.run(t, "3\n2\n\nn\n", "new", "Survey", "--lang", "r")
+	_, errOut, err := h.run(t, "3\n2\n\nn\n\n", "new", "Survey", "--lang", "r")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
@@ -277,7 +277,7 @@ func TestNewHidesChoicesTheServerLacks(t *testing.T) {
 	f := &fakeEngines{}
 	f.install(h, "python3", "uv")
 
-	_, errOut, err := h.run(t, "\n", "new", "Survey", "--lang", "python")
+	_, errOut, err := h.run(t, "\n\n", "new", "Survey", "--lang", "python")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
@@ -329,7 +329,7 @@ func TestNewZipChecksDownloadsFirst(t *testing.T) {
 	} {
 		srv := newDestCloud(t, destinations)
 		h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
-		_, _, err := h.run(t, "", "new", "Survey", "--zip")
+		_, _, err := h.run(t, "", "new", "--dir", "survey", "Survey", "--zip")
 		if err == nil || !strings.Contains(err.Error(), "fw created nothing") || len(srv.created) != 0 {
 			t.Errorf("%s: %v; created %d", name, err, len(srv.created))
 		}

@@ -291,7 +291,7 @@ func TestStataQuartoAndNegations(t *testing.T) {
 // name and a fresh checkout lacks, once.
 func TestUpgradeStataCreatesPrivateFolders(t *testing.T) {
 	h := newHarness(t, nil)
-	if _, errOut, err := h.run(t, "", "new", "sens", "--lang", "stata", "--type", "project_sensitive"); err != nil {
+	if _, errOut, err := h.run(t, "", "new", "--dir", "sens", "sens", "--lang", "stata", "--type", "project_sensitive"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
 	dir := filepath.Join(h.app.home, "sens")
@@ -333,7 +333,7 @@ func TestUpgradeStataCreatesPrivateFolders(t *testing.T) {
 // .gitignore rules, and the Claude Code guard, in one pass.
 func TestUpgradeStataType(t *testing.T) {
 	h := newHarness(t, nil)
-	if _, errOut, err := h.run(t, "", "new", "trial", "--lang", "stata", "--type", "project"); err != nil {
+	if _, errOut, err := h.run(t, "", "new", "--dir", "trial", "trial", "--lang", "stata", "--type", "project"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
 	dir := filepath.Join(h.app.home, "trial")

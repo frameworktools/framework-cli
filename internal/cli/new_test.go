@@ -62,7 +62,7 @@ func TestNewFromRDefaults(t *testing.T) {
 	h := newHarness(t, nil)
 	f := &fakeEngines{}
 	f.install(h, "Rscript")
-	_, _, err := h.run(t, "", "new", "My Study", "--type", "project_sensitive")
+	_, _, err := h.run(t, "", "new", "--dir", "my-study", "My Study", "--type", "project_sensitive")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestNewPythonFromWizard(t *testing.T) {
 	h := newHarness(t, nil)
 	f := &fakeEngines{}
 	f.install(h, "uv")
-	if _, _, err := h.run(t, "", "new", "py study", "--lang", "python", "--type", "course"); err != nil {
+	if _, _, err := h.run(t, "", "new", "--dir", "py-study", "py study", "--lang", "python", "--type", "course"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"--name", "py study", "--path", filepath.Join(h.app.home, "py-study"), "--type", "course"}
@@ -98,7 +98,7 @@ func TestNewFromSlugLinksProject(t *testing.T) {
 	f := &fakeEngines{}
 	f.install(h, "Rscript")
 	before := minted
-	out, _, err := h.run(t, "", "new", "--from", "vaccine-study")
+	out, _, err := h.run(t, "", "new", "--dir", "vaccine-study", "--from", "vaccine-study")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestNewWithPullToken(t *testing.T) {
 	h := newHarness(t, map[string]string{"FW_CLOUD_URL": srv.URL})
 	f := &fakeEngines{}
 	f.install(h, "uv")
-	if _, _, err := h.run(t, "proj-tok\n", "new", "--pull-token"); err != nil {
+	if _, _, err := h.run(t, "proj-tok\n", "new", "--dir", "vaccine-study", "--pull-token"); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(h.app.home, "vaccine-study")
@@ -179,7 +179,7 @@ func TestNewMissingRuntimeKeepsLayers(t *testing.T) {
 	f.install(h)
 	file := filepath.Join(h.app.home, "l.json")
 	writeTestFile(t, file, `{"spec_version":1,"name":"A","layers":[]}`)
-	_, errOut, err := h.run(t, "", "new", "--from", file)
+	_, errOut, err := h.run(t, "", "new", "--dir", "a", "--from", file)
 	var missing *engine.MissingError
 	if !errors.As(err, &missing) || !strings.Contains(err.Error(), "Rscript -e") || !strings.Contains(errOut, "layers are saved") {
 		t.Fatalf("got %v\n%s", err, errOut)
@@ -216,7 +216,7 @@ func TestNewFailedRunDoesNotLink(t *testing.T) {
 	f := &fakeEngines{exitCode: 1}
 	f.install(h, "Rscript")
 	before := minted
-	_, _, err := h.run(t, "", "new", "--from", "vaccine-study")
+	_, _, err := h.run(t, "", "new", "--dir", "vaccine-study", "--from", "vaccine-study")
 	var exit *exitError
 	if !errors.As(err, &exit) || exit.code != 1 || minted != before {
 		t.Errorf("got %v, minted %d", err, minted-before)
@@ -285,7 +285,7 @@ func TestNewStata(t *testing.T) {
 	h := newHarness(t, nil)
 	f := &fakeEngines{}
 	f.install(h)
-	out, _, err := h.run(t, "", "new", "Stata Study", "--lang", "stata", "--type", "project_sensitive")
+	out, _, err := h.run(t, "", "new", "--dir", "stata-study", "Stata Study", "--lang", "stata", "--type", "project_sensitive")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestNewStataFromSlugLinks(t *testing.T) {
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": srv.URL})
 	stataLayers = true
 	defer func() { stataLayers = false }()
-	if _, _, err := h.run(t, "", "new", "--from", "vaccine-study"); err != nil {
+	if _, _, err := h.run(t, "", "new", "--dir", "vaccine-study", "--from", "vaccine-study"); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(h.app.home, "vaccine-study")
@@ -414,7 +414,7 @@ func TestProjectStatusAndBootstrap(t *testing.T) {
 	// git doesn't keep.
 	sens := filepath.Join(h.app.home, "sens")
 	h.app.cwd = h.app.home
-	if _, errOut, err := h.run(t, "", "new", "sens", "--lang", "stata", "--type", "project_sensitive"); err != nil {
+	if _, errOut, err := h.run(t, "", "new", "--dir", "sens", "sens", "--lang", "stata", "--type", "project_sensitive"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
 	var doc map[string]any
@@ -460,7 +460,7 @@ func TestNewFromSlugWithFolderOfThatName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(h.app.home)
-	if _, _, err := h.run(t, "", "new", "--from", "vaccine-study"); err != nil {
+	if _, _, err := h.run(t, "", "new", "--dir", "vaccine-study", "--from", "vaccine-study"); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.ran) != 1 || !strings.Contains(f.ran[0].Args[1], "project_create_from_layers") {
@@ -481,7 +481,7 @@ func TestNewROfflineAndWorkflow(t *testing.T) {
 	h := newHarness(t, nil)
 	f := &fakeEngines{}
 	f.install(h, "Rscript")
-	if _, _, err := h.run(t, "", "new", "Study", "--offline", "--workflow", "scripts"); err != nil {
+	if _, _, err := h.run(t, "", "new", "--dir", "study", "Study", "--offline", "--workflow", "scripts"); err != nil {
 		t.Fatal(err)
 	}
 	got := f.ran[0].Args
@@ -491,7 +491,7 @@ func TestNewROfflineAndWorkflow(t *testing.T) {
 
 	// An R package whose new_project() lacks them: say to update it.
 	h.app.engines.Probe = func(c engine.Command) bool { return !strings.Contains(c.Args[1], "offline") }
-	if _, _, err := h.run(t, "", "new", "Other", "--offline"); err == nil || !strings.Contains(err.Error(), "does not take --offline") {
+	if _, _, err := h.run(t, "", "new", "--dir", "other", "Other", "--offline"); err == nil || !strings.Contains(err.Error(), "does not take --offline") {
 		t.Errorf("old R package: %v", err)
 	}
 }
@@ -504,7 +504,7 @@ func TestNewRServerDown(t *testing.T) {
 	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": down.URL})
 	f := &fakeEngines{exitCode: 1}
 	f.install(h, "Rscript")
-	_, _, err := h.run(t, "", "new", "Study")
+	_, _, err := h.run(t, "", "new", "--dir", "study", "Study")
 	if err == nil || !strings.Contains(err.Error(), "cannot reach") || !strings.Contains(err.Error(), "--offline") {
 		t.Errorf("no terminal: %v", err)
 	}
@@ -514,10 +514,10 @@ func TestNewRServerDown(t *testing.T) {
 
 	f.exitCode = 0
 	h.app.interactive = true
-	if _, _, err := h.run(t, "n\n", "new", "Declined"); err == nil || !strings.Contains(err.Error(), "canceled") || len(f.ran) != 1 {
+	if _, _, err := h.run(t, "\nn\n", "new", "Declined"); err == nil || !strings.Contains(err.Error(), "canceled") || len(f.ran) != 1 {
 		t.Errorf("declined: %v", err)
 	}
-	_, errOut, err := h.run(t, "y\n", "new", "Accepted")
+	_, errOut, err := h.run(t, "\ny\n", "new", "Accepted")
 	if err != nil || !strings.Contains(errOut, "Create the project offline") {
 		t.Fatalf("accepted: %v\n%s", err, errOut)
 	}
@@ -585,14 +585,14 @@ func TestNewDefaultsToStandardProject(t *testing.T) {
 	h := newHarness(t, nil)
 	f := &fakeEngines{}
 	f.install(h)
-	if _, _, err := h.run(t, "", "new", "Standard Study", "--lang", "stata", "--headless"); err != nil {
+	if _, _, err := h.run(t, "", "new", "--dir", "standard-study", "Standard Study", "--lang", "stata", "--headless"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(h.app.home, "standard-study", ".framework", "spec.json"))
 	if err != nil || !strings.Contains(string(data), `"type": "project"`) {
 		t.Fatalf("default type: %v\n%s", err, data)
 	}
-	if _, _, err := h.run(t, "", "new", "Bare Study", "--lang", "stata", "--type", "bare", "--headless"); err != nil {
+	if _, _, err := h.run(t, "", "new", "--dir", "bare-study", "Bare Study", "--lang", "stata", "--type", "bare", "--headless"); err != nil {
 		t.Fatal(err)
 	}
 	data, err = os.ReadFile(filepath.Join(h.app.home, "bare-study", ".framework", "spec.json"))

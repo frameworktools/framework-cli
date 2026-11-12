@@ -90,6 +90,10 @@ func newNewCmd(a *app) *cobra.Command {
 			"git init and a first commit outside an existing repository: framework::new()\n" +
 			"(2.0.0) and framework-py's create (0.1.0.dev10) have no option to skip git,\n" +
 			"so fw has no --no-git. Turn git off in your defaults, or delete .git after.\n\n" +
+			"--dir names the project folder. Without it fw asks at a terminal, offering\n" +
+			"./<name>; answer n to give another folder, which holds the project folder.\n" +
+			"Without a terminal, or with --headless, fw stops and asks for --dir. This\n" +
+			"covers --pull-token, --zip, and a clone from --github too.\n\n" +
 			"At a terminal, fw new with no name asks for the name, language, and\n" +
 			"blueprint. Logged in, fw asks how you want the project: built here,\n" +
 			"downloaded, or on GitHub. --local, --zip, and --github answer that\n" +
@@ -116,7 +120,7 @@ func newNewCmd(a *app) *cobra.Command {
 	f.BoolVar(&o.pullToken, "pull-token", false, "create the project from a project token (asked for, or read from stdin)")
 	f.StringVar(&o.language, "lang", "r", "language for a project without --from: r, python, or stata")
 	f.StringVar(&o.kind, "type", "", "project type for a project without --from: project (the Standard Project, the default), project_sensitive, or bare; R and Python also take course and presentation, Stata does not")
-	f.StringVar(&o.dir, "dir", "", "folder to create the project in (default: ./<name>)")
+	f.StringVar(&o.dir, "dir", "", "folder to create the project in. Without it fw asks at a terminal, offering ./<name>, and stops elsewhere")
 	f.BoolVar(&o.headless, "headless", false, "run without prompts, for automation; the language package refuses to overwrite existing work. Makes no git repository with --from or for Stata, but R and Python projects without --from still get git init")
 	f.BoolVar(&o.print, "print", false, "print the command instead of running it")
 	f.StringVar(&o.url, "url", "", "Framework Cloud server")
@@ -252,7 +256,7 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		return a.newOnCloud(cmd, o, name, dest)
 	}
 
-	dir, err := targetDir(a, o.dir, name)
+	dir, err := a.newProjectDir(cmd, o, name)
 	if err != nil {
 		return err
 	}
@@ -360,7 +364,8 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 		return nil
 	}
 
-	fmt.Fprintf(errOut, "Creating %s with the %s package in %s\n", name, packageName(language), dir)
+	fmt.Fprintf(errOut, "Creating the project at %s\n", dir)
+	fmt.Fprintf(errOut, "Building %s with the %s package.\n", name, packageName(language))
 	if code, err := a.run(command); err != nil {
 		return err
 	} else if code != 0 {
@@ -376,6 +381,7 @@ func runNew(cmd *cobra.Command, a *app, o newOptions, name string) error {
 			return fmt.Errorf("the project was created, but linking it to the cloud failed: %w", err)
 		}
 	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Project ready at %s\n", dir)
 	return nil
 }
 
@@ -474,18 +480,86 @@ func slugify(name string) string {
 	return strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(name), "-"), "-")
 }
 
-func targetDir(a *app, dir, name string) (string, error) {
-	if dir == "" {
-		slug := slugify(name)
-		if slug == "" {
-			return "", fmt.Errorf("cannot make a folder name from %q; use --dir", name)
+// newProjectDir returns the folder for a new project. --dir names it outright.
+// Without it, fw asks at a terminal, offering <cwd>/<slug>, and otherwise
+// stops and asks for --dir, so a project never lands somewhere unasked.
+// --print creates nothing, so it takes <cwd>/<slug> without asking.
+func (a *app) newProjectDir(cmd *cobra.Command, o newOptions, name string) (string, error) {
+	if o.dir != "" {
+		return a.absPath(o.dir), nil
+	}
+	slug := slugify(name)
+	if slug == "" {
+		return "", usageError(fmt.Sprintf("cannot make a folder name from %q; use --dir", name))
+	}
+	suggested := filepath.Join(a.cwd, slug)
+	if o.print {
+		return suggested, nil
+	}
+	if !a.interactive || o.headless {
+		return "", usageError(fmt.Sprintf("no project location given. Pass --dir, the folder to create, such as --dir %s", suggested))
+	}
+	return a.askLocation(cmd, slug)
+}
+
+// askLocation asks where a new project goes, as framework::new_project()
+// does in R. Yes takes <cwd>/<slug>. No asks for the parent folder; a path
+// that already ends in the slug is the project folder itself.
+func (a *app) askLocation(cmd *cobra.Command, slug string) (string, error) {
+	errOut := cmd.ErrOrStderr()
+	suggested := filepath.Join(a.cwd, slug)
+	noAnswer := usageError(fmt.Sprintf("no answer given. Pass --dir, the folder to create, such as --dir %s", suggested))
+	for {
+		fmt.Fprintf(errOut, "Create the project here (%s)? [y/n] ", suggested)
+		answer, err := a.readLine()
+		if errors.Is(err, io.EOF) {
+			return "", noAnswer
 		}
-		dir = slug
+		if err != nil {
+			return "", err
+		}
+		switch strings.ToLower(strings.TrimSpace(answer)) {
+		case "", "y", "yes":
+			return suggested, nil
+		case "n", "no":
+		default:
+			fmt.Fprintln(errOut, "Answer y or n.")
+			continue
+		}
+		break
 	}
-	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(a.cwd, dir)
+	fmt.Fprintf(errOut, "Where should the project go? Leave blank to use the current directory (%s): ", a.cwd)
+	typed, err := a.readLine()
+	if errors.Is(err, io.EOF) {
+		return "", noAnswer
 	}
-	return filepath.Clean(dir), nil
+	if err != nil {
+		return "", err
+	}
+	parent := a.cwd
+	if typed = strings.TrimSpace(typed); typed != "" {
+		parent = a.absPath(typed)
+	}
+	// A typed path that already names the project folder is used as is
+	if filepath.Base(parent) == slug {
+		return parent, nil
+	}
+	return filepath.Join(parent, slug), nil
+}
+
+// absPath makes a path the user gave absolute: ~ is their home folder and
+// a relative path starts from the current directory.
+func (a *app) absPath(p string) string {
+	switch {
+	case p == "~":
+		p = a.home
+	case strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`):
+		p = filepath.Join(a.home, p[2:])
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(a.cwd, p)
+	}
+	return filepath.Clean(p)
 }
 
 func checkEmptyTarget(dir string) error {
@@ -560,12 +634,13 @@ func newStata(cmd *cobra.Command, o newOptions, env *spec.Envelope, dir string, 
 		fmt.Fprintf(cmd.ErrOrStderr(), "fw would scaffold this Stata project in %s.\n", dir)
 		return nil
 	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Creating the project at %s\n", dir)
 	result, err := stata.Scaffold(resolved, stata.Options{Dir: dir, Headless: o.headless, Now: time.Now()})
 	if err != nil {
 		return err
 	}
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "Created the Stata project %s in %s (%d files).\n", resolved.View.Name, dir, len(result.Created))
+	fmt.Fprintf(out, "Created the Stata project %s (%d files).\n", resolved.View.Name, len(result.Created))
 	for _, note := range result.Notes {
 		fmt.Fprintln(out, note)
 	}
@@ -574,6 +649,7 @@ func newStata(cmd *cobra.Command, o newOptions, env *spec.Envelope, dir string, 
 			return fmt.Errorf("the project was created, but linking it to the cloud failed: %w", err)
 		}
 	}
+	fmt.Fprintf(out, "Project ready at %s\n", dir)
 	if resolved.View.Type != "bare" {
 		fmt.Fprintln(out, "Next: open Stata in that folder and run: do master.do")
 	}

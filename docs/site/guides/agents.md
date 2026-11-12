@@ -11,11 +11,13 @@ distinct exit codes, and the login keeps the token away from the agent.
 
 ## Example session
 
+Without a terminal, `fw new` needs `--dir` for the project folder.
+
 ```sh
 fw login --yes --json                 # a person approves the link
 fw projects list --json
 fw structures list --lang r --json    # also tools, package-sets, and skills
-fw new --from vaccine-study && cd vaccine-study
+fw new --from vaccine-study --dir vaccine-study && cd vaccine-study
 fw project bootstrap
 fw project push-spec
 fw publish outputs/notebooks/results.html --slug results --yes --json

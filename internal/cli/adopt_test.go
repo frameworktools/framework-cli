@@ -297,7 +297,7 @@ func TestPythonHandoff(t *testing.T) {
 	f := &fakeEngines{}
 	f.install(h, "uv")
 
-	if _, errOut, err := h.run(t, "", "new", "Study", "--lang", "python", "--workflow", "jupyter", "--offline"); err != nil {
+	if _, errOut, err := h.run(t, "", "new", "--dir", "study", "Study", "--lang", "python", "--workflow", "jupyter", "--offline"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
 	if got := f.ran[0].String(); !strings.Contains(got, "'framework-py>=0.1.0.dev14'") || !strings.HasSuffix(got, "--workflow jupyter --offline") {
