@@ -31,8 +31,8 @@ var refCategories = []refCategory{
 // refCategoryOf assigns each command to a category. A test fails when a
 // command is missing.
 var refCategoryOf = map[string]string{
-	"skills sync": "cloud",
-	"login":       "account", "logout": "account", "status": "account",
+	"skills sync": "cloud", "skills pull": "cloud", "skills push": "cloud",
+	"login": "account", "logout": "account", "status": "account",
 	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud",
 	"structures list": "cloud", "tools list": "cloud", "package-sets list": "cloud", "skills list": "cloud",
 	"new": "projects", "project link": "projects", "project status": "projects", "project bootstrap": "projects",
@@ -42,7 +42,8 @@ var refCategoryOf = map[string]string{
 
 // refSince records the release that added each command.
 var refSince = map[string]string{
-	"skills sync":   "0.4.2",
+	"skills sync": "0.4.2",
+	"skills pull": "0.4.10", "skills push": "0.4.10",
 	"projects list": "0.1.0", "login": "0.1.0", "logout": "0.1.0", "status": "0.1.0", "new": "0.1.0",
 	"project link": "0.1.0", "project status": "0.1.0", "project bootstrap": "0.1.0",
 	"config path": "0.1.0", "config sync": "0.1.0", "doctor": "0.1.0", "version": "0.1.0",
@@ -67,6 +68,8 @@ var refSeeAlso = map[string][]string{
 	"tools list":        {"blueprints list", "new"},
 	"package-sets list": {"blueprints list", "new"},
 	"skills list":       {"blueprints list", "new"},
+	"skills pull":       {"skills push", "skills sync", "guide:agents"},
+	"skills push":       {"skills pull", "skills sync", "guide:agents"},
 	"publish":           {"project link", "guide:publishing", "r:ref:publish"},
 	"new":               {"project bootstrap", "project link", "guide:projects"},
 	"project link":      {"publish", "project push-spec", "adopt"},
@@ -103,6 +106,9 @@ var refReturns = map[string]string{
 	"project status":    "With `--json`, an object with `root`, `language`, `language_source`, `runner` (a list), `runner_reason`, `cloud` (`linked`, `server`, `server_source`, `project`, `ok`, `problem`), and `warnings`.",
 	"publish": "With `--json`, the document: `slug`, `version`, `url` (the link to share), `private_url`, `readable_url`, `version_url`, `raw_url`, and `notice`. " +
 		"With `--to github`, `url`, `commit` (null when nothing changed), `pushed`, and `pages_enabled` (null when the project is not linked, or fw could not reach Framework Cloud).",
+	"skills pull": "With `--json`, for Stata projects, `{\"source\", \"dry_run\", \"skills\", \"counts\", \"message\", \"notes\", \"backups\"}`. `source` is `cloud`, or `package` when Framework Cloud gave no list. " +
+		"Each skill has `name`, `status` (added, updated, current, edited, replaced, removed, or unavailable), and `paths`. `counts` has a number for each status. R and Python projects print their package's own summary.",
+	"skills push":       "With `--json`, `{\"dry_run\", \"skills\", \"counts\", \"message\"}`. Each skill has `name`, `path`, `status` (push in a dry run, pushed, refused, failed, or untracked), and `message`; a pushed skill also has `skill_id` and `version`.",
 	"project push-spec": "With `--json`, `received_at`, `spec_version`, and `changed`, which is false when the cloud already had this spec.",
 }
 

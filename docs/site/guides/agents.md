@@ -54,8 +54,8 @@ object as `fw status --json`.
 ## JSON output
 
 These commands take `--json`: `login`, `status`, `projects list`,
-`project show`, `blueprints list`, `project status`, `publish`, and
-`project push-spec`. The output goes to stdout as one JSON document, and
+`project show`, `blueprints list`, `project status`, `publish`,
+`project push-spec`, `skills pull` (Stata projects), and `skills push`. The output goes to stdout as one JSON document, and
 messages for people go to stderr. Each command's reference page lists its
 fields. Token values never appear in the output.
 
@@ -87,8 +87,8 @@ if they confirm the upload.
 
 ## Confirmation prompts
 
-fw asks before it connects a machine (`fw login`) and before it uploads
-(`fw publish`). Without a terminal it cannot ask, so these need `--yes`.
+fw asks before it connects a machine (`fw login`), before it uploads
+(`fw publish`), and before it sends new skill versions (`fw skills push`). Without a terminal it cannot ask, so these need `--yes`.
 fw prints what it is about to do first, so an agent can show it to the
 person. `fw project push-spec` asks only when the project's path contains
 "private". `fw new` with cloud choices such as `--blueprint` never creates
@@ -96,6 +96,38 @@ the project on Framework Cloud without a terminal unless you pass `--cloud`.
 `fw new NAME --lang stata` while logged in stops with exit 1 when the server
 cannot be reached and no defaults are saved. Pass `--offline` to use fw's
 built-in defaults instead. Nothing else prompts when there is no terminal.
+
+## Project skills
+
+`fw skills pull` brings a project's skills up to date with its setup on
+Framework Cloud. It adds missing skills and updates unedited ones. It keeps
+skills the person edited and lists them; `--overwrite` replaces them, with the
+old copies in `.framework/skills-backups/`. It never deletes a skill that is
+no longer in the setup. It refreshes the Skills table in AGENTS.md. Without a
+project token, or when Framework Cloud can't be reached, it says so and uses
+the package skills for the project's type. In R and Python projects, fw runs
+the package's `pull_skills()`.
+
+```sh
+fw skills pull --dry-run --json
+fw skills pull
+```
+
+The summary reads `Skills: 2 added, 3 updated, 5 up to date, 1 locally edited (kept)`.
+
+`fw skills push` sends edited skills to Framework Cloud as new versions of the
+person's own skills. Before sending, it prints what each new version replaces.
+A skill that changed on Framework Cloud since the last pull is refused with
+"Pull first", and the exit code is 1; `--force` replaces it, and the Cloud
+changes stay in the skill's history. An edited built-in skill is saved as the
+person's own copy. Skills that fw doesn't track are listed; add one with
+`fw skills sync PATH`. Without a terminal, push needs `--yes`. Show the
+person the plan from `--dry-run` first.
+
+```sh
+fw skills push --dry-run
+fw skills push --yes --json
+```
 
 ## Uploads and private paths
 

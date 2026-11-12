@@ -33,7 +33,8 @@ fw adopt [DIR]                      make an existing folder a Framework project
 fw structures import [DIR]          save a folder's layout as a structure
 fw project bootstrap                prepare a cloned project
 fw project push-spec                send the project's spec to Framework Cloud
-fw skills sync PATH                 synchronize a versioned skill directory
+fw skills pull | push               bring a project's skills up to date; send edited ones back
+fw skills sync PATH                 synchronize one skill directory
 fw publish PATH [--to github]       publish a rendered notebook or HTML file
 fw config path | sync               configuration folders
 fw doctor                           runtimes and settings fw would use
@@ -41,6 +42,24 @@ fw doctor                           runtimes and settings fw would use
 
 Run `fw help <command>` for details. The full documentation is at
 [cli.framework.pub](https://cli.framework.pub), built from `docs/site`.
+
+### Project skills
+
+```sh
+fw skills pull --dry-run
+fw skills pull
+fw skills push
+```
+
+`fw skills pull` reads the project's current setup on Framework Cloud with its
+project token. It adds missing skills, updates unedited ones to their latest
+versions, keeps skills you edited (`--overwrite` replaces them after a backup),
+and lists skills no longer in the setup without deleting them. Without a token
+or a connection, it uses the package skills for the project's type. R and
+Python projects run their package's `pull_skills()`. `fw skills push` sends
+edited skills to Framework Cloud as new versions of your own skills, after
+asking. It refuses when the Cloud copy changed since the last pull; `--force`
+overrides that. An edited built-in skill becomes your own copy.
 
 ### Skill sync
 
