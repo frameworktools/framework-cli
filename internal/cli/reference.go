@@ -43,7 +43,7 @@ var refCategoryOf = map[string]string{
 // refSince records the release that added each command.
 var refSince = map[string]string{
 	"skills sync": "0.4.2",
-	"skills pull": "0.4.10", "skills push": "0.4.10", "setup pull": "0.4.10", "setup push": "0.4.10",
+	"skills pull": "0.5.0", "skills push": "0.5.0", "setup pull": "0.5.0", "setup push": "0.5.0",
 	"projects list": "0.1.0", "login": "0.1.0", "logout": "0.1.0", "status": "0.1.0", "new": "0.1.0",
 	"project link": "0.1.0", "project status": "0.1.0", "project bootstrap": "0.1.0",
 	"config path": "0.1.0", "config sync": "0.1.0", "doctor": "0.1.0", "version": "0.1.0",
