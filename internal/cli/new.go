@@ -590,7 +590,13 @@ func (a *app) absPath(p string) string {
 	case strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`):
 		p = filepath.Join(a.home, p[2:])
 	}
-	if !filepath.IsAbs(p) {
+	switch {
+	case filepath.IsAbs(p):
+	case filepath.VolumeName(p) == "" && (strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`)):
+		// On Windows, /srv/research is rooted but names no drive: it is on
+		// the current drive, not under the current directory.
+		p = filepath.VolumeName(a.cwd) + p
+	default:
 		p = filepath.Join(a.cwd, p)
 	}
 	return filepath.Clean(p)

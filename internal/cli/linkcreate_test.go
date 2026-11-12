@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -247,7 +248,8 @@ func TestLinkCreate(t *testing.T) {
 	if ignore := readTestFile(t, filepath.Join(dir, ".gitignore")); !strings.Contains(ignore, ".env") {
 		t.Errorf(".gitignore:\n%s", ignore)
 	}
-	if info, _ := os.Stat(filepath.Join(dir, ".env")); info.Mode().Perm() != 0o600 {
+	// Windows has no Unix modes; the file inherits the folder's ACL.
+	if info, _ := os.Stat(filepath.Join(dir, ".env")); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf(".env mode %v", info.Mode())
 	}
 

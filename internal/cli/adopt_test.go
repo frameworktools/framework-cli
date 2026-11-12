@@ -234,7 +234,7 @@ func TestAdoptPrivate(t *testing.T) {
 	if _, errOut, err := h.run(t, "", "adopt", r, "--lang", "python", "--yes", "--private", "reports"); err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if len(f.ran) != 2 || !strings.Contains(f.ran[1].String(), "adopt --path "+r+" --yes --private reports --force") {
+	if len(f.ran) != 2 || !strings.Contains(strings.Join(f.ran[1].Args, " "), "adopt --path "+r+" --yes --private reports --force") {
 		t.Errorf("Python: %v", f.ran[1:])
 	}
 	if _, _, err := h.run(t, "", "adopt", r, "--lang", "r", "--yes", "--private", "nope"); exitCode(err) != exitUsage || len(f.ran) != 2 {

@@ -234,7 +234,8 @@ func TestPyCallPrintsFrameworkErrorsAsOneLine(t *testing.T) {
 		cmd := exec.Command(python, "-c", pyCall(call)) //nolint:gosec // python3 from PATH, running the test's own module
 		cmd.Dir = dir
 		out, _ := cmd.CombinedOutput()
-		return string(out), cmd.ProcessState.ExitCode()
+		// Python writes text-mode output with CRLF on Windows.
+		return strings.ReplaceAll(string(out), "\r\n", "\n"), cmd.ProcessState.ExitCode()
 	}
 	if out, code := run("pull_setup(confirm=True)"); out != "Error: Pull first: pull_setup().\n" || code != 1 {
 		t.Errorf("framework error: %d %q", code, out)

@@ -235,7 +235,9 @@ func TestNewDecliningTheProjectsFolderAsksWhere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	if !strings.Contains(errOut, "Create the project in "+filepath.Join("/srv/research", "my-study")+"? [y/n] ") {
+	// On Windows, /srv/research is on the current drive.
+	want := filepath.Join(filepath.VolumeName(h.app.cwd)+"/srv/research", "my-study")
+	if !strings.Contains(errOut, "Create the project in "+want+"? [y/n] ") {
 		t.Errorf("question:\n%s", errOut)
 	}
 	if !strings.Contains(errOut, "Where should the project go? Leave blank to use the current directory ("+h.app.home+"): ") {
