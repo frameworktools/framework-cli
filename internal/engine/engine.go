@@ -98,9 +98,10 @@ type Request struct {
 }
 
 // MinPython is the first framework-py release whose new() takes workflow
-// and offline, and that has adopt, pull_all(), push_all(),
-// pull_data_registry(), and push_data_registry().
-const MinPython = "0.1.0.dev19"
+// and offline, that has adopt, pull_all(), push_all(),
+// pull_data_registry(), and push_data_registry(), and whose skill hashes
+// read CRLF text files as LF, as fw's do.
+const MinPython = "0.1.0.dev20"
 
 // Create returns the command that creates the project in language.
 func (f Finder) Create(language string, req Request) (Command, error) {
