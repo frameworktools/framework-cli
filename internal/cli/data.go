@@ -292,13 +292,13 @@ func (a *app) pullStataData(cmd *cobra.Command, root string, overwrite, yes, dry
 	if len(differ) > 0 {
 		details := make([]string, len(differ))
 		for i, n := range differ {
-			details[i] = fmt.Sprintf("%s (local %s; Cloud %s)", n, catalog.Describe(local[n]), catalog.Describe(cloudRows[n]))
+			details[i] = fmt.Sprintf("%s (%s)", n, catalog.Diff(local[n], cloudRows[n]))
 		}
 		tail := "kept; fw data pull --overwrite uses Cloud's"
 		if overwrite {
 			tail = "Cloud's will be used"
 		}
-		lines = append(lines, "  Entries that differ: "+strings.Join(details, ", ")+" — "+tail)
+		lines = append(lines, "  Entries that differ (local -> Cloud): "+strings.Join(details, "; ")+" — "+tail)
 	}
 	if len(out.Entries.KeptLocal) > 0 {
 		lines = append(lines, "  Only in this project (kept): "+strings.Join(out.Entries.KeptLocal, ", "))
@@ -425,9 +425,9 @@ func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes,
 	if len(c.Changed) > 0 {
 		details := make([]string, len(c.Changed))
 		for i, ch := range c.Changed {
-			details[i] = fmt.Sprintf("%s (%s -> %s)", ch.Name, catalog.Describe(ch.From), catalog.Describe(ch.To))
+			details[i] = fmt.Sprintf("%s (%s)", ch.Name, catalog.Diff(ch.From, ch.To))
 		}
-		lines = append(lines, "  Entries to change: "+strings.Join(details, ", "))
+		lines = append(lines, "  Entries to change: "+strings.Join(details, "; "))
 	}
 	if len(c.Removed) > 0 {
 		lines = append(lines, "  Entries to remove: "+rowNames(c.Removed))

@@ -131,3 +131,18 @@ func TestProblemsAndRender(t *testing.T) {
 		t.Errorf("render: %v %q", err, out)
 	}
 }
+
+func TestDiffNamesTheFieldsThatChanged(t *testing.T) {
+	desc := "Survey"
+	from := Row{Name: "survey", Path: "a.csv", Locked: true}
+	if got := Diff(from, Row{Name: "survey", Path: "a.csv", Locked: true, Description: &desc}); got != "description changed" {
+		t.Errorf("description: %q", got)
+	}
+	if got := Diff(from, Row{Name: "survey", Path: "a.csv", Locked: true, StataNames: map[string]string{"long_name": "short"}}); got != "stata_names changed" {
+		t.Errorf("stata_names: %q", got)
+	}
+	typ := "csv"
+	if got := Diff(from, Row{Name: "survey", Path: "b.csv", Type: &typ, Description: &desc}); got != "path a.csv -> b.csv, type none -> csv, locked true -> false, description changed" {
+		t.Errorf("several: %q", got)
+	}
+}

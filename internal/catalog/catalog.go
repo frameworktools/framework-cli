@@ -71,22 +71,32 @@ func key(r Row) string {
 	return strings.Join([]string{r.Path, s(r.Type), s(r.Delimiter), fmt.Sprint(r.Locked), priv, s(r.Description), strings.Join(names, ";")}, "\x00")
 }
 
-// Describe is a short summary of a row: its path, type, and flags.
-func Describe(r Row) string {
-	parts := []string{r.Path}
-	if r.Path == "" {
-		parts[0] = "no path"
-	}
-	if r.Type != nil {
-		parts = append(parts, *r.Type)
-	}
-	if r.Locked {
-		parts = append(parts, "locked")
-	}
-	if r.Private != nil && *r.Private {
-		parts = append(parts, "private")
+// Diff lists how to differs from from, one item per field: "path a -> b"
+// for the short fields, and "description changed" or "stata_names changed"
+// for the long ones, so two definitions that Describe the same way still
+// show what changed.
+func Diff(from, to Row) string {
+	a := strings.Split(key(from), "\x00")
+	b := strings.Split(key(to), "\x00")
+	var parts []string
+	for i, field := range Fields {
+		if a[i] == b[i] {
+			continue
+		}
+		if field == "description" || field == "stata_names" {
+			parts = append(parts, field+" changed")
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %s -> %s", field, orNone(a[i]), orNone(b[i])))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }
 
 // Problems lists what is wrong with a spec's data section (name -> entry),

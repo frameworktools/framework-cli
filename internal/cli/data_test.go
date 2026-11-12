@@ -109,7 +109,7 @@ func TestDataPullStata(t *testing.T) {
 
 	out, _, err := h.run(t, "", "data", "pull", "--dry-run")
 	if err != nil || !strings.Contains(out, "Data registry changes from Framework Cloud (revision rev-1):\n  Entries to add: inputs.final.analysis\n") ||
-		!strings.Contains(out, "Entries that differ: inputs.raw.survey (local inputs/raw/survey.csv; Cloud inputs/raw/survey_v2.csv) — kept; fw data pull --overwrite uses Cloud's") {
+		!strings.Contains(out, "Entries that differ (local -> Cloud): inputs.raw.survey (path inputs/raw/survey.csv -> inputs/raw/survey_v2.csv, stata_names changed) — kept; fw data pull --overwrite uses Cloud's") {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(lock); err == nil {
