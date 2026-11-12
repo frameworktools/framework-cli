@@ -34,6 +34,7 @@ fw structures import [DIR]          save a folder's layout as a structure
 fw project bootstrap                prepare a cloned project
 fw project push-spec                send the project's spec to Framework Cloud
 fw setup pull | push                bring a project's packages and skills up to date; send them back
+fw data pull | push                 bring a project's data catalog up to date; send it back
 fw skills pull | push               bring a project's skills up to date; send edited ones back
 fw skills sync PATH                 synchronize one skill directory
 fw publish PATH [--to github]       publish a rendered notebook or HTML file

@@ -55,7 +55,7 @@ object as `fw status --json`.
 
 These commands take `--json`: `login`, `status`, `projects list`,
 `project show`, `blueprints list`, `project status`, `publish`,
-`project push-spec`, `skills pull` and `setup pull` (Stata projects), `skills push`, and `setup push` (Stata projects). The output goes to stdout as one JSON document, and
+`project push-spec`, `skills pull` and `setup pull` (Stata projects), `skills push`, `setup push`, `data pull`, and `data push` (Stata projects). The output goes to stdout as one JSON document, and
 messages for people go to stderr. Each command's reference page lists its
 fields. Token values never appear in the output.
 
@@ -90,7 +90,7 @@ if they confirm the upload.
 fw asks before it connects a machine (`fw login`), before it uploads
 (`fw publish`), before it sends new skill versions (`fw skills push`), and
 before it applies or sends a project's setup (`fw setup pull`,
-`fw setup push`). Without a terminal it cannot ask, so these need `--yes`.
+`fw setup push`) or data registry (`fw data pull`, `fw data push`). Without a terminal it cannot ask, so these need `--yes`.
 fw prints what it is about to do first, so an agent can show it to the
 person. `fw project push-spec` asks only when the project's path contains
 "private". `fw new` with cloud choices such as `--blueprint` never creates
@@ -161,6 +161,34 @@ projects, fw runs the package's `pull_setup()` and `push_setup()`. At a
 terminal, fw runs them once as a dry run, asks, and then applies. Packages
 aren't managed for Stata projects, so for those, these commands pull and
 push skills only.
+
+## Data registry
+
+A project's data registry on Framework Cloud is its data catalog: the `data`
+section of its settings, with names such as `inputs.raw.survey`. Only the
+definitions move: names, paths, types, delimiters, the locked and private
+flags, descriptions, and Stata names. Data files never do, and file hashes
+stay in the project. `fw data pull` lists entries to add, entries that
+differ, and entries only in the project, then asks "Apply these changes?".
+It writes new entries into the settings and never removes a local one. It
+keeps local definitions unless you pass `--overwrite`. It saves the
+registry's revision in `.framework/data.lock.json`.
+
+`fw data push` shows what would change on Framework Cloud and asks "Push
+these changes?". When the registry changed on Framework Cloud since the last
+pull, it says "Pull first". `--force` replaces Cloud's newer changes.
+`--remove` also removes entries the project doesn't have.
+
+```sh
+fw data pull --dry-run
+fw data pull --yes
+fw data push --dry-run
+fw data push --yes
+```
+
+Without a terminal, both commands need `--yes`, or `--dry-run`. In R and
+Python projects, fw runs the package's `pull_data_registry()` and
+`push_data_registry()`. fw handles Stata projects itself.
 
 ## Uploads and private paths
 

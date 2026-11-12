@@ -55,7 +55,7 @@ func newRootCmd(a *app) *cobra.Command {
 	root.AddCommand(
 		newLoginCmd(a), newLogoutCmd(a), newStatusCmd(a), newNewCmd(a), newProjectsCmd(a), newProjectCmd(a),
 		newBlueprintsCmd(a), newPiecesCmd(a, structuresKind), newPiecesCmd(a, toolsKind),
-		newPiecesCmd(a, packageSetsKind), newPiecesCmd(a, skillsKind), newPublishCmd(a), newAdoptCmd(a), newSetupCmd(a), newConfigCmd(a), newDoctorCmd(a), newVersionCmd(),
+		newPiecesCmd(a, packageSetsKind), newPiecesCmd(a, skillsKind), newPublishCmd(a), newAdoptCmd(a), newSetupCmd(a), newDataCmd(a), newConfigCmd(a), newDoctorCmd(a), newVersionCmd(),
 	)
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",

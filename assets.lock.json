@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "57ba88367e928396f8e44fae0080907106bcf1c4",
-  "commit": "57ba88367e928396f8e44fae0080907106bcf1c4",
+  "ref": "c4e42fe50f2a0e7fa51b9c73716a585432734c7b",
+  "commit": "c4e42fe50f2a0e7fa51b9c73716a585432734c7b",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
@@ -13,15 +13,15 @@
     },
     "internal/spec/schema/layer.v1.json": {
       "source": "inst/schema/layer.v1.json",
-      "sha256": "40c6878cb147a9c3fd9c980f8fa88fe4cbcc55a2255a7c3b1be401de45336402"
+      "sha256": "aa2ff761b97420612af23731f7d00edf3258e44682a8705e97a4ed4289667baf"
     },
     "internal/spec/schema/layers.v1.json": {
       "source": "inst/schema/layers.v1.json",
-      "sha256": "aa3df242985189da4f1bf889e06ebb61d4c0f3383920ce3cf329058695d1907d"
+      "sha256": "0c3b1f7ad47240bb53b68c578e1f78b61e9d688bb687e21d3a6e4592e6306dde"
     },
     "internal/spec/schema/spec.v1.json": {
       "source": "inst/schema/spec.v1.json",
-      "sha256": "767fddb1071e0ce2cd88eb0d9999921c5009ff97ef51193f079224648df56536"
+      "sha256": "95f6ebd2974545cfba7a6a77dc2da79af681fbd6447e8548f600b19f3a6e6243"
     },
     "internal/spec/testdata/conformance/README.md": {
       "source": "inst/conformance/README.md",
@@ -110,6 +110,10 @@
     "internal/spec/testdata/conformance/merge/conflicts-and-labels.json": {
       "source": "inst/conformance/merge/conflicts-and-labels.json",
       "sha256": "255e5b8a5bdea9767332eebaf8403eafbb1f67b021b85b13216f5165898321a4"
+    },
+    "internal/spec/testdata/conformance/merge/data-entries.json": {
+      "source": "inst/conformance/merge/data-entries.json",
+      "sha256": "432b177bbebdc2f79f999a0f7af4c2c4c02cf92a7f17ba64d8f2397e43dc92fa"
     },
     "internal/spec/testdata/conformance/merge/empty-sections.json": {
       "source": "inst/conformance/merge/empty-sections.json",

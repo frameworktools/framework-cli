@@ -47,6 +47,7 @@ var atomicMaps = map[string]bool{
 	"files": true, "skills": true, "extra_directories": true,
 	"packages/default_packages": true,
 	"connections/databases":     true, "connections/storage_buckets": true,
+	"data": true,
 }
 
 // Label names an entry the way R does: kind (or "layer N", 1-based), then

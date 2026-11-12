@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/frameworktools/framework-cli/internal/catalog"
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"github.com/frameworktools/framework-cli/internal/spec"
 )
@@ -242,6 +243,11 @@ func prepare(doc map[string]any, existing bool) (View, error) {
 	}
 	if err := checkStata(view, existing); err != nil {
 		return View{}, err
+	}
+	if data, ok := doc["data"].(map[string]any); ok {
+		if problems := catalog.Problems(data); len(problems) > 0 {
+			return View{}, fmt.Errorf("the layers' data catalog: %s", strings.Join(problems, "; "))
+		}
 	}
 	view.CoreFiles = doc["core_files"] != false
 	return view, nil

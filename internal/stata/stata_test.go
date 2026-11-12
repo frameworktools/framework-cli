@@ -448,3 +448,21 @@ func TestScaffoldGitIdentityFromEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// The layers' data entries go nested into settings.yml's catalog for fw_use
+func TestDataCatalogFromLayers(t *testing.T) {
+	doc := `{"spec_version":1,"name":"Data Study","layers":[{"kind":"settings","layer":{"language":"stata","git":{"use_git":false},"ai":{"enabled":false},"data":{"inputs.raw.visits":{"path":"inputs/raw/visits.csv","locked":true,"stata_names":{"reason_long":"reason"}}}}}]}`
+	dir, _ := scaffold(t, doc, true)
+	settings := read(t, dir, "settings.yml")
+	if !strings.Contains(settings, "\n  data:\n    inputs:\n      raw:\n        visits:\n          path: inputs/raw/visits.csv\n          locked: true\n          stata_names:\n            reason_long: reason\n") || strings.Contains(settings, "  data: {}") {
+		t.Fatal(settings)
+	}
+	clash := `{"spec_version":1,"name":"A","layers":[{"kind":"project","layer":{"language":"stata","data":{"a":{"path":"a.csv"},"a.b":{"path":"b.csv"}}}}]}`
+	env, err := spec.Parse([]byte(clash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Resolve(env, "test"); err == nil || !strings.Contains(err.Error(), "'a' is an entry") {
+		t.Errorf("clash: %v", err)
+	}
+}

@@ -24,7 +24,11 @@ default:
   #   {{indent (len .CatalogKeys)}}  survey:
   #   {{indent (len .CatalogKeys)}}    path: {{.CatalogPath}}/survey.csv
   #   {{indent (len .CatalogKeys)}}    locked: true
+{{- if .Data}}
+{{.Data}}
+{{- else}}
   data: {}
+{{- end}}
 {{- if .Sensitive}}
 
   # This project holds restricted data: fw_table and fw_graph save to the

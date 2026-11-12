@@ -120,3 +120,27 @@ func pyCall(call string) string {
 	return "import sys, framework; sys.excepthook = lambda t, e, tb: print(\"Error:\", e, file=sys.stderr) " +
 		"if issubclass(t, framework.FrameworkError) else sys.__excepthook__(t, e, tb); framework." + call
 }
+
+// PullData returns the command that runs framework::pull_data_registry() in
+// R or framework.pull_data_registry() in Python, from the project's root.
+func (f Finder) PullData(p Project, o SetupOptions, mode SetupMode) (Command, error) {
+	r, py := []string{"overwrite = " + rBool(o.Overwrite)}, []string{"overwrite=" + pyBool(o.Overwrite)}
+	return f.packageCall(p, "pull_data_registry", "fw data pull", setupArgs(r, py, mode))
+}
+
+// PushData returns the command that runs framework::push_data_registry() in
+// R or framework.push_data_registry() in Python, from the project's root.
+func (f Finder) PushData(p Project, o SetupOptions, mode SetupMode) (Command, error) {
+	r := []string{"remove = " + rBool(o.Remove), "force = " + rBool(o.Force)}
+	py := []string{"remove=" + pyBool(o.Remove), "force=" + pyBool(o.Force)}
+	c, err := f.packageCall(p, "push_data_registry", "fw data push", setupArgs(r, py, mode))
+	c.Rewrite = pushDataAdvice
+	return c, err
+}
+
+// pushDataAdvice turns the packages' "Pull first" advice into fw's commands.
+var pushDataAdvice = strings.NewReplacer(
+	"Pull first: pull_data_registry().", "Pull first: fw data pull.",
+	"push_data_registry(force = TRUE)", "fw data push --force",
+	"push_data_registry(force=True)", "fw data push --force",
+)

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/frameworktools/framework-cli/internal/adopt"
+	datacatalog "github.com/frameworktools/framework-cli/internal/catalog"
 	"github.com/frameworktools/framework-cli/internal/project"
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"gopkg.in/yaml.v3"
@@ -560,7 +561,16 @@ func (s *scaffolder) renderSettingsYml(w *strings.Builder) error {
 			break
 		}
 	}
+	data := ""
+	if entries, ok := s.r.Doc["data"].(map[string]any); ok && len(entries) > 0 {
+		rendered, err := datacatalog.Render(entries, 2)
+		if err != nil {
+			return err
+		}
+		data = rendered
+	}
 	content, err := s.render("settings.yml.tmpl", map[string]any{
+		"Data":        data,
 		"Name":        s.r.View.Name,
 		"Globals":     s.globals(),
 		"CatalogPath": catalog,
