@@ -70,7 +70,7 @@ func newNewCmd(a *app) *cobra.Command {
 			"terminal, and without one it stops unless --offline is given. --offline\n" +
 			"uses the saved defaults, or fw's built-ins, without contacting the server.\n" +
 			"For Python and R projects fw passes --offline and --workflow to\n" +
-			"framework-py (0.1.0.dev18 or later) or the framework R package, which apply\n" +
+			"framework-py (0.1.0.dev19 or later) or the framework R package, which apply\n" +
 			"the same rules. Logged in, they also register the project on Framework\n" +
 			"Cloud and write FW_PROJECT_TOKEN to its .env. --offline keeps it on this\n" +
 			"machine.\n\n" +

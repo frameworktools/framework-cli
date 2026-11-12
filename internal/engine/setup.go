@@ -2,9 +2,9 @@ package engine
 
 import "strings"
 
-// SetupMode is how fw runs the language package's pull_setup() or
-// push_setup(): only listing the changes, or applying them without a
-// prompt of its own (fw asked already, or --yes was given).
+// SetupMode is how fw runs a language package's sync function, such as
+// pull_all() or push_all(): only listing the changes, or applying them
+// without a prompt of its own (fw asked already, or --yes was given).
 type SetupMode int
 
 const (
@@ -12,38 +12,44 @@ const (
 	SetupConfirmed
 )
 
-// SetupOptions are fw setup pull's and push's flags.
+// SetupOptions are fw pull's and push's flags, and fw data pull's and push's.
 type SetupOptions struct {
 	Overwrite bool // pull
 	Remove    bool // push
 	Force     bool // push
 }
 
-// PullSetup returns the command that runs framework::pull_setup() in R or
-// framework.pull_setup() in Python, from the project's root.
-func (f Finder) PullSetup(p Project, o SetupOptions, mode SetupMode) (Command, error) {
+// PullAll returns the command that runs framework::pull_all() in R or
+// framework.pull_all() in Python, from the project's root.
+func (f Finder) PullAll(p Project, o SetupOptions, mode SetupMode) (Command, error) {
 	r, py := []string{"overwrite = " + rBool(o.Overwrite)}, []string{"overwrite=" + pyBool(o.Overwrite)}
-	return f.packageCall(p, "pull_setup", "fw setup pull", setupArgs(r, py, mode))
-}
-
-// PushSetup returns the command that runs framework::push_setup() in R or
-// framework.push_setup() in Python, from the project's root.
-func (f Finder) PushSetup(p Project, o SetupOptions, mode SetupMode) (Command, error) {
-	r := []string{"remove = " + rBool(o.Remove), "force = " + rBool(o.Force)}
-	py := []string{"remove=" + pyBool(o.Remove), "force=" + pyBool(o.Force)}
-	c, err := f.packageCall(p, "push_setup", "fw setup push", setupArgs(r, py, mode))
-	c.Rewrite = pushSetupAdvice
+	c, err := f.packageCall(p, "pull_all", "fw pull", setupArgs(r, py, mode))
+	c.Rewrite = allAdvice
 	return c, err
 }
 
-// pushSetupAdvice turns the packages' "Pull first" advice, which names their
-// functions and arguments, into fw's commands and flags.
-var pushSetupAdvice = strings.NewReplacer(
-	"Pull first: pull_setup().", "Pull first: fw setup pull.",
-	"push_setup(force = TRUE)", "fw setup push --force",
-	"push_setup(force=True)", "fw setup push --force",
-	"push_skills(force = TRUE)", "fw setup push --force",
-	"push_skills(force=True)", "fw setup push --force",
+// PushAll returns the command that runs framework::push_all() in R or
+// framework.push_all() in Python, from the project's root.
+func (f Finder) PushAll(p Project, o SetupOptions, mode SetupMode) (Command, error) {
+	r := []string{"remove = " + rBool(o.Remove), "force = " + rBool(o.Force)}
+	py := []string{"remove=" + pyBool(o.Remove), "force=" + pyBool(o.Force)}
+	c, err := f.packageCall(p, "push_all", "fw push", setupArgs(r, py, mode))
+	c.Rewrite = allAdvice
+	return c, err
+}
+
+// allAdvice turns the packages' advice, which names their functions and
+// arguments, into fw's commands and flags.
+var allAdvice = strings.NewReplacer(
+	"Pull first: pull_all().", "Pull first: fw pull.",
+	"pull_all() did not finish", "fw pull did not finish",
+	"push_all() did not finish", "fw push did not finish",
+	"pull_all(overwrite = TRUE)", "fw pull --overwrite",
+	"pull_all(overwrite=True)", "fw pull --overwrite",
+	"push_all(force = TRUE)", "fw push --force",
+	"push_all(force=True)", "fw push --force",
+	"push_skills(force = TRUE)", "fw push --force",
+	"push_skills(force=True)", "fw push --force",
 )
 
 // setupArgs adds dry_run = TRUE, or confirm = TRUE, to each language's

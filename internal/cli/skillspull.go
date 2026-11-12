@@ -364,10 +364,7 @@ type pushItem struct {
 }
 
 type pushJSON struct {
-	DryRun bool `json:"dry_run"`
-	// Applied is fw setup push's: false for Stata projects, whose packages
-	// aren't managed, as R's and Python's push_setup() report.
-	Applied *bool          `json:"applied,omitempty"`
+	DryRun  bool           `json:"dry_run"`
 	Skills  []pushItem     `json:"skills"`
 	Counts  map[string]int `json:"counts"`
 	Message string         `json:"message"`
@@ -401,7 +398,7 @@ func newSkillsPushCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.pushSkills(cmd, client, root, force, yes, dryRun, false)
+			return a.pushSkills(cmd, client, root, force, yes, dryRun)
 		},
 	}
 	cmd.Flags().StringVar(&server, "url", "", "Framework Cloud server")
@@ -426,22 +423,19 @@ func (a *app) skillsClient(server string) (*cloud.Client, error) {
 	return cloud.NewClient(srv.URL, found.Token), nil
 }
 
-// pushSkills is fw skills push. With setup, it is fw setup push in a Stata
-// project, and its JSON also has applied: false.
-func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, force, yes, dryRun, setup bool) error {
-	ctx := cmd.Context()
-	w := cmd.OutOrStdout()
-	if a.jsonOut {
-		w = cmd.ErrOrStderr()
-	}
-	variant := "r"
+// skillsVariant is the skill variant a project's language uses.
+func skillsVariant(root string) string {
 	if lang, _ := engine.DetectLanguage(root); lang == "python" || lang == "stata" {
-		variant = lang
+		return lang
 	}
-	changes, untracked, err := skillsync.LocalChanges(root, projectSkillsDirs(root, readSkillsSpec(root)))
-	if err != nil {
-		return err
-	}
+	return "r"
+}
+
+// planSkillPush checks each locally edited, tracked skill against
+// Framework Cloud, and lists untracked ones. A skill to push has status
+// push and a Message saying what the new version replaces.
+func planSkillPush(ctx context.Context, client *cloud.Client, root string, changes []skillsync.LocalChange, untracked []string, force bool) []pushItem {
+	variant := skillsVariant(root)
 	var items []pushItem
 	for _, c := range changes {
 		v := c.Variant
@@ -468,14 +462,11 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 		items = append(items, pushItem{Name: filepath.Base(p), Path: p, Status: "untracked",
 			Message: "not tracked; use fw skills sync " + p + " to add it"})
 	}
-
-	pending := 0
 	for i := range items {
 		it := &items[i]
 		if it.Status != "push" {
 			continue
 		}
-		pending++
 		switch {
 		case it.forced:
 			it.Message = "Cloud has a newer version of " + it.Name + " than this project pulled. Pushing replaces it as the latest version; the Cloud changes stay in its history."
@@ -484,7 +475,54 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 		default:
 			it.Message = "This replaces the current version of " + it.Name + ", used wherever it's attached."
 		}
-		fmt.Fprintln(w, it.Message)
+	}
+	return items
+}
+
+// applySkillPush pushes each skill with status push. Each becomes pushed,
+// refused, failed, or unchanged.
+func applySkillPush(ctx context.Context, client *cloud.Client, root string, items []pushItem) {
+	for i := range items {
+		it := &items[i]
+		if it.Status != "push" {
+			continue
+		}
+		o := skillsync.Options{Root: root, Path: it.Path, Direction: "push", Variant: it.variant}
+		if it.forced {
+			o.Resolve = "local"
+		}
+		r, err := skillsync.Sync(ctx, client, o)
+		switch {
+		case err != nil:
+			it.Status, it.Message = "failed", explain(err, client.URL).Error()
+		case r.Action == "push":
+			it.Status, it.ID, it.Version = "pushed", r.ID, r.Version
+		case r.Action == "conflict" || r.Action == "blocked":
+			it.Status, it.Message = "refused", "Pull first: "+it.Name+" changed on Framework Cloud while pushing."
+		default:
+			it.Status = "unchanged"
+		}
+	}
+}
+
+// pushSkills is fw skills push.
+func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, force, yes, dryRun bool) error {
+	ctx := cmd.Context()
+	w := cmd.OutOrStdout()
+	if a.jsonOut {
+		w = cmd.ErrOrStderr()
+	}
+	changes, untracked, err := skillsync.LocalChanges(root, projectSkillsDirs(root, readSkillsSpec(root)))
+	if err != nil {
+		return err
+	}
+	items := planSkillPush(ctx, client, root, changes, untracked, force)
+	pending := 0
+	for _, it := range items {
+		if it.Status == "push" {
+			pending++
+			fmt.Fprintln(w, it.Message)
+		}
 	}
 	for _, it := range items {
 		if it.Status != "push" && it.Message != "" {
@@ -496,36 +534,13 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 		if err := a.confirm(cmd, yes, "Continue?"); err != nil {
 			return err
 		}
-		for i := range items {
-			it := &items[i]
-			if it.Status != "push" {
-				continue
-			}
-			o := skillsync.Options{Root: root, Path: it.Path, Direction: "push", Variant: it.variant}
-			if it.forced {
-				o.Resolve = "local"
-			}
-			r, err := skillsync.Sync(ctx, client, o)
-			switch {
-			case err != nil:
-				it.Status, it.Message = "failed", explain(err, client.URL).Error()
-			case r.Action == "push":
-				it.Status, it.ID, it.Version = "pushed", r.ID, r.Version
-			case r.Action == "conflict" || r.Action == "blocked":
-				it.Status, it.Message = "refused", "Pull first: "+it.Name+" changed on Framework Cloud while pushing."
-			default:
-				it.Status = "unchanged"
-			}
-		}
+		applySkillPush(ctx, client, root, items)
 	}
 	counts := map[string]int{"pushed": 0, "push": 0, "refused": 0, "untracked": 0, "failed": 0}
 	for _, it := range items {
 		counts[it.Status]++
 	}
 	out := pushJSON{DryRun: dryRun, Skills: items, Counts: counts, Message: pushSummary(counts, dryRun)}
-	if setup {
-		out.Applied = new(bool)
-	}
 	if out.Skills == nil {
 		out.Skills = []pushItem{}
 	}

@@ -21,12 +21,13 @@ type dataCloud struct {
 	entries  []catalog.Row
 	posts    []map[string]any
 	missing  bool
+	handler  http.Handler
 }
 
 func newDataCloud(t *testing.T) *dataCloud {
 	t.Helper()
 	c := &dataCloud{revision: "rev-1"}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -80,7 +81,8 @@ func newDataCloud(t *testing.T) *dataCloud {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"applied": !dry && len(added)+len(removed) > 0, "revision": c.revision,
 			"changes": map[string]any{"added": added, "changed": []any{}, "removed": removed, "kept": kept}})
-	}))
+	})
+	srv := httptest.NewServer(c.handler)
 	t.Cleanup(srv.Close)
 	c.url = srv.URL
 	return c

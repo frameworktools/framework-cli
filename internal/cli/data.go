@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -239,24 +240,29 @@ type dataPullJSON struct {
 	Message string `json:"message"`
 }
 
-func (a *app) pullStataData(cmd *cobra.Command, root string, overwrite, yes, dryRun bool) error {
-	ctx := cmd.Context()
-	w := cmd.OutOrStdout()
-	if a.jsonOut {
-		w = cmd.ErrOrStderr()
-	}
-	client, err := a.dataClient(root)
+// dataPullPlan is what pulling the data registry would change.
+type dataPullPlan struct {
+	out     dataPullJSON
+	lines   []string // the changes, indented
+	rows    []catalog.Row
+	changes bool // something to write
+	quiet   bool // nothing added or different
+	file    *catalog.File
+}
+
+// planDataPull compares the registry on Framework Cloud with the project's
+// catalog. pullCmd is the command the overwrite advice names.
+func planDataPull(ctx context.Context, client *cloud.Client, root string, overwrite, dryRun bool, pullCmd string) (dataPullPlan, error) {
+	var p dataPullPlan
+	file, err := catalog.Open(root)
 	if err != nil {
-		return err
+		return p, fmt.Errorf("data catalog not read: %w; nothing was changed", err)
 	}
 	registry, err := fetchData(ctx, client)
 	if err != nil {
-		return err
+		return p, err
 	}
-	file, err := catalog.Open(root)
-	if err != nil {
-		return fmt.Errorf("data catalog not read: %w; nothing was changed", err)
-	}
+	p.file = file
 	local := file.Rows()
 	cloudRows := map[string]catalog.Row{}
 	var added []catalog.Row
@@ -285,41 +291,85 @@ func (a *app) pullStataData(cmd *cobra.Command, root string, overwrite, yes, dry
 		out.Entries.DifferKept = differ
 	}
 
-	lines := []string{fmt.Sprintf("Data registry changes from Framework Cloud (revision %s):", registry.Revision)}
 	if len(added) > 0 {
-		lines = append(lines, "  Entries to add: "+rowNames(added))
+		p.lines = append(p.lines, "  Entries to add: "+rowNames(added))
 	}
 	if len(differ) > 0 {
 		details := make([]string, len(differ))
 		for i, n := range differ {
 			details[i] = fmt.Sprintf("%s (%s)", n, catalog.Diff(local[n], cloudRows[n]))
 		}
-		tail := "kept; fw data pull --overwrite uses Cloud's"
+		tail := "kept; " + pullCmd + " --overwrite uses Cloud's"
 		if overwrite {
 			tail = "Cloud's will be used"
 		}
-		lines = append(lines, "  Entries that differ (local -> Cloud): "+strings.Join(details, "; ")+" — "+tail)
+		p.lines = append(p.lines, "  Entries that differ (local -> Cloud): "+strings.Join(details, "; ")+" — "+tail)
 	}
 	if len(out.Entries.KeptLocal) > 0 {
-		lines = append(lines, "  Only in this project (kept): "+strings.Join(out.Entries.KeptLocal, ", "))
+		p.lines = append(p.lines, "  Only in this project (kept): "+strings.Join(out.Entries.KeptLocal, ", "))
 	}
-	if len(added) == 0 && len(differ) == 0 && len(out.Entries.KeptLocal) == 0 {
-		lines = []string{fmt.Sprintf("Data registry is up to date with Framework Cloud (revision %s).", registry.Revision)}
+	p.rows = added
+	if overwrite {
+		for _, n := range differ {
+			p.rows = append(p.rows, cloudRows[n])
+		}
 	}
-	out.Message = strings.Join(lines, "\n")
-	fmt.Fprintln(w, out.Message)
-	changes := len(added) > 0 || (overwrite && len(differ) > 0)
+	p.changes = len(p.rows) > 0
+	p.quiet = len(added) == 0 && len(differ) == 0
+	p.out = out
+	return p, nil
+}
+
+// applyDataPull writes a plan's entries and records the revision pulled.
+func applyDataPull(w io.Writer, client *cloud.Client, root string, p *dataPullPlan) error {
+	if p.changes {
+		for _, r := range p.rows {
+			p.file.Set(r)
+		}
+		if err := p.file.Save(); err != nil {
+			return err
+		}
+		word := "entries"
+		if len(p.rows) == 1 {
+			word = "entry"
+		}
+		fmt.Fprintf(w, "✓ Data registry: %d %s added or updated\n", len(p.rows), word)
+		p.out.Applied = true
+	}
+	return writeDataLock(root, p.out.Revision, client.URL, time.Now())
+}
+
+func (a *app) pullStataData(cmd *cobra.Command, root string, overwrite, yes, dryRun bool) error {
+	ctx := cmd.Context()
+	w := cmd.OutOrStdout()
+	if a.jsonOut {
+		w = cmd.ErrOrStderr()
+	}
+	client, err := a.dataClient(root)
+	if err != nil {
+		return err
+	}
+	p, err := planDataPull(ctx, client, root, overwrite, dryRun, "fw data pull")
+	if err != nil {
+		return err
+	}
+	lines := append([]string{fmt.Sprintf("Data registry changes from Framework Cloud (revision %s):", p.out.Revision)}, p.lines...)
+	if len(p.lines) == 0 {
+		lines = []string{fmt.Sprintf("Data registry is up to date with Framework Cloud (revision %s).", p.out.Revision)}
+	}
+	p.out.Message = strings.Join(lines, "\n")
+	fmt.Fprintln(w, p.out.Message)
 
 	finish := func() error {
 		if a.jsonOut {
-			return writeJSON(cmd.OutOrStdout(), out)
+			return writeJSON(cmd.OutOrStdout(), p.out)
 		}
 		return nil
 	}
 	if dryRun {
 		return finish()
 	}
-	if changes {
+	if p.changes {
 		if !yes {
 			if !a.interactive {
 				return usageError("no terminal to confirm from. Rerun with --yes to apply the changes above, or --dry-run to only list them")
@@ -332,26 +382,8 @@ func (a *app) pullStataData(cmd *cobra.Command, root string, overwrite, yes, dry
 				return errors.New("canceled; nothing was changed")
 			}
 		}
-		rows := added
-		if overwrite {
-			for _, n := range differ {
-				rows = append(rows, cloudRows[n])
-			}
-		}
-		for _, r := range rows {
-			file.Set(r)
-		}
-		if err := file.Save(); err != nil {
-			return err
-		}
-		word := "entries"
-		if len(rows) == 1 {
-			word = "entry"
-		}
-		fmt.Fprintf(w, "✓ Data registry: %d %s added or updated\n", len(rows), word)
-		out.Applied = true
 	}
-	if err := writeDataLock(root, registry.Revision, client.URL, time.Now()); err != nil {
+	if err := applyDataPull(w, client, root, &p); err != nil {
 		return err
 	}
 	return finish()
@@ -367,19 +399,24 @@ type dataPushJSON struct {
 	Message  string `json:"message"`
 }
 
-func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes, dryRun bool) error {
-	ctx := cmd.Context()
-	w := cmd.OutOrStdout()
-	if a.jsonOut {
-		w = cmd.ErrOrStderr()
-	}
-	client, err := a.dataClient(root)
-	if err != nil {
-		return err
-	}
+// dataPushPlan is what pushing the data registry would change, from
+// Framework Cloud's dry run.
+type dataPushPlan struct {
+	out      dataPushJSON
+	lines    []string // the changes, indented
+	warnings []string // what the push affects
+	pending  bool
+	send     func(dry bool) (dataPushReply, error)
+}
+
+// planDataPush asks Framework Cloud what pushing the project's catalog
+// would change. A registry that changed there since the last pull stops it
+// with "Pull first", naming pullCmd and pushCmd.
+func planDataPush(ctx context.Context, client *cloud.Client, root string, remove, force, dryRun bool, pullCmd, pushCmd string) (dataPushPlan, error) {
+	var p dataPushPlan
 	file, err := catalog.Open(root)
 	if err != nil {
-		return fmt.Errorf("data catalog not read: %w; nothing was changed", err)
+		return p, fmt.Errorf("data catalog not read: %w; nothing was changed", err)
 	}
 	byName := file.Rows()
 	local := make([]catalog.Row, 0, len(byName))
@@ -391,12 +428,12 @@ func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes,
 	if base == "" {
 		current, err := fetchData(ctx, client)
 		if err != nil {
-			return err
+			return p, err
 		}
 		base = current.Revision
 	}
 
-	send := func(dry bool) (dataPushReply, error) {
+	p.send = func(dry bool) (dataPushReply, error) {
 		var reply dataPushReply
 		body := map[string]any{"base_revision": base, "entries": local, "remove": remove, "force": force, "dry_run": dry}
 		err := client.Do(ctx, "POST", "/api/v1/projects/data", body, &reply)
@@ -405,7 +442,7 @@ func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes,
 			if current, gerr := fetchData(ctx, client); gerr == nil {
 				latest = current.Revision
 			}
-			return reply, fmt.Errorf("the data registry on Framework Cloud changed since this project last pulled it (revision %s). Pull first: fw data pull. fw data push --force replaces Cloud's changes", latest)
+			return reply, fmt.Errorf("the data registry on Framework Cloud changed since this project last pulled it (revision %s). Pull first: %s. %s --force replaces Cloud's changes", latest, pullCmd, pushCmd)
 		}
 		if err != nil {
 			return reply, dataError(client, err)
@@ -413,46 +450,92 @@ func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes,
 		return reply, nil
 	}
 
-	preview, err := send(true)
+	preview, err := p.send(true)
 	if err != nil {
-		return err
+		return p, err
 	}
 	c := preview.Changes
-	lines := []string{"Data registry changes for Framework Cloud:"}
 	if len(c.Added) > 0 {
-		lines = append(lines, "  Entries to add: "+rowNames(c.Added))
+		p.lines = append(p.lines, "  Entries to add: "+rowNames(c.Added))
 	}
 	if len(c.Changed) > 0 {
 		details := make([]string, len(c.Changed))
 		for i, ch := range c.Changed {
 			details[i] = fmt.Sprintf("%s (%s)", ch.Name, catalog.Diff(ch.From, ch.To))
 		}
-		lines = append(lines, "  Entries to change: "+strings.Join(details, "; "))
+		p.lines = append(p.lines, "  Entries to change: "+strings.Join(details, "; "))
 	}
 	if len(c.Removed) > 0 {
-		lines = append(lines, "  Entries to remove: "+rowNames(c.Removed))
+		p.lines = append(p.lines, "  Entries to remove: "+rowNames(c.Removed))
 	}
 	if len(c.Kept) > 0 {
-		lines = append(lines, "  On Cloud only (kept): "+rowNames(c.Kept))
+		p.lines = append(p.lines, "  On Cloud only (kept): "+rowNames(c.Kept))
 	}
-	pending := len(c.Added)+len(c.Changed)+len(c.Removed) > 0
-	if !pending {
-		lines[0] = "Data registry on Framework Cloud already matches this project."
-	} else {
-		lines = append(lines, fmt.Sprintf("This changes %s's data registry on Framework Cloud. New copies of the project, zips, and Update on GitHub will use it. Only definitions are sent: no data files and no hashes.", dataProjectName(root)))
+	p.pending = len(c.Added)+len(c.Changed)+len(c.Removed) > 0
+	if p.pending {
+		p.warnings = append(p.warnings, fmt.Sprintf("This changes %s's data registry on Framework Cloud. New copies of the project, zips, and Update on GitHub will use it. Only definitions are sent: no data files and no hashes.", dataProjectName(root)))
 		if force && preview.Revision != "" && base != preview.Revision {
-			lines = append(lines, "Cloud's newer data registry changes will be replaced by this project's entries.")
+			p.warnings = append(p.warnings, "Cloud's newer data registry changes will be replaced by this project's entries.")
 		}
 	}
-	out := dataPushJSON{Revision: preview.Revision, Changes: preview.Changes, DryRun: dryRun, Message: strings.Join(lines, "\n")}
-	fmt.Fprintln(w, out.Message)
+	p.out = dataPushJSON{Revision: preview.Revision, Changes: preview.Changes, DryRun: dryRun}
+	return p, nil
+}
+
+// applyDataPush pushes the catalog and records the new revision.
+func applyDataPush(w io.Writer, client *cloud.Client, root string, p *dataPushPlan) error {
+	reply, err := p.send(false)
+	if err != nil {
+		return err
+	}
+	if err := writeDataLock(root, reply.Revision, client.URL, time.Now()); err != nil {
+		return err
+	}
+	p.out.Applied, p.out.Revision, p.out.Changes = reply.Applied, reply.Revision, reply.Changes
+	if reply.Applied {
+		var parts []string
+		for _, n := range []struct {
+			n    int
+			word string
+		}{{len(reply.Changes.Added), "added"}, {len(reply.Changes.Changed), "changed"}, {len(reply.Changes.Removed), "removed"}} {
+			if n.n > 0 {
+				parts = append(parts, fmt.Sprintf("%d %s", n.n, n.word))
+			}
+		}
+		fmt.Fprintf(w, "Data registry pushed: revision %s (%s)\n", reply.Revision, strings.Join(parts, ", "))
+	} else {
+		fmt.Fprintln(w, "Already up to date.")
+	}
+	return nil
+}
+
+func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes, dryRun bool) error {
+	ctx := cmd.Context()
+	w := cmd.OutOrStdout()
+	if a.jsonOut {
+		w = cmd.ErrOrStderr()
+	}
+	client, err := a.dataClient(root)
+	if err != nil {
+		return err
+	}
+	p, err := planDataPush(ctx, client, root, remove, force, dryRun, "fw data pull", "fw data push")
+	if err != nil {
+		return err
+	}
+	lines := append(append([]string{"Data registry changes for Framework Cloud:"}, p.lines...), p.warnings...)
+	if !p.pending {
+		lines = append([]string{"Data registry on Framework Cloud already matches this project."}, p.lines...)
+	}
+	p.out.Message = strings.Join(lines, "\n")
+	fmt.Fprintln(w, p.out.Message)
 	finish := func() error {
 		if a.jsonOut {
-			return writeJSON(cmd.OutOrStdout(), out)
+			return writeJSON(cmd.OutOrStdout(), p.out)
 		}
 		return nil
 	}
-	if !pending || dryRun {
+	if !p.pending || dryRun {
 		return finish()
 	}
 	if !yes {
@@ -467,27 +550,8 @@ func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes,
 			return errors.New("canceled; nothing was pushed")
 		}
 	}
-	reply, err := send(false)
-	if err != nil {
+	if err := applyDataPush(w, client, root, &p); err != nil {
 		return err
-	}
-	if err := writeDataLock(root, reply.Revision, client.URL, time.Now()); err != nil {
-		return err
-	}
-	out.Applied, out.Revision, out.Changes = reply.Applied, reply.Revision, reply.Changes
-	if reply.Applied {
-		var parts []string
-		for _, p := range []struct {
-			n    int
-			word string
-		}{{len(reply.Changes.Added), "added"}, {len(reply.Changes.Changed), "changed"}, {len(reply.Changes.Removed), "removed"}} {
-			if p.n > 0 {
-				parts = append(parts, fmt.Sprintf("%d %s", p.n, p.word))
-			}
-		}
-		fmt.Fprintf(w, "Data registry pushed: revision %s (%s)\n", reply.Revision, strings.Join(parts, ", "))
-	} else {
-		fmt.Fprintln(w, "Already up to date.")
 	}
 	return finish()
 }

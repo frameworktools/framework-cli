@@ -27,6 +27,7 @@ type skillsCloud struct {
 	posts    []map[string]any
 	own      *skillsync.Snapshot // the copy a built-in push made
 	noSetup  bool                // GET /api/v1/projects/setup answers 404
+	data     http.Handler        // the data registry, when set
 }
 
 func skillText(name, body string) string {
@@ -140,6 +141,13 @@ func newSkillsCloud(t *testing.T) *skillsCloud {
 		next := skillsync.Snapshot{ID: "acct-1", Version: head.Version + 1, Hash: h, Bundle: bundle, Variant: "stata"}
 		c.versions = append(c.versions, next)
 		_ = json.NewEncoder(w).Encode(next)
+	})
+	mux.HandleFunc("/api/v1/projects/data", func(w http.ResponseWriter, r *http.Request) {
+		if c.data == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		c.data.ServeHTTP(w, r)
 	})
 	c.server = httptest.NewServer(mux)
 	t.Cleanup(c.server.Close)

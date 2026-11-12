@@ -71,7 +71,7 @@ func TestCreateRMissing(t *testing.T) {
 func TestCreatePython(t *testing.T) {
 	req := Request{LayersFile: "/l.json", Dir: "/w"}
 	cmd, err := finder(map[string]string{"uv": "/bin/uv", "python3": "/bin/python3"}, true, nil).Create("python", req)
-	if err != nil || cmd.String() != "/bin/uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev18' python -m framework create --from-layers /l.json --path /w" {
+	if err != nil || cmd.String() != "/bin/uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev19' python -m framework create --from-layers /l.json --path /w" {
 		t.Errorf("uv: %s %v", cmd, err)
 	}
 
@@ -105,14 +105,14 @@ func TestCreatePython(t *testing.T) {
 func TestCreatePythonFromDefaults(t *testing.T) {
 	f := finder(map[string]string{"uv": "uv"}, true, nil)
 	cmd, err := f.Create("python", Request{Name: "My Study", Type: "project", Dir: "/w/my-study", Workflow: "jupyter", Offline: true})
-	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev18' python -m framework create --name 'My Study' --path /w/my-study --type project --workflow jupyter --offline" {
+	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev19' python -m framework create --name 'My Study' --path /w/my-study --type project --workflow jupyter --offline" {
 		t.Errorf("got %s %v", cmd, err)
 	}
 }
 
 func TestAdoptPython(t *testing.T) {
 	cmd, err := finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true, AdoptOptions{})
-	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev18' python -m framework adopt --path /w/old --yes" {
+	if err != nil || cmd.String() != "uv run --no-project --refresh-package framework-py --with 'framework-py>=0.1.0.dev19' python -m framework adopt --path /w/old --yes" {
 		t.Errorf("got %s %v", cmd, err)
 	}
 	cmd, err = finder(map[string]string{"uv": "uv"}, true, nil).AdoptPython("/w/old", true, AdoptOptions{Type: "project", Sensitive: true})
@@ -225,8 +225,8 @@ func TestPyCallPrintsFrameworkErrorsAsOneLine(t *testing.T) {
 	}
 	dir := t.TempDir()
 	module := "class FrameworkError(Exception):\n    pass\n\n" +
-		"def pull_setup(**kwargs):\n    raise FrameworkError(\"Pull first: pull_setup().\")\n\n" +
-		"def push_setup(**kwargs):\n    raise ValueError(\"bug\")\n"
+		"def pull_all(**kwargs):\n    raise FrameworkError(\"Pull first: pull_all().\")\n\n" +
+		"def push_all(**kwargs):\n    raise ValueError(\"bug\")\n"
 	if err := os.WriteFile(filepath.Join(dir, "framework.py"), []byte(module), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -237,36 +237,46 @@ func TestPyCallPrintsFrameworkErrorsAsOneLine(t *testing.T) {
 		// Python writes text-mode output with CRLF on Windows.
 		return strings.ReplaceAll(string(out), "\r\n", "\n"), cmd.ProcessState.ExitCode()
 	}
-	if out, code := run("pull_setup(confirm=True)"); out != "Error: Pull first: pull_setup().\n" || code != 1 {
+	if out, code := run("pull_all(confirm=True)"); out != "Error: Pull first: pull_all().\n" || code != 1 {
 		t.Errorf("framework error: %d %q", code, out)
 	}
-	if out, code := run("push_setup(confirm=True)"); !strings.Contains(out, "Traceback") || code != 1 {
+	if out, code := run("push_all(confirm=True)"); !strings.Contains(out, "Traceback") || code != 1 {
 		t.Errorf("other error: %d %q", code, out)
 	}
 }
 
-// fw setup push rewrites the packages' "Pull first" advice to name fw's
-// command and flag.
-func TestPushSetupAdvice(t *testing.T) {
+// fw pull and fw push rewrite the packages' advice, which names their
+// functions and arguments, to name fw's commands and flags.
+func TestAllAdvice(t *testing.T) {
 	f := finder(map[string]string{"uv": "uv"}, true, nil)
 	dir := t.TempDir()
-	cmd, err := f.PushSetup(Project{Root: dir, Language: "python", Runner: []string{"python3"}}, SetupOptions{}, SetupConfirmed)
-	if err != nil || cmd.Rewrite == nil {
-		t.Fatalf("%v %+v", err, cmd)
+	p := Project{Root: dir, Language: "python", Runner: []string{"python3"}}
+	push, err := f.PushAll(p, SetupOptions{}, SetupConfirmed)
+	if err != nil || push.Rewrite == nil {
+		t.Fatalf("%v %+v", err, push)
+	}
+	pull, err := f.PullAll(p, SetupOptions{}, SetupDryRun)
+	if err != nil || pull.Rewrite == nil {
+		t.Fatalf("%v %+v", err, pull)
 	}
 	for in, want := range map[string]string{
-		// R's stop() and push_skills()
-		"Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: pull_setup(). push_setup(force = TRUE) replaces Cloud's changes.": "Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: fw setup pull. fw setup push --force replaces Cloud's changes.",
-		"  Pull first: analysis changed on Cloud since this project pulled it. push_skills(force = TRUE) replaces it.":                                                         "  Pull first: analysis changed on Cloud since this project pulled it. fw setup push --force replaces it.",
+		// R's
+		"Packages: can't push. Framework Cloud's package list changed since this project last pulled it (revision r2). Pull first: pull_all(). push_all(force = TRUE) replaces Cloud's changes.": "Packages: can't push. Framework Cloud's package list changed since this project last pulled it (revision r2). Pull first: fw pull. fw push --force replaces Cloud's changes.",
+		"  Pull first: analysis changed on Cloud since this project pulled it. push_all(force = TRUE) replaces it.":                                                                              "  Pull first: analysis changed on Cloud since this project pulled it. fw push --force replaces it.",
+		"  Packages that differ: janitor (local 2.2.0, Cloud 2.1.0) — kept; pull_all(overwrite = TRUE) uses Cloud's":                                                                             "  Packages that differ: janitor (local 2.2.0, Cloud 2.1.0) — kept; fw pull --overwrite uses Cloud's",
+		"Error: push_all() did not finish. Pushed: Data registry. Not pushed: Packages (x).":                                                                                                     "Error: fw push did not finish. Pushed: Data registry. Not pushed: Packages (x).",
+		"Error: pull_all() did not finish. Applied: Packages.":                                                                                                                                   "Error: fw pull did not finish. Applied: Packages.",
 		// Python's
-		"Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: pull_setup(). push_setup(force=True) replaces Cloud's changes.": "Error: Framework Cloud's setup changed since this project last pulled it (revision r2). Pull first: fw setup pull. fw setup push --force replaces Cloud's changes.",
-		"  Pull first: analysis changed on Cloud since this project pulled it. push_skills(force=True) replaces it.":                                                         "  Pull first: analysis changed on Cloud since this project pulled it. fw setup push --force replaces it.",
+		"Pull first: pull_all(). push_all(force=True) replaces Cloud's changes.": "Pull first: fw pull. fw push --force replaces Cloud's changes.",
+		"kept; pull_all(overwrite=True) uses Cloud's":                            "kept; fw pull --overwrite uses Cloud's",
 	} {
-		if got := cmd.Rewrite.Replace(in); got != want {
-			t.Errorf("got  %s\nwant %s", got, want)
+		for _, c := range []Command{push, pull} {
+			if got := c.Rewrite.Replace(in); got != want {
+				t.Errorf("got  %s\nwant %s", got, want)
+			}
 		}
 	}
-	if pull, _ := f.PullSetup(Project{Root: dir, Language: "python", Runner: []string{"python3"}}, SetupOptions{}, SetupDryRun); pull.Rewrite != nil {
-		t.Error("pull_setup() output is rewritten")
+	if push.Args[len(push.Args)-1] == "" || !strings.HasSuffix(push.Args[len(push.Args)-1], "framework.push_all(remove=False, force=False, confirm=True)") {
+		t.Errorf("push: %v", push.Args)
 	}
 }
