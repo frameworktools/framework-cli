@@ -1,11 +1,16 @@
 ---
 name: framework-stata
-description: Use when writing, editing, or running do-files in this Framework Stata project. Covers master.do, the path globals in settings.do, the data catalog and publishing destinations in settings.yml, saving tables and figures with fw_table and fw_graph, publishing with fw_publish, logs, and where data and outputs go.
+description: Use when writing, editing, or running do-files in a project that uses Framework for Stata. Covers master.do, the path globals in settings.do, the data catalog and publishing destinations in settings.yml, saving tables and figures with fw_table and fw_graph, publishing with fw_publish, logs, and where data and outputs go.
+metadata:
+  title: "Framework for Stata"
 ---
 
-# Framework Stata projects
+# Framework for Stata
 
-## How the project runs
+Follow these conventions in do-files that `master.do` runs. Leave existing
+code as it is unless the user asks you to change it.
+
+## master.do
 
 `master.do` runs the whole analysis: it runs `settings.do`, loads the project
 with `fw_project` (from framework-stata), opens a log, and then runs each
@@ -21,8 +26,8 @@ analysis.
 
 `settings.do` defines one global per project folder, such as `$inputs_raw`,
 `$inputs_final`, and `$outputs_tables`. Refer to folders only through these
-globals, so the project runs unchanged on another machine. Do not write
-absolute paths or use `cd` in do-files.
+globals, so the project runs unchanged on another machine. Prefer them to
+absolute paths and `cd`.
 
 Quote paths with compound quotes, because folder names can contain spaces:
 
@@ -63,8 +68,8 @@ names they expect.
 
 ## Tables, figures, and publishing
 
-Save results with the Framework commands, not `export delimited` or `graph
-export`. They create folders, record the result, and in a sensitive project
+Prefer the Framework commands to `export delimited` and `graph export`. They
+create folders, record the result, and in a sensitive project
 save to the private folders unless given `public`:
 
 ```stata
@@ -87,19 +92,18 @@ fw_publish "$fw_outputs_figures", to(results)
 
 ## Data
 
-- Raw data is read-only. Steps write to the intermediate and final folders.
+- Raw data stays unchanged. Steps write to the intermediate and final folders.
 - Everything under `private/` folders is gitignored, and so are logs, cache,
   scratch, and tmp folders. Data elsewhere, such as a public `.dta`, can be
-  committed. Data that must stay on the machines that may hold it goes under
-  `private/`; git holds the code that rebuilds it.
+  committed.
 - Logs from `master.do` go to the logs folder. Check the newest log when a run
   fails.
 
 ## Style
 
 - Start each do-file with a comment that says what the step does.
-- Use `version 14` (set in `master.do`) and avoid user-written commands unless
-  the project already uses them. When one is needed, note the `ssc install`
-  line in a comment at the top of the do-file.
+- Keep the `version` line in `master.do`.
+- Prefer built-in commands to user-written ones. When one is needed, note the
+  `ssc install` line in a comment at the top of the do-file.
 - Label variables and values in the cleaning step, so later steps and tables
   read well.
