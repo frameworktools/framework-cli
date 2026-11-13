@@ -254,7 +254,7 @@ func newAdoptCmd(a *app) *cobra.Command {
 			"which would win over them; fw lists the ones it left out. The spec\n" +
 			"records tools.quarto when a _quarto.yml, _quarto.yaml, or .qmd file is\n" +
 			"at the top or in a folder fw scans. Python projects are adopted by\n" +
-			"framework-py (0.1.0.dev20 or later), and R projects by the framework R\n" +
+			"framework-py (0.1.0.dev21 or later), and R projects by the framework R\n" +
 			"package's adopt(). fw runs them for you. To change a folder's role in an\n" +
 			"R project, run framework::adopt() in R instead. An existing Framework\n" +
 			"project is not adopted: run fw project upgrade in it.\n\n" +
