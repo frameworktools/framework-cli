@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/frameworktools/framework-cli/internal/spec"
+	"gopkg.in/yaml.v3"
 )
 
 func envelope(t *testing.T, doc string) spec.Envelope {
@@ -159,8 +160,8 @@ func TestScaffoldProject(t *testing.T) {
 	}
 	// fw_project loads the project before any step, and set type double is
 	// offered, commented
-	if i, j := strings.Index(master, "do \"settings.do\""), strings.Index(master, "\nfw_project\n"); i < 0 || j < i || strings.Index(master, "log using") < j {
-		t.Errorf("master.do should run fw_project after settings.do and before the log:\n%s", master)
+	if i, j := strings.Index(master, "do \"settings.do\""), strings.Index(master, "\nelse fw_scaffold\n"); i < 0 || j < i || strings.Index(master, "log using") < j {
+		t.Errorf("master.do should run fw_scaffold after settings.do and before the log:\n%s", master)
 	}
 	if !strings.Contains(master, "\nversion 14\n") || !strings.Contains(master, "capture which fw_table") || !strings.Contains(master, "0.2.0 or later") {
 		t.Errorf("master.do should need framework-stata 0.2.0 under version 14:\n%s", master)
@@ -464,5 +465,50 @@ func TestDataCatalogFromLayers(t *testing.T) {
 	}
 	if _, err := Resolve(env, "test"); err == nil || !strings.Contains(err.Error(), "'a' is an entry") {
 		t.Errorf("clash: %v", err)
+	}
+}
+
+// The spec's packages go into settings.yml in the list form fw_packages reads
+func TestPackagesFromLayers(t *testing.T) {
+	doc := `{"spec_version":1,"name":"Pkg Study","layers":[{"kind":"settings","layer":{"language":"stata","git":{"use_git":false},"ai":{"enabled":false},"packages":{"project_ado":true,"default_packages":{"reghdfe":{"source":"github","repo":"sergiocorreia/reghdfe","ref":"6.12.3","auto_attach":false},"estout":{"source":"ssc","auto_attach":false},"mytools":{"source":"net","url":"https://example.org/stata","auto_attach":false}}}}}]}`
+	dir, _ := scaffold(t, doc, true)
+	settings := read(t, dir, "settings.yml")
+	want := "\n  packages:\n    project_ado: true\n    default_packages:\n" +
+		"      - name: estout\n        source: ssc\n" +
+		"      - name: mytools\n        source: net\n        url: https://example.org/stata\n" +
+		"      - name: reghdfe\n        source: github\n        repo: sergiocorreia/reghdfe\n        ref: 6.12.3\n"
+	if !strings.Contains(settings, want) {
+		t.Fatal(settings)
+	}
+	var parsed map[string]any
+	if err := yaml.Unmarshal([]byte(settings), &parsed); err != nil {
+		t.Fatalf("settings.yml does not parse: %v\n%s", err, settings)
+	}
+
+	// Without packages, settings.yml shows the format in a comment
+	bare := `{"spec_version":1,"name":"No Pkg","layers":[{"kind":"settings","layer":{"language":"stata","git":{"use_git":false},"ai":{"enabled":false}}}]}`
+	dir, _ = scaffold(t, bare, true)
+	if settings := read(t, dir, "settings.yml"); strings.Contains(settings, "\n  packages:") || !strings.Contains(settings, "#   packages:") {
+		t.Fatal(settings)
+	}
+}
+
+// The spec's scaffold settings go into settings.yml for fw_scaffold, and
+// master.do runs fw_scaffold when framework-stata has it
+func TestScaffoldSettingsAndMasterDo(t *testing.T) {
+	doc := `{"spec_version":1,"name":"Seed Study","layers":[{"kind":"settings","layer":{"language":"stata","git":{"use_git":false},"ai":{"enabled":false},"scaffold":{"seed_on_scaffold":true,"seed":"4242","set_theme_on_scaffold":true,"stata_scheme":"s2color"}}}]}`
+	dir, _ := scaffold(t, doc, true)
+	settings := read(t, dir, "settings.yml")
+	want := "\n  scaffold:\n    seed_on_scaffold: true\n    seed: \"4242\"\n    set_theme_on_scaffold: true\n    stata_scheme: s2color\n"
+	if !strings.Contains(settings, want) {
+		t.Fatal(settings)
+	}
+	var parsed map[string]any
+	if err := yaml.Unmarshal([]byte(settings), &parsed); err != nil {
+		t.Fatalf("settings.yml does not parse: %v", err)
+	}
+	master := read(t, dir, "master.do")
+	if !strings.Contains(master, "capture which fw_scaffold\nif _rc fw_project\nelse fw_scaffold\n") {
+		t.Fatal(master)
 	}
 }

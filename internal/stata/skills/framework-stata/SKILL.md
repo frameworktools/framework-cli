@@ -1,6 +1,6 @@
 ---
 name: framework-stata
-description: Use when writing, editing, or running do-files in a project that uses Framework for Stata. Covers master.do, the path globals in settings.do, the data catalog and publishing destinations in settings.yml, saving tables and figures with fw_table and fw_graph, publishing with fw_publish, logs, and where data and outputs go.
+description: Use when writing, editing, or running do-files in a project that uses Framework for Stata. Covers master.do, the path globals in settings.do, the data catalog and publishing destinations in settings.yml, saving tables and figures with fw_table and fw_graph, installing packages with fw_packages, publishing with fw_publish, logs, and where data and outputs go.
 metadata:
   title: "Framework for Stata"
 ---
@@ -43,6 +43,22 @@ catalog under `data:`, the publishing destinations under `publish:`, and the
 security settings. Framework for Stata (`fw_project`) reads both files. When
 the two set a folder differently, `settings.yml` wins and `fw_project` prints a
 note, so change a folder in both.
+
+The `packages:` section lists the user-written packages the do-files need.
+`fw_packages` shows which are installed, and `fw_packages install` installs
+the missing ones. A plain name comes from SSC, and `owner/repo@tag` from
+GitHub:
+
+```yaml
+packages:
+  project_ado: true
+  default_packages:
+    - estout
+    - sergiocorreia/reghdfe@6.12.3
+```
+
+With `project_ado: true`, packages install into `ado/plus` in the project
+folder, which is committed with the code.
 
 Catalog entries are nested by folder and read by their dotted name:
 
@@ -103,7 +119,8 @@ fw_publish "$fw_outputs_figures", to(results)
 
 - Start each do-file with a comment that says what the step does.
 - Keep the `version` line in `master.do`.
-- Prefer built-in commands to user-written ones. When one is needed, note the
-  `ssc install` line in a comment at the top of the do-file.
+- Prefer built-in commands to user-written ones. When one is needed, add it to
+  `packages:` in `settings.yml` and run `fw_packages install`. Leave
+  `ssc install` and `net install` out of do-files.
 - Label variables and values in the cleaning step, so later steps and tables
   read well.

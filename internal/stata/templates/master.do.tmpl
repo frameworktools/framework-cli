@@ -27,7 +27,11 @@ if _rc {
     display as error `"  net install framework, from("https://raw.githubusercontent.com/frameworktools/framework-stata/main") replace"'
     exit 199
 }
-fw_project
+* fw_scaffold (framework-stata 0.3.0) runs fw_project, installs the packages
+* in settings.yml, and sets the seed and graph scheme from scaffold:.
+capture which fw_scaffold
+if _rc fw_project
+else fw_scaffold
 
 capture log close master
 local stamp = subinstr("`c(current_date)'", " ", "", .) + "_" + subinstr("`c(current_time)'", ":", "", .)

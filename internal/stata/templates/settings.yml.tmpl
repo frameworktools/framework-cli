@@ -36,6 +36,27 @@ default:
   security:
     sensitive: true
 {{- end}}
+
+  # Packages the do-files use. fw_packages installs the missing ones from
+  # SSC, GitHub (repo, and ref for a version), or a web address (url).
+  # project_ado: true installs them into ado/plus in the project folder.
+{{- if .Packages}}
+{{.Packages}}
+{{- else}}
+  #
+  #   packages:
+  #     project_ado: true
+  #     default_packages:
+  #       - estout
+  #       - sergiocorreia/reghdfe@6.12.3
+{{- end}}
+{{- if .Scaffold}}
+
+  # fw_scaffold reads these, as scaffold() does in R and Python: the random
+  # seed, the graph scheme (stata_scheme, with set_theme_on_scaffold: true),
+  # and whether programs in the functions folder load by name.
+{{.Scaffold}}
+{{- end}}
 {{- if .Publish}}
 
 {{.Publish}}

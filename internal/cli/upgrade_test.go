@@ -60,7 +60,7 @@ func TestUpgradeStata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, errOut)
 	}
-	for _, want := range []string{"create  .framework/spec.json", "create  settings.yml", "insert  settings.do", "insert  master.do", "append  .gitignore", "+ fw_project", "Nothing was changed"} {
+	for _, want := range []string{"create  .framework/spec.json", "create  settings.yml", "insert  settings.do", "insert  master.do", "append  .gitignore", "+ else fw_scaffold", "Nothing was changed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plan lacks %q:\n%s", want, out)
 		}
@@ -117,6 +117,29 @@ func TestUpgradeStata(t *testing.T) {
 	out, _, err = h.run(t, "", "project", "upgrade", "--apply")
 	if err != nil || !strings.Contains(out, "Nothing to upgrade") {
 		t.Errorf("second run: %v\n%s", err, out)
+	}
+}
+
+// A master.do from fw 0.6.2 runs fw_project: upgrade runs fw_scaffold
+// instead when framework-stata has it.
+func TestUpgradeStataMasterRunsScaffold(t *testing.T) {
+	h := newHarness(t, nil)
+	dir := oldStataProject(t, h.app.home)
+	h.app.cwd = dir
+	old := "* master.do: runs every step of trial in order\n\nversion 16\n\ndo \"settings.do\"\n\n" +
+		"capture which fw_table\nif _rc {\n    exit 199\n}\nfw_project\n\ncapture log close master\n"
+	writeTestFile(t, filepath.Join(dir, "master.do"), old)
+	out, errOut, err := h.run(t, "", "project", "upgrade", "--apply")
+	if err != nil {
+		t.Fatalf("%v\n%s%s", err, out, errOut)
+	}
+	master := readTestFile(t, filepath.Join(dir, "master.do"))
+	if !strings.Contains(master, "}\n* fw_scaffold (framework-stata 0.3.0)") || !strings.Contains(master, "capture which fw_scaffold\nif _rc fw_project\nelse fw_scaffold\n\ncapture log close master") {
+		t.Errorf("master.do:\n%s", master)
+	}
+	out, _, _ = h.run(t, "", "project", "upgrade")
+	if strings.Contains(out, "master.do") {
+		t.Errorf("second run plans a master.do change:\n%s", out)
 	}
 }
 

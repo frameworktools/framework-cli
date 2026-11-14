@@ -72,8 +72,15 @@ var projectBlock = []string{
 	`    display as error ` + "`" + `"  net install framework, from("https://raw.githubusercontent.com/frameworktools/framework-stata/main") replace"'`,
 	"    exit 199",
 	"}",
-	"fw_project",
+	"* fw_scaffold (framework-stata 0.3.0) runs fw_project, installs the packages",
+	"* in settings.yml, and sets the seed and graph scheme from scaffold:.",
+	"capture which fw_scaffold",
+	"if _rc fw_project",
+	"else fw_scaffold",
 }
+
+// scaffoldLines replace a bare fw_project line in an older master.do.
+var scaffoldLines = projectBlock[len(projectBlock)-5:]
 
 var globalLine = regexp.MustCompile("^global ([A-Za-z_][A-Za-z0-9_]*) `\"\\$root/(.+)\"'\\s*$")
 
@@ -269,7 +276,19 @@ func PlanUpgrade(root, fwVersion string, o UpgradeOptions) (UpgradePlan, error) 
 	// 4. master.do loads the project through framework-stata 0.2.0 or later.
 	if master, _, _ := read("master.do"); hasMaster {
 		switch {
+		case strings.Contains(master, "fw_scaffold"):
 		case strings.Contains(master, "capture which fw_table"):
+			// fw before 0.6.3 ran fw_project: run fw_scaffold when framework-stata has it
+			lines := strings.Split(master, "\n")
+			for i, l := range lines {
+				if strings.TrimSpace(l) != "fw_project" {
+					continue
+				}
+				content := strings.Join(append(append(append([]string{}, lines[:i]...), scaffoldLines...), lines[i+1:]...), "\n")
+				plan.Changes = append(plan.Changes, UpgradeChange{File: "master.do", Action: "replace",
+					Summary: "run fw_scaffold, which installs packages and sets the seed and scheme, when framework-stata has it", Lines: scaffoldLines, content: content})
+				break
+			}
 		case strings.Contains(master, "capture which fw_project"):
 			// An unreleased fw checked for fw_project only: add the fw_table check after it.
 			lines := strings.Split(master, "\n")

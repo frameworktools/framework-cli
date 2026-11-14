@@ -569,8 +569,18 @@ func (s *scaffolder) renderSettingsYml(w *strings.Builder) error {
 		}
 		data = rendered
 	}
+	packages := ""
+	if p, ok := s.r.Doc["packages"].(map[string]any); ok {
+		packages = renderPackages(p)
+	}
+	scaffoldSettings := ""
+	if sc, ok := s.r.Doc["scaffold"].(map[string]any); ok {
+		scaffoldSettings = renderScaffold(sc)
+	}
 	content, err := s.render("settings.yml.tmpl", map[string]any{
 		"Data":        data,
+		"Packages":    packages,
+		"Scaffold":    scaffoldSettings,
 		"Name":        s.r.View.Name,
 		"Globals":     s.globals(),
 		"CatalogPath": catalog,
@@ -584,6 +594,70 @@ func (s *scaffolder) renderSettingsYml(w *strings.Builder) error {
 	}
 	w.WriteString(content)
 	return nil
+}
+
+// renderPackages writes the spec's packages as settings.yml's packages
+// section, indented under default:, in the list form R writes to
+// settings/packages.yml and fw_packages reads. Packages are sorted by name.
+// It returns "" when there are no packages and project_ado is off.
+func renderPackages(p map[string]any) string {
+	entries, _ := p["default_packages"].(map[string]any)
+	projectAdo, _ := p["project_ado"].(bool)
+	if len(entries) == 0 && !projectAdo {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("  packages:\n")
+	if projectAdo {
+		b.WriteString("    project_ado: true\n")
+	}
+	if len(entries) == 0 {
+		b.WriteString("    default_packages: []")
+		return b.String()
+	}
+	b.WriteString("    default_packages:")
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		b.WriteString("\n      - name: " + yamlScalar(name))
+		entry, _ := entries[name].(map[string]any)
+		for _, key := range []string{"source", "repo", "ref", "url"} {
+			if v, ok := entry[key].(string); ok && v != "" {
+				b.WriteString("\n        " + key + ": " + yamlScalar(v))
+			}
+		}
+	}
+	return b.String()
+}
+
+// scaffoldKeys are the spec's scaffold settings fw_scaffold reads, in the
+// order settings.yml lists them.
+var scaffoldKeys = []string{"seed_on_scaffold", "seed", "set_theme_on_scaffold", "stata_scheme", "source_all_functions"}
+
+// renderScaffold writes the spec's scaffold settings that fw_scaffold reads
+// as settings.yml's scaffold section, indented under default:. An empty seed
+// is left out. It returns "" when none are set.
+func renderScaffold(sc map[string]any) string {
+	var lines []string
+	for _, key := range scaffoldKeys {
+		switch v := sc[key].(type) {
+		case bool:
+			lines = append(lines, fmt.Sprintf("    %s: %t", key, v))
+		case string:
+			if v != "" {
+				lines = append(lines, "    "+key+": "+yamlScalar(v))
+			}
+		case float64:
+			lines = append(lines, fmt.Sprintf("    %s: %d", key, int64(v)))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "  scaffold:\n" + strings.Join(lines, "\n")
 }
 
 func (s *scaffolder) record() error {
