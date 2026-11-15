@@ -101,7 +101,7 @@ type Request struct {
 // and offline, that has adopt, pull_all(), push_all(),
 // pull_data_registry(), and push_data_registry(), whose skill hashes read
 // CRLF text files as LF, as fw's do, and whose skills match fw's.
-const MinPython = "0.1.0.dev21"
+const MinPython = "0.1.0.dev22"
 
 // Create returns the command that creates the project in language.
 func (f Finder) Create(language string, req Request) (Command, error) {
