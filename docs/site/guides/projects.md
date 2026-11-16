@@ -89,7 +89,7 @@ When signed in, `fw new NAME --lang stata` resolves your Stata defaults from Fra
 
 When signed out, or when `--type` is passed, `fw` uses its built-in templates.
 
-R (`framework` 2.0.0+) and Python (`framework-py` 0.1.0.dev23+) apply the same offline caching rules. `fw` forwards `--offline` and `--workflow` (`quarto`, `jupyter`, or `scripts`) to both packages and reports if an older installed R package lacks support. Because `Rscript` runs non-interactively, `fw` prompts at the terminal when the Cloud server is unreachable before invoking an offline R build; without a terminal, pass `--offline`.
+R (`framework` 2.0.0+) and Python (`framework-py` 0.1.0.dev24+) apply the same offline caching rules. `fw` forwards `--offline` and `--workflow` (`quarto`, `jupyter`, or `scripts`) to both packages and reports if an older installed R package lacks support. Because `Rscript` runs non-interactively, `fw` prompts at the terminal when the Cloud server is unreachable before invoking an offline R build; without a terminal, pass `--offline`.
 
 When signed in online, R and Python builds from your Cloud defaults also register the project on Framework Cloud and write `FW_PROJECT_TOKEN` to `.env`. Pass `--offline` to keep the build local-only.
 
@@ -127,7 +127,7 @@ Both `fw project link --create` and `fw project push-spec` validate `.framework/
 ## Language engines
 
 - **R**: runs `framework::new()` or `framework::project_create_from_layers()` via `Rscript`.
-- **Python**: runs `python -m framework create` via `uv` when installed (requesting `framework-py` 0.1.0.dev23+ and refreshing package metadata unless `UV_OFFLINE` is set).
+- **Python**: runs `python -m framework create` via `uv` when installed (requesting `framework-py` 0.1.0.dev24+ and refreshing package metadata unless `UV_OFFLINE` is set).
 - **Stata**: runs `fw`'s built-in scaffolder, generating `master.do`, `settings.do`, `settings.yml`, a `logs/` directory, and `.gitignore`. Starter analysis `.do` files come from blueprints when included.
 
 In Stata projects, `settings.do` defines path globals such as `$inputs_raw`, while `settings.yml` stores the project name, directory map, `data` catalog (`fw_use` / `fw_save`), `packages` list (`fw_packages`), `scaffold` settings (`seed`, `stata_scheme`, `source_all_functions`), `publish` destinations (`fw_publish`), and `security.sensitive`. `framework-stata` 0.2.0+ reads both files (`settings.yml` wins if a directory path differs), and `master.do` runs `fw_scaffold` on `framework-stata` 0.3.0+ (falling back to `fw_project` on 0.2.x).
