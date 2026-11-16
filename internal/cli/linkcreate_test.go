@@ -411,7 +411,7 @@ func TestAdoptCloud(t *testing.T) {
 	if res.Language != "stata" || res.Cloud.Slug != "old-study" || !res.Cloud.Linked || !res.Cloud.Adopted || f.specs["old-study"] == "" {
 		t.Errorf("result %+v", res)
 	}
-	if !strings.Contains(readTestFile(t, filepath.Join(dir, ".env")), "FW_PROJECT_TOKEN=tok-old-study") {
+	if env := readTestFile(t, filepath.Join(dir, ".env")); !strings.Contains(env, "FW_PROJECT_TOKEN=tok-old-study") || !strings.Contains(env, "FW_CLOUD_URL="+srv.URL+"\n") {
 		t.Error("not linked")
 	}
 

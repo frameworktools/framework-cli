@@ -34,6 +34,11 @@ var ErrNoServer = errors.New("no Framework Cloud server is chosen")
 // nothing saying which one the project uses.
 var ErrAmbiguousServer = errors.New("this project does not say which Framework Cloud server it uses")
 
+// ErrProjectServerMissing means a project's .env has a project token but
+// no FW_CLOUD_URL. The token is valid only on the server that issued it, so
+// fw stops instead of guessing from the last login.
+var ErrProjectServerMissing = errors.New("this project's .env has FW_PROJECT_TOKEN but no FW_CLOUD_URL, so it does not say which Framework Cloud server issued the token. Add FW_CLOUD_URL=<server> to .env, or pass --url")
+
 // Server is a resolved server URL and where the setting came from.
 type Server struct {
 	URL    string
@@ -55,8 +60,10 @@ const loginSource = "your fw login default"
 //   - user calls: the flag, FW_CLOUD_URL, then the server of the last login
 //   - login: the same, then framework.pub, which fw login names and confirms
 //   - project calls: the flag, FW_CLOUD_URL in the project's .env, the
-//     environment variable, then the saved login. When the saved logins name
-//     different servers, a project call fails instead of guessing.
+//     environment variable, then the saved login. A project whose .env has
+//     FW_PROJECT_TOKEN but no FW_CLOUD_URL never uses the saved login, and
+//     neither does one when the saved logins name different servers: both
+//     fail instead of guessing.
 //
 // With nothing set, every call but login returns ErrNoServer.
 func (r Resolver) Resolve(scope Scope) (Server, error) {
@@ -75,6 +82,10 @@ func (r Resolver) Resolve(scope Scope) (Server, error) {
 			return Server{}, err
 		}
 		return Server{URL: url, Source: c.source}, nil
+	}
+
+	if scope == ProjectScope && r.ProjectDir != "" && project.EnvValue(r.ProjectDir, "FW_PROJECT_TOKEN") != "" {
+		return Server{}, ErrProjectServerMissing
 	}
 
 	saved, err := r.savedServers()

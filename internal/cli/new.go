@@ -72,8 +72,8 @@ func newNewCmd(a *app) *cobra.Command {
 			"For Python and R projects fw passes --offline and --workflow to\n" +
 			"framework-py (0.1.0.dev23 or later) or the framework R package, which apply\n" +
 			"the same rules. Logged in, they also register the project on Framework\n" +
-			"Cloud and write FW_PROJECT_TOKEN to its .env. --offline keeps it on this\n" +
-			"machine.\n\n" +
+			"Cloud and write FW_PROJECT_TOKEN and FW_CLOUD_URL to its .env. --offline\n" +
+			"keeps it on this machine.\n\n" +
 			"--from takes a layers file or the slug of one of your projects on Framework\n" +
 			"Cloud. A project from the cloud gets FW_PROJECT_TOKEN and FW_CLOUD_URL in its\n" +
 			".env. --pull-token creates a project from a project token instead of your\n" +
@@ -428,7 +428,9 @@ func linkProjectTo(cmd *cobra.Command, out io.Writer, link *cloudLink, dir strin
 		}
 		token = minted.Token
 		if minted.URL != "" {
-			url = minted.URL
+			if normalized, err := cloud.Normalize(minted.URL); err == nil {
+				url = normalized
+			}
 		}
 	}
 	if project.EnvTracked(dir) {

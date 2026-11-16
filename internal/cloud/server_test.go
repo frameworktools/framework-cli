@@ -71,20 +71,68 @@ func TestSavedServerFallsBackToR(t *testing.T) {
 	}
 }
 
-// A self-hosted login is used for a project whose .env has no FW_CLOUD_URL,
-// so its project token never goes to framework.pub.
+// A self-hosted login is used for a project that names no server and has no
+// token yet, so nothing goes to framework.pub.
 func TestResolveProjectUsesSelfHostedLogin(t *testing.T) {
 	dirs := config.Dirs{FW: t.TempDir(), R: t.TempDir()}
 	if err := dirs.SaveServer("https://framework.example.edu"); err != nil {
 		t.Fatal(err)
 	}
 	proj := t.TempDir()
-	if err := os.WriteFile(filepath.Join(proj, ".env"), []byte("FW_PROJECT_TOKEN=p\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(proj, ".env"), []byte("DB_HOST=localhost\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Resolver{Getenv: envOf(nil), Dirs: dirs, ProjectDir: proj}.Resolve(ProjectScope)
 	if err != nil || got.URL != "https://framework.example.edu" {
 		t.Fatalf("got %+v, %v; want the saved self-hosted server", got, err)
+	}
+}
+
+// A project token without FW_CLOUD_URL never goes to the last login's
+// server. --url and the environment variable still name one.
+func TestResolveProjectTokenWithoutServer(t *testing.T) {
+	dirs := config.Dirs{FW: t.TempDir(), R: t.TempDir()}
+	if err := dirs.SaveServer("https://framework.example.edu"); err != nil {
+		t.Fatal(err)
+	}
+	proj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(proj, ".env"), []byte("FW_PROJECT_TOKEN=p\nFW_CLOUD_URL=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := Resolver{Getenv: envOf(nil), Dirs: dirs, ProjectDir: proj}
+	_, err := r.Resolve(ProjectScope)
+	if !errors.Is(err, ErrProjectServerMissing) {
+		t.Fatalf("got %v; want ErrProjectServerMissing", err)
+	}
+	if want := "this project's .env has FW_PROJECT_TOKEN but no FW_CLOUD_URL, so it does not say which Framework Cloud server issued the token. Add FW_CLOUD_URL=<server> to .env, or pass --url"; err.Error() != want {
+		t.Errorf("message %q", err)
+	}
+	if got, err := r.Resolve(UserScope); err != nil || got.URL != "https://framework.example.edu" {
+		t.Errorf("user: got %+v, %v; account calls keep the saved login", got, err)
+	}
+	r.Flag = "https://flag.example.edu"
+	if got, err := r.Resolve(ProjectScope); err != nil || got.URL != "https://flag.example.edu" {
+		t.Errorf("flag: got %+v, %v", got, err)
+	}
+	r.Flag, r.Getenv = "", envOf(map[string]string{"FW_CLOUD_URL": "https://env.example.edu"})
+	if got, err := r.Resolve(ProjectScope); err != nil || got.URL != "https://env.example.edu" {
+		t.Errorf("env: got %+v, %v", got, err)
+	}
+}
+
+// A project's FW_CLOUD_URL wins over a different, more recent login.
+func TestResolveProjectIgnoresOtherLogin(t *testing.T) {
+	dirs := config.Dirs{FW: t.TempDir(), R: t.TempDir()}
+	if err := dirs.SaveServer("https://framework.pub"); err != nil {
+		t.Fatal(err)
+	}
+	proj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(proj, ".env"), []byte("FW_PROJECT_TOKEN=p\nFW_CLOUD_URL=https://framework.example.edu\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Resolver{Getenv: envOf(nil), Dirs: dirs, ProjectDir: proj}.Resolve(ProjectScope)
+	if err != nil || got.URL != "https://framework.example.edu" || got.Source != "the project's .env" {
+		t.Fatalf("got %+v, %v; want the project's server", got, err)
 	}
 }
 

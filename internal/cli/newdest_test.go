@@ -187,7 +187,7 @@ func TestNewGitHubWaitsAndClones(t *testing.T) {
 	if len(*ran) != 1 || strings.Join((*ran)[0].Args, " ") != "clone https://github.com/ada/survey.git "+dir {
 		t.Errorf("git: %v", *ran)
 	}
-	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "created-tok" {
+	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "created-tok" || project.EnvValue(dir, "FW_CLOUD_URL") != srv.URL {
 		t.Error("the clone was not linked")
 	}
 	if !strings.Contains(out, "is ready on GitHub: https://github.com/ada/survey") {

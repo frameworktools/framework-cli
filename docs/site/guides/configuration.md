@@ -21,7 +21,9 @@ Project-scoped commands (`fw publish`, `fw project push-spec`, `fw project statu
 1. `--url` flag
 2. `FW_CLOUD_URL` in the project's `.env`
 3. `FW_CLOUD_URL` environment variable
-4. Saved login server. When saved logins name different servers, the command fails and asks for `FW_CLOUD_URL` in `.env`.
+4. Saved login server, only for a project without `FW_PROJECT_TOKEN`. When saved logins name different servers, the command fails and asks for `FW_CLOUD_URL` in `.env`.
+
+A project with `FW_PROJECT_TOKEN` but no `FW_CLOUD_URL` never uses the saved login: the command fails and asks for `FW_CLOUD_URL` in `.env` or `--url`. Every link writes both, so this happens only after a hand edit.
 
 With none of these set, commands exit with an error. They never fall back to `https://framework.pub`. `fw login` without `--url`, `FW_CLOUD_URL`, or a saved login names `https://framework.pub` and asks before connecting.
 
@@ -48,7 +50,7 @@ Plain `http://` URLs are permitted only for `localhost` and loopback addresses.
 
 Unlike keyring entries (which are scoped per server host), `FW_CLOUD_TOKEN` and `FW_TOKEN_FILE` supply a single token for whichever server URL is active. Scope those variables to the matching server.
 
-Project `.env` files store `FW_PROJECT_TOKEN` and `FW_CLOUD_URL`, written by `fw new` or `fw project link`. `fw` refuses to write a token into a `.env` file tracked by Git.
+Project `.env` files store `FW_PROJECT_TOKEN` and `FW_CLOUD_URL`, written by `fw new`, `fw adopt --cloud`, or `fw project link`. `FW_CLOUD_URL` is always the server that issued the token; a different value is replaced. Other lines are kept. `fw` refuses to write a token into a `.env` file tracked by Git.
 
 > [!TIP]
 > In CI pipelines, pass `FW_CLOUD_TOKEN` (for account commands) from your CI secret store, and write `FW_PROJECT_TOKEN` (for project commands) to the project's `.env`, rather than running `fw login`.

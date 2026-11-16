@@ -8,10 +8,12 @@ import (
 	"strings"
 )
 
-// LinkCloud adds FW_PROJECT_TOKEN and FW_CLOUD_URL to the project's .env,
-// keeping any value already there, as R's setup does. An empty entry, as
-// .env.example leaves, is filled in. It returns the keys it added. The file
-// is created with mode 0600.
+// LinkCloud adds FW_PROJECT_TOKEN and FW_CLOUD_URL to the project's .env.
+// FW_CLOUD_URL is always the server that issued the token: a different or
+// empty value is replaced in place. A project that already has a token is
+// left alone. An empty entry, as .env.example leaves, or a commented one, as
+// Cloud's download leaves, is filled in; every other line is kept. It
+// returns the keys it set. The file is created with mode 0600.
 func LinkCloud(projectDir, token, url string) ([]string, error) {
 	path := filepath.Join(projectDir, ".env")
 	data, err := os.ReadFile(path)
@@ -19,14 +21,17 @@ func LinkCloud(projectDir, token, url string) ([]string, error) {
 		return nil, err
 	}
 	text := string(data)
+	if hasKey(text, "FW_PROJECT_TOKEN") {
+		return nil, nil
+	}
 	var add []string
 	var added []string
 	for _, kv := range [][2]string{{"FW_PROJECT_TOKEN", token}, {"FW_CLOUD_URL", url}} {
-		if hasKey(text, kv[0]) {
+		if keyValue(text, kv[0]) == kv[1] {
 			continue
 		}
 		added = append(added, kv[0])
-		if filled, ok := fillEmpty(text, kv[0], kv[1]); ok {
+		if filled, ok := setLine(text, kv[0], kv[1]); ok {
 			text = filled
 			continue
 		}
@@ -51,6 +56,20 @@ func LinkCloud(projectDir, token, url string) ([]string, error) {
 	return added, nil
 }
 
+// keyValue returns the unquoted value of the first key= line, or "".
+func keyValue(text, key string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if value, ok := strings.CutPrefix(strings.TrimSuffix(line, "\r"), key+"="); ok {
+			value = strings.TrimSpace(value)
+			if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+				value = value[1 : len(value)-1]
+			}
+			return value
+		}
+	}
+	return ""
+}
+
 // hasKey reports whether .env sets key to a value.
 func hasKey(text, key string) bool {
 	for _, line := range strings.Split(text, "\n") {
@@ -69,12 +88,16 @@ func emptyValue(value string) bool {
 	return false
 }
 
-// fillEmpty sets the first empty key= line to value.
-func fillEmpty(text, key, value string) (string, bool) {
+// setLine sets the first key= line, empty or not, to value.
+func setLine(text, key, value string) (string, bool) {
 	lines := strings.Split(text, "\n")
 	for i, line := range lines {
-		if rest, ok := strings.CutPrefix(line, key+"="); ok && emptyValue(strings.TrimSuffix(rest, "\r")) {
-			lines[i] = key + "=" + value
+		if strings.HasPrefix(line, key+"=") {
+			cr := ""
+			if strings.HasSuffix(line, "\r") {
+				cr = "\r"
+			}
+			lines[i] = key + "=" + value + cr
 			return strings.Join(lines, "\n"), true
 		}
 	}

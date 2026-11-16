@@ -9,22 +9,62 @@ import (
 )
 
 func TestLinkCloud(t *testing.T) {
+	// FW_CLOUD_URL is always the server that issued the token: a different
+	// value is replaced in place, and other lines are kept.
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("FW_CLOUD_URL=https://kept.example.edu\nOTHER=1"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("FW_CLOUD_URL=https://old.example.edu\nOTHER=1"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	added, err := LinkCloud(dir, "fw_tok", "https://new.example.edu")
-	if err != nil || len(added) != 1 || added[0] != "FW_PROJECT_TOKEN" {
+	if err != nil || strings.Join(added, ",") != "FW_PROJECT_TOKEN,FW_CLOUD_URL" {
 		t.Fatalf("added %v, %v", added, err)
 	}
-	if got := EnvValue(dir, "FW_CLOUD_URL"); got != "https://kept.example.edu" {
-		t.Errorf("FW_CLOUD_URL = %q; an existing value must be kept", got)
+	got, _ := os.ReadFile(filepath.Join(dir, ".env"))
+	if want := "FW_CLOUD_URL=https://new.example.edu\nOTHER=1\nFW_PROJECT_TOKEN=fw_tok\n"; string(got) != want {
+		t.Errorf(".env:\n%q\nwant\n%q", got, want)
 	}
-	if got := EnvValue(dir, "FW_PROJECT_TOKEN"); got != "fw_tok" {
-		t.Errorf("FW_PROJECT_TOKEN = %q", got)
+}
+
+func TestLinkCloudWritesServer(t *testing.T) {
+	for name, c := range map[string]struct{ in, want string }{
+		"no .env":        {"", "FW_PROJECT_TOKEN=fw_tok\nFW_CLOUD_URL=https://cloud.example.edu\n"},
+		"empty entries":  {"A=1\nFW_PROJECT_TOKEN=\nFW_CLOUD_URL=\nB=2\n", "A=1\nFW_PROJECT_TOKEN=fw_tok\nFW_CLOUD_URL=https://cloud.example.edu\nB=2\n"},
+		"commented url":  {"A=1\n# FW_CLOUD_URL=\n", "A=1\nFW_CLOUD_URL=https://cloud.example.edu\nFW_PROJECT_TOKEN=fw_tok\n"},
+		"quoted same":    {"FW_CLOUD_URL=\"https://cloud.example.edu\"\n", "FW_CLOUD_URL=\"https://cloud.example.edu\"\nFW_PROJECT_TOKEN=fw_tok\n"},
+		"other settings": {"DB_HOST=localhost\n", "DB_HOST=localhost\nFW_PROJECT_TOKEN=fw_tok\nFW_CLOUD_URL=https://cloud.example.edu\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if c.in != "" {
+				if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(c.in), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := LinkCloud(dir, "fw_tok", "https://cloud.example.edu"); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := os.ReadFile(filepath.Join(dir, ".env"))
+			if string(got) != c.want {
+				t.Errorf(".env:\n%q\nwant\n%q", got, c.want)
+			}
+		})
 	}
-	if got := EnvValue(dir, "OTHER"); got != "1" {
-		t.Errorf("OTHER = %q", got)
+}
+
+// A project that already has a token keeps its .env as is: fw does not add
+// a guessed FW_CLOUD_URL.
+func TestLinkCloudKeepsLinkedProject(t *testing.T) {
+	dir := t.TempDir()
+	in := "FW_PROJECT_TOKEN=old\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	added, err := LinkCloud(dir, "fw_tok", "https://cloud.example.edu")
+	if err != nil || len(added) != 0 {
+		t.Fatalf("added %v, %v; want nothing", added, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, ".env")); string(got) != in {
+		t.Errorf(".env changed to %q", got)
 	}
 }
 
@@ -47,7 +87,7 @@ func TestLinkCloudFillsDownloadPlaceholder(t *testing.T) {
 		// Without the placeholder, the token is appended
 		"absent": {"FW_CLOUD_URL=https://cloud.example.edu\n", "FW_CLOUD_URL=https://cloud.example.edu\nFW_PROJECT_TOKEN=fw_tok\n"},
 		// A placeholder without the hint is still filled in place
-		"bare": {"FW_CLOUD_URL=x\n#FW_PROJECT_TOKEN=\nB=2\n", "FW_CLOUD_URL=x\nFW_PROJECT_TOKEN=fw_tok\nB=2\n"},
+		"bare": {"FW_CLOUD_URL=https://cloud.example.edu\n#FW_PROJECT_TOKEN=\nB=2\n", "FW_CLOUD_URL=https://cloud.example.edu\nFW_PROJECT_TOKEN=fw_tok\nB=2\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()

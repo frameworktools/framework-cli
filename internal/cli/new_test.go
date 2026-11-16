@@ -244,9 +244,15 @@ func TestProjectLink(t *testing.T) {
 	if _, _, err := h.run(t, "user-tok\n", "project", "link", "--pull-token"); err == nil || !strings.Contains(err.Error(), "user token") {
 		t.Errorf("user token: %v", err)
 	}
+	// A stale FW_CLOUD_URL is replaced by the server that took the token.
+	writeTestFile(t, filepath.Join(proj, ".env"), "FW_CLOUD_URL=https://stale.example.edu\nOTHER=1\n")
 	out, _, err := h.run(t, "proj-tok\n", "project", "link", "--pull-token")
 	if err != nil || project.EnvValue(proj, "FW_PROJECT_TOKEN") != "proj-tok" || strings.Contains(out, "Warning") {
 		t.Errorf("%v\n%s", err, out)
+	}
+	if project.EnvValue(proj, "FW_CLOUD_URL") != srv.URL || project.EnvValue(proj, "OTHER") != "1" {
+		data, _ := os.ReadFile(filepath.Join(proj, ".env"))
+		t.Errorf(".env: %s", data)
 	}
 
 	h.app.cwd = h.app.home
@@ -339,7 +345,7 @@ func TestNewStataFromSlugLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(h.app.home, "vaccine-study")
-	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "minted-tok" {
+	if project.EnvValue(dir, "FW_PROJECT_TOKEN") != "minted-tok" || project.EnvValue(dir, "FW_CLOUD_URL") != "https://issuer.example.edu" {
 		t.Error(".env not linked")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "master.do")); err != nil {
@@ -555,7 +561,7 @@ func TestProjectLinkAlreadyLinked(t *testing.T) {
 	if _, _, err := h.run(t, "", "project", "link", "--from", "vaccine-study"); err != nil {
 		t.Fatal(err)
 	}
-	if project.EnvValue(root, "FW_PROJECT_TOKEN") != "minted-tok" || project.EnvValue(root, "OTHER") != "1" || minted != before+1 {
+	if project.EnvValue(root, "FW_PROJECT_TOKEN") != "minted-tok" || project.EnvValue(root, "FW_CLOUD_URL") != "https://issuer.example.edu" || project.EnvValue(root, "OTHER") != "1" || minted != before+1 {
 		data, _ := os.ReadFile(filepath.Join(root, ".env"))
 		t.Errorf("empty entries: %s", data)
 	}
@@ -580,9 +586,9 @@ func TestProjectStatusExitCodes(t *testing.T) {
 	}
 }
 
-// A project whose .env has no FW_CLOUD_URL uses the self-hosted server the
-// user logged in to, never framework.pub.
-func TestProjectStatusUsesLoginServer(t *testing.T) {
+// A project token without FW_CLOUD_URL is not sent to the server the user
+// logged in to: fw project status says to add FW_CLOUD_URL.
+func TestProjectStatusTokenWithoutServer(t *testing.T) {
 	srv := fakeCloud(t)
 	h := newHarness(t, nil)
 	(&fakeEngines{}).install(h, "Rscript")
@@ -592,8 +598,8 @@ func TestProjectStatusUsesLoginServer(t *testing.T) {
 	root := linkedProject(t, h, srv.URL)
 	write(t, root, ".env", "FW_PROJECT_TOKEN=proj-tok\n")
 	out, _, err := h.run(t, "", "project", "status", "--json")
-	if err != nil || !strings.Contains(out, srv.URL) || strings.Contains(out, "framework.pub") {
-		t.Errorf("%v\n%s", err, out)
+	if exitCode(err) != exitFailure || !strings.Contains(out, "Add FW_CLOUD_URL=<server> to .env") || strings.Contains(out, srv.URL) {
+		t.Errorf("exit %d %v\n%s", exitCode(err), err, out)
 	}
 }
 
@@ -606,7 +612,7 @@ func TestProjectStatusWithoutServerFails(t *testing.T) {
 	root := linkedProject(t, h, srv.URL)
 	write(t, root, ".env", "FW_PROJECT_TOKEN=proj-tok\n")
 	out, _, err := h.run(t, "", "project", "status", "--json")
-	if exitCode(err) != exitFailure || !strings.Contains(out, "no Framework Cloud server is chosen") || strings.Contains(out, "https://framework.pub") {
+	if exitCode(err) != exitFailure || !strings.Contains(out, "no FW_CLOUD_URL") || strings.Contains(out, "https://framework.pub") {
 		t.Errorf("exit %d %v\n%s", exitCode(err), err, out)
 	}
 	if _, _, err := h.run(t, "", "status"); exitCode(err) != exitAuth || !strings.Contains(err.Error(), "fw login") {

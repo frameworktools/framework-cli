@@ -26,11 +26,12 @@ func newProjectCmd(a *app) *cobra.Command {
 		Use:   "link",
 		Short: "Link this project to Framework Cloud, or create it there",
 		Long: "Adds FW_PROJECT_TOKEN and FW_CLOUD_URL to the project's .env, so the R and\n" +
-			"Python packages can publish to the server the project came from. Values\n" +
-			"already in .env are kept, and fw adds .env to .gitignore. A project that\n" +
-			"already has FW_PROJECT_TOKEN is linked: fw changes nothing and gets no new\n" +
-			"token. To link it to another project, remove FW_PROJECT_TOKEN and\n" +
-			"FW_CLOUD_URL from .env first.\n\n" +
+			"Python packages can publish to the server the project came from.\n" +
+			"FW_CLOUD_URL is always the server that issued the token, replacing a\n" +
+			"different value. Other lines are kept, and fw adds .env to .gitignore.\n" +
+			"A project that already has FW_PROJECT_TOKEN is linked: fw changes nothing\n" +
+			"and gets no new token. To link it to another project, remove\n" +
+			"FW_PROJECT_TOKEN and FW_CLOUD_URL from .env first.\n\n" +
 			"--from SLUG uses your login to get a new project token for one of your\n" +
 			"projects. --pull-token takes a project token from the project's page; fw\n" +
 			"asks for it, or reads it from stdin.\n\n" +

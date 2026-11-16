@@ -48,7 +48,7 @@ func TestNewFromCloudChoices(t *testing.T) {
 	if lastChoices != `{"name":"Second"}` || !strings.Contains(errOut, "Created survey on") {
 		t.Errorf("--defaults --cloud: %s\n%s", lastChoices, errOut)
 	}
-	if dir := filepath.Join(h.app.home, "second"); project.EnvValue(dir, "FW_PROJECT_TOKEN") != "created-tok" {
+	if dir := filepath.Join(h.app.home, "second"); project.EnvValue(dir, "FW_PROJECT_TOKEN") != "created-tok" || project.EnvValue(dir, "FW_CLOUD_URL") != srv.URL {
 		t.Error("the created project was not linked")
 	}
 
