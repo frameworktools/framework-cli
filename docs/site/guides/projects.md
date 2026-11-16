@@ -1,25 +1,21 @@
 ---
 id: projects
 title: Project creation and setup
-description: Project creation, adoption, and bootstrap for R, Python, and Stata
+description: Project creation, adoption, upgrade, and bootstrap for R, Python, and Stata
 section: guides
 position: 3
 ---
 
-fw creates projects through each language's own Framework package, so a
-project made with fw is the same as one made in R or Python.
+`fw` builds R and Python projects through each language's Framework package and builds Stata projects natively, producing identical project layouts across interfaces.
 
 ## Project sources
 
-`fw new` takes a project from one of four places:
+`fw new` builds a project from one of four sources:
 
-- `--from SLUG`: one of your projects on Framework Cloud.
-- `--from FILE`: a layers file, such as one downloaded from Framework Cloud.
-- A name and pieces on Framework Cloud: a blueprint, a project structure,
-  tools, package sets, skills, and settings.
-- A name, `--lang`, and `--type`: a new project from the language's own
-  defaults, without the cloud. Without `--type`, the type is `project`, the
-  Standard Project. Pass `--type bare` for a bare project.
+- `--from SLUG`: an existing project on your Framework Cloud account.
+- `--from FILE`: a saved layers JSON file.
+- A project name combined with Framework Cloud flags (`--blueprint`, `--structure`, `--tool`, `--package-set`, `--skill-set`, `--skill`, and settings flags).
+- A project name with `--lang` and `--type`: a project built from the language's own defaults (`project` by default, or `bare` for a minimal layout).
 
 ```sh
 fw new --from vaccine-study
@@ -28,60 +24,41 @@ fw new survey --blueprint framework/project --tool renv --sensitive
 fw new survey-analysis --lang r --type project_sensitive
 ```
 
-At a terminal, `fw new` with no name walks you through it. It asks for the
-project's name and language and, when you are logged in, a blueprint. Flags
-you give answer their questions, and without a terminal fw never asks.
+At an interactive terminal, running `fw new` with no arguments prompts for the project name, language, and (when signed in) blueprint. Explicit flags skip the corresponding prompts. Without a terminal, `fw` never prompts.
 
-## Project location
+## Target directory
 
-`--dir` names the project folder. Without it, fw asks at a terminal:
+Pass `--dir` to specify the target directory. Without `--dir`, an interactive terminal prompts for confirmation:
 
 ```text
 Create the project here (/home/ada/survey)? [y/n]
 ```
 
-With a Projects folder set in Framework Cloud Settings, fw offers a folder
-there instead:
+When a **Projects folder** is configured in Framework Cloud (**Settings > Project defaults**), `fw` offers a subdirectory inside that folder instead:
 
 ```text
 Create the project in /home/ada/research/survey? [y/n]
 ```
 
-Logged in, fw asks the server for it; otherwise, or offline, it reads the
-copy of your settings that R's and Python's `cloud_sync()` keep. With
-`--pull-token`, the project owner's Projects folder, sent with the project,
-comes first. A missing Projects folder is created with the project.
+When signed in, `fw` reads the **Projects folder** setting from the server; offline or signed out, it reads the local cache written by `cloud_sync()` in R or Python. With `--pull-token`, the project owner's **Projects folder** takes precedence. Missing parent directories are created automatically.
 
-Enter or `y` takes the offered folder. `n` asks for another folder, which
-holds the project folder. A path that already ends in the project's folder
-name is used as is, and `~` is your home folder. Without a terminal, or with
-`--headless`, fw stops and asks for `--dir`. This covers `--pull-token`,
-`--zip`, and a GitHub project cloned here too.
+Press Enter or `y` to accept the suggested path, or `n` to enter a different parent directory. If the entered path already ends with the project slug, `fw` uses it directly. `~` expands to your home directory. Without a terminal, or with `--headless`, `--dir` is required across local, `--pull-token`, `--zip`, and cloned `--github` builds.
 
-## Build location
+## Build destination
 
-When you are logged in and the server offers more than one build location,
-fw asks which to use:
+When signed in to a server that supports remote builds or GitHub scaffolding, interactive `fw new` asks how to provision the project:
 
-- **Build it here.** fw runs the language's package on this computer. This
-  is the default and needs R, Python, or nothing for Stata.
-- **Download it ready-made.** Framework Cloud builds the project, and fw
-  unpacks it into the folder. Nothing needs to be installed, and there is no
-  Git repository.
-- **Create it on GitHub.** Framework Cloud creates a repository and builds
-  the project there. fw waits for it and clones it into the folder.
+- **Local setup (`--local`)**: runs the language scaffolder on this machine (the default; requires R or Python, or no extra runtime for Stata).
+- **ZIP download (`--zip`)**: builds the project on Framework Cloud and extracts the archive locally without initializing a Git repository or requiring local language runtimes.
+- **GitHub repository (`--github OWNER` or `--github OWNER/REPO`)**: creates a GitHub repository (private unless `--public` is passed), scaffolds the project on GitHub, and clones it locally unless `--no-clone` is passed.
 
-Each of these is also a flag, for scripts and agents:
-
-| Flag | Effect |
+| Flag | Behavior |
 |---|---|
-| `--local` | built here, without asking |
-| `--zip` | built on Framework Cloud and downloaded here |
-| `--github OWNER` or `--github OWNER/REPO` | a new repository, private unless `--public`; `--no-clone` leaves it on GitHub |
+| `--local` | Scaffold locally without prompting |
+| `--zip` | Build on Framework Cloud and extract locally |
+| `--github OWNER[/REPO]` | Scaffold in a new GitHub repository (`--public` makes it public; `--no-clone` skips cloning) |
 
-`--zip` and `--github` create the project on Framework Cloud and link the
-folder to it, so they need `fw login`. GitHub also has to be connected on
-the server, with the Framework app installed on the owner.
+Both `--zip` and `--github` register the project on Framework Cloud, write `FW_PROJECT_TOKEN` to `.env`, and require `fw login`. `--github` also requires a connected GitHub account and the Framework GitHub App installed on the target owner.
 
 ```sh
 fw new
@@ -89,252 +66,102 @@ fw new survey --lang python --zip
 fw new survey --blueprint framework/project --github my-lab/survey
 ```
 
-## Cloud pieces
+## Cloud components
 
-These flags build a project from pieces on Framework Cloud. Your defaults
-there (Settings > Defaults) fill whatever you leave out, and `--defaults`
-uses only your defaults.
+The flags below assemble a project from components on Framework Cloud. Unspecified fields inherit your **Settings > Project defaults** on Framework Cloud, and `--defaults` uses those defaults directly.
 
-| Flag | Chooses |
-|------|---------|
-| `--blueprint KEY` | a saved set of choices |
-| `--structure KEY` | the folders and Framework's core files |
-| `--tool ID`, `--no-tool ID` | tools such as `quarto`, `targets`, `renv`, `uv`, and `jupyter` |
-| `--package-set KEY` | a named list of packages |
-| `--skill-set KEY`, `--skill KEY` | skills for AI assistants |
-| `--sensitive`, `--ai`, `--git` | settings; add `=false` to turn one off |
+| Flag | Component |
+|---|---|
+| `--blueprint KEY` | Blueprint preset |
+| `--structure KEY` | Directory layout and core Framework files |
+| `--tool ID`, `--no-tool ID` | Optional integrations (`quarto`, `targets`, `renv`, `uv`, `jupyter`) |
+| `--package-set KEY` | Named package list |
+| `--skill-set KEY`, `--skill KEY` | AI assistant skills |
+| `--sensitive`, `--ai`, `--git` | Boolean project flags (pass `=false` to disable) |
 
-Some flags can be repeated, as in `--tool renv --tool
-targets`. List what you can choose from with `fw blueprints list`,
-`fw structures list`, `fw tools list`, `fw package-sets list`, and
-`fw skills list`. Stata projects have no tools.
+Repeatable flags can be combined, such as `--tool renv --tool targets`. Inspect available keys with `fw blueprints list`, `fw structures list`, `fw tools list`, `fw package-sets list`, and `fw skills list`. Stata projects do not use tool layers.
 
-These flags need `fw login`. At a terminal, fw then asks whether to also
-create the project on Framework Cloud, defaulting to No. A project created
-there is linked, as with `--from`. Without a terminal, fw creates it on the
-cloud only with `--cloud`. `--no-cloud` keeps it on this machine without
-asking.
+Component flags require `fw login`. At a terminal, `fw` asks whether to register the project on Framework Cloud as well (defaulting to `No`). Without a terminal, pass `--cloud` to register and link the project on Framework Cloud, or `--no-cloud` to keep it local without prompting.
 
-## Stata projects and saved defaults
+## Offline defaults
 
-When you are logged in, `fw new NAME --lang stata` builds the project from
-your defaults on Framework Cloud and saves them on this machine, in
-`cache/defaults/` in the Framework configuration folder. If the server
-cannot be reached later, fw uses the saved defaults and prints the date they
-were saved. With nothing saved, fw asks before using its built-in defaults
-at a terminal. Without a terminal it stops, unless you add `--offline`.
-`--offline` never contacts the server: fw uses the saved defaults, or its
-built-in ones when none are saved. A rejected login is an error and never
-falls back to saved defaults.
+When signed in, `fw new NAME --lang stata` resolves your Stata defaults from Framework Cloud and caches them under `cache/defaults/` in the Framework configuration directory. If the server is unreachable on a later run, `fw` uses the cached defaults and prints the cache date. When no cached defaults exist, `fw` prompts before falling back to built-in defaults at a terminal, or exits without a terminal unless `--offline` is set. Passing `--offline` skips network requests and uses cached defaults (or built-in defaults when no cache exists). Rejected credentials always fail rather than falling back to cached defaults.
 
-Without a login, and with `--type`, fw uses its built-in setups.
+When signed out, or when `--type` is passed, `fw` uses its built-in templates.
 
-Python and R projects follow the same rules inside framework-py 0.1.0.dev6
-or later and the framework R package. fw passes `--offline` and
-`--workflow` (`quarto`, `jupyter`, or `scripts`) through to them. fw checks
-that the installed R package takes them, and says to update it when it does
-not. Rscript cannot ask questions, so when you are logged in and the server
-cannot be reached, fw asks at a terminal before building an R project
-offline. Without a terminal, add `--offline`.
+R (`framework` 2.0.0+) and Python (`framework-py` 0.1.0.dev22+) apply the same offline caching rules. `fw` forwards `--offline` and `--workflow` (`quarto`, `jupyter`, or `scripts`) to both packages and reports if an older installed R package lacks support. Because `Rscript` runs non-interactively, `fw` prompts at the terminal when the Cloud server is unreachable before invoking an offline R build; without a terminal, pass `--offline`.
 
-Logged in, framework-py and the R package also register a project built
-from your defaults on Framework Cloud and write `FW_PROJECT_TOKEN` to its
-`.env`. `--offline` keeps it on this machine.
+When signed in online, R and Python builds from your Cloud defaults also register the project on Framework Cloud and write `FW_PROJECT_TOKEN` to `.env`. Pass `--offline` to keep the build local-only.
 
-## Git repositories
+## Git initialization
 
-A project built here gets a git repository and a first commit, unless your
-defaults turn git off or the folder is already inside a repository.
-`--headless`, for automation, never prompts, and makes no repository in
-these cases:
+Local builds initialize a Git repository and create an initial commit unless Git is disabled in your defaults or the target directory already sits inside a Git repository. Passing `--headless` disables prompts and skips Git initialization in two cases:
 
-- with `--from` and a layers file, in every language
-- for Stata projects, which fw builds itself
+- Builds from a local layers file (`--from FILE`) in any language.
+- Stata builds scaffolded directly by `fw`.
 
-`--offline --headless` without `--from` still runs `git init` for R and
-Python projects. fw has no `--no-git` to pass on: neither the framework R
-package's `new()` (2.0.0) nor framework-py's `create` (0.1.0.dev9) has a
-setting that skips git. To build one without git, turn git off in your
-defaults, create it from a layers file with `--from` and `--headless`, or
-delete `.git` afterwards.
+`--offline --headless` without `--from` still runs `git init` for R and Python projects because `framework::new()` and `python -m framework create` do not expose a flag to skip Git on built-in defaults. To omit `.git`, disable Git in your Cloud defaults, pass a layers file with `--from` and `--headless`, or remove `.git` after creation.
 
-## Existing folders
+## Existing directories and upgrades
 
-`fw adopt [DIR]` makes a folder you already work in a Framework project
-without moving anything. fw looks at folder names only, never file names or
-contents, and at most three levels deep. It skips version-control folders,
-environments, caches, and hidden folders. It proposes a Framework directory
-for each folder it recognizes, such as `data/raw` for `inputs_raw`, and
-lists the rest as other folders. At a terminal you can change a folder's
-role or leave it out. Without one, read the proposal and pass `--yes`.
+`fw adopt [DIR]` converts an existing project directory into a Framework project in place without moving or overwriting files. `fw` scans directory names up to three levels deep (never filenames or file contents), skipping version-control metadata, virtual environments, caches, and hidden directories. It maps recognized names (such as `inputs_raw` to `data/raw`) and records remaining directories under `extra_directories`. Interactive runs let you reassign or omit any directory; non-interactive runs require `--yes` after reviewing the proposal.
 
-fw detects the language from the files at the top of the folder and says
-which file decided it: `.do` files, `pyproject.toml`, or `renv.lock`,
-`DESCRIPTION`, or an `.Rproj` file first, then weaker signs such as
-`setup.py`, `requirements*.txt`, notebooks, and `.R`, `.Rmd`, or `.qmd`
-files. `--lang` overrides it. A folder of loose files with no subfolders is
-adopted with no directories.
+`fw` detects the project language from top-level files and reports the deciding file: `.do` files for Stata; `pyproject.toml` for Python; `renv.lock`, `DESCRIPTION`, or `*.Rproj` for R; followed by `setup.py`, `requirements*.txt`, `.ipynb`, `.R`, `.Rmd`, or `.qmd`. Pass `--lang` to override detection. Directories containing only top-level files adopt cleanly with an empty directory map.
 
-A folder whose path inside the project contains "private" gets a warning.
-Keep such folders out of git and away from AI assistants. `--sensitive`
-turns on Framework's guards for private data. fw infers the type from the
-folders, as R and Python do: `course` when two or more course folders
-(such as `slides/`, `modules/`, and `assignments/`) are at the top,
-`project_sensitive` when private and public data folders map, `project`
-when any folder maps, and `bare` otherwise. `--type` sets it: `project`,
-`project_sensitive`, `course`, `presentation`, or `bare` (Stata takes
-`project`, `project_sensitive`, and `bare`). Framework's `settings/` folder
-and Quarto's render folders (`*_files`, `_site`) are never project folders,
-and rendered-notebook folders such as `outputs/notebooks` become
-`render_dirs`. fw passes both to the R and
-Python packages, and says when the installed package is too old to take
-them.
+Paths containing `private` trigger a warning. Pass `--sensitive` to enable privacy guards. `fw` infers the project type from mapped directories (`course` when two or more course directories appear at the root, `project_sensitive` when both private and public data directories map, `project` when any directory maps, and `bare` otherwise), or accepts an explicit `--type` (`project`, `project_sensitive`, `course`, `presentation`, or `bare`; Stata supports `project`, `project_sensitive`, and `bare`). Framework's `settings/` directory and Quarto output directories (`*_files`, `_site`) are excluded from directory roles, while rendered-output directories such as `outputs/notebooks` become `render_dirs`.
 
-For a Stata project fw writes `settings.do`, `settings.yml`, and
-`.framework/spec.json`, and appends the `.gitignore` lines the project
-lacks for secrets and private folders. It never changes a line already in
-`.gitignore`. For Python projects fw runs framework-py's `adopt`, and for R
-projects it shows the proposal and runs `framework::adopt()` to accept it.
-To change a folder's role in an R project, run `framework::adopt()` in R.
-`--json` without `--yes` prints the proposal and changes nothing.
+For Stata projects, `fw adopt` writes `settings.do`, `settings.yml`, and `.framework/spec.json`, and appends missing secret and private-directory rules to `.gitignore` without altering existing lines. Python projects run `framework-py`'s `adopt`, and R projects preview the mapping before running `framework::adopt()` (to customize individual directory roles in R, run `framework::adopt()` inside an R session). Running `fw adopt --json` without `--yes` prints the proposed mapping as JSON without modifying disk.
 
-In a sensitive project, fw lists the folders that may hold restricted data
-(inputs and outputs folders, `data`, `cache`, `scratch`, and folders named
-like data, exports, reports, results, raw, tables, figures, or cohorts)
-and, at a terminal, asks about each. `--private FOLDER`, repeatable, marks
-a folder without asking: it keeps its path and gets a private key
-(`inputs_raw` becomes `inputs_private_raw`; another folder becomes
-`outputs_private_<name>` or `inputs_private_<name>`), and `.gitignore`
-keeps it out of git. R needs a framework package newer than 2.0.1 for it,
-and Python a framework-py newer than 0.1.0.dev13.
+In sensitive projects, `fw` identifies directories that may hold restricted data (`data`, `cache`, `scratch`, input/output directories, and directories named after exports, reports, results, raw files, tables, figures, or cohorts) and asks whether to mark each one private. Pass `--private FOLDER` (repeatable) to mark paths non-interactively: each directory keeps its current path on disk, receives a `*_private_*` directory key, and is added to `.gitignore` (requires `framework` > 2.0.1 in R and `framework-py` > 0.1.0.dev13 in Python).
 
-fw adopt stops without changing anything if the folder is already a
-Framework project, and names the file it found. A `config.yml` counts only
-when it is Framework's own. Upgrade an existing project instead:
-`fw project upgrade` prints what would change, and `--apply` makes the
-changes. R projects run `framework::upgrade()`, Python projects
-`python -m framework upgrade`, and fw upgrades Stata projects itself. It
-never removes a line, and backs up each file it changes to
-`.framework/backups/`.
+If the target directory is already a Framework project, `fw adopt` exits without making changes and names the detected configuration file. Run `fw project upgrade` instead to inspect layout updates, and pass `--apply` to write them. R runs `framework::upgrade()`, Python runs `python -m framework upgrade`, and `fw` upgrades Stata projects directly (updating `master.do` to run `fw_scaffold` when `framework-stata` 0.3.0+ is installed, adding missing `settings.yml` and `.gitignore` entries, and backing up modified files under `.framework/backups/`).
 
-`fw project upgrade --type TYPE` changes a project's type, as R's
-`upgrade(type =)` does. To `project_sensitive` it turns on
-`security: sensitive` and adds the Privacy Sensitive layout's private and
-public folders the project lacks, keeping its own folders; the `.gitignore`
-rules, the private folders, and the guard that keeps Claude Code out of
-them follow in the same pass. A sensitive project changed to another type
-stays sensitive. `--move-settings` moves settings keys outside the
-environment sections into `settings/<key>.yml` (R and Python). fw passes
-both to R's `upgrade()` (a framework package newer than 2.0.1) and to
-framework-py (newer than 0.1.0.dev13), and says when the installed package
-lacks them. In Stata, fw makes the change itself, adding the new folders to
-`settings.yml` and `settings.do`, and takes `project`, `project_sensitive`,
-or `bare`. fw also creates a Stata project's missing private folders, which
-git doesn't keep, in `fw project upgrade` and `fw project bootstrap`.
+`fw project upgrade --type TYPE` converts a project's type. Switching to `project_sensitive` enables `security.sensitive`, adds missing private and public directories alongside existing ones, updates `.gitignore`, and writes AI assistant read-deny rules. Sensitive projects retain `security.sensitive: true` even if switched to another layout type. In R and Python, `--move-settings` splits top-level settings sections into `settings/<key>.yml`.
 
-The project stays on this machine until you create it on Framework Cloud.
-`fw project link --create` sends `.framework/spec.json` to Framework Cloud,
-which makes the project from exactly that spec (its folders, type,
-language, and tools, without your defaults) at the folder's slug or
-`--slug`, and marks an adopted project as adopted. fw then links the folder
-with a project token in `.env`. `fw adopt --cloud` does the same right
-after adopting. Running it again on a linked project changes nothing; send
-a changed spec with `fw project push-spec`. If you already have a Cloud
-project with that slug, fw offers `fw project link --from SLUG` instead. A
-slug held by a project in your Trash can't be reused; restore that
-project and link to it, or choose another slug. An older self-hosted server builds the project from your
-defaults, and fw sends the spec separately.
+Adopted projects remain local until registered on Framework Cloud. Run `fw project link --create` (or pass `--cloud` during `fw adopt`) to create the Cloud project directly from `.framework/spec.json` at the folder's slug (or `--slug`), link `.env` with `FW_PROJECT_TOKEN`, and preserve the adopted layout without mixing in account defaults. Subsequent spec updates use `fw project push-spec`. If the slug already exists on your account, `fw` suggests `fw project link --from SLUG`; slugs held by trashed projects must be restored or replaced with another `--slug`.
 
-Both commands check the spec against spec.v1 before sending it, as Framework
-Cloud does. A spec that an older `upgrade()` wrote can hold
-`scaffold.positron` and `source.upgraded_from`, which spec.v1 doesn't
-allow; fw leaves them out of what it sends, with a warning, and
-`fw project upgrade --apply` (in R, with a framework package newer than
-2.0.1) drops them from the file. Any other problem stops fw before it
-sends anything, with each key named; fix it with
-`fw project upgrade --apply`.
+Both `fw project link --create` and `fw project push-spec` validate `.framework/spec.json` against `spec.v1` before uploading. Legacy keys written by older `upgrade()` versions (`scaffold.positron` and `source.upgraded_from`) are stripped from the payload with a warning and removed permanently by `fw project upgrade --apply`. Any other schema violation stops the upload and lists the offending keys.
 
-`fw structures import --type` records the project type a saved layout is
-for, such as `bare` or `project_sensitive`.
+`fw structures import [DIR]` scans a directory with the same mapping rules and saves its directory roles as a private reusable **Project structure** on Framework Cloud (use `--type` to tag the target project type). Only directory paths and role keys are uploaded.
 
-`fw structures import [DIR]` maps a folder the same way and saves the layout
-as a structure on Framework Cloud, private to you, so new projects can use
-it with `fw new --structure`. Only folder paths and their roles are sent.
-`--json` without `--yes` shows the proposal and saves nothing.
+## Language engines
 
-## Languages
+- **R**: runs `framework::new()` or `framework::project_create_from_layers()` via `Rscript`.
+- **Python**: runs `python -m framework create` via `uv` when installed (requesting `framework-py` 0.1.0.dev22+ and refreshing package metadata unless `UV_OFFLINE` is set).
+- **Stata**: runs `fw`'s built-in scaffolder, generating `master.do`, `settings.do`, `settings.yml`, a `logs/` directory, and `.gitignore`. Starter analysis `.do` files come from blueprints when included.
 
-- **R** projects are created with `framework::new()` or
-  `framework::project_create_from_layers()` through `Rscript`.
-- **Python** projects are created with `python -m framework create`, run
-  through `uv` when it is installed. fw asks uv for framework-py 0.1.0.dev9
-  or later and has it check for new releases first
-  (`--refresh-package framework-py`), unless `UV_OFFLINE` is set.
-- **Stata** projects are built by fw itself: a master do-file, `settings.do`
-  with path globals, `settings.yml`, a log folder, and a `.gitignore` that,
-  as in R and Python, keeps `private/` folders and logs out of git. Starter
-  do-files come only from a blueprint.
+In Stata projects, `settings.do` defines path globals such as `$inputs_raw`, while `settings.yml` stores the project name, directory map, `data` catalog (`fw_use` / `fw_save`), `packages` list (`fw_packages`), `scaffold` settings (`seed`, `stata_scheme`, `source_all_functions`), `publish` destinations (`fw_publish`), and `security.sensitive`. `framework-stata` 0.2.0+ reads both files (`settings.yml` wins if a directory path differs), and `master.do` runs `fw_scaffold` on `framework-stata` 0.3.0+ (falling back to `fw_project` on 0.2.x).
 
-`settings.do` and `settings.yml` divide a Stata project's settings.
-`settings.do` sets the path globals that do-files use, such as
-`$inputs_raw`. `settings.yml` lists the same folders and holds the project
-name, the data catalog for `fw_use` and `fw_save`, the publishing
-destinations for `fw_publish`, and, in `project_sensitive` projects,
-`security: sensitive: true`. It starts with an empty catalog and commented
-examples. Framework for Stata 0.2.0 or later reads both files; when they set
-a folder differently, `settings.yml` wins and `fw_project` notes it.
-`master.do` runs `fw_project` and stops with the install command when
-framework-stata 0.2.0 or later is missing.
-
-Types and workflows differ by language:
+Supported project types and workflows vary by language:
 
 | Language | `--type` | `--workflow` |
 |---|---|---|
-| R, Python | `project` (the default), `project_sensitive`, `course`, `presentation`, `bare` | `quarto`, `jupyter`, `scripts` |
-| Stata | `project` (the default), `project_sensitive`, `bare` | `scripts` |
+| R, Python | `project` (default), `project_sensitive`, `course`, `presentation`, `bare` | `quarto`, `jupyter`, `scripts` |
+| Stata | `project` (default), `project_sensitive`, `bare` | `scripts` |
 
-fw stops with a message naming these when a Stata project asks for another
-type or workflow.
+Stata does not have a standalone `presentation` project type because `dyndoc` produces HTML documents rather than slide decks. For slide decks backed by Stata analyses, scaffold a Stata `project`, export figures to `outputs/figures`, and render slides from an R or Python `presentation` project.
 
-There is no Stata presentation type. Stata's own `dyndoc` turns Markdown
-with Stata output into an HTML page, not slides, and a deck would need
-Quarto or pandoc on top, which Stata projects do not use. For a talk, create
-a Stata project with `--type project`, export the figures to
-`outputs/figures`, and build the deck in an R or Python presentation project
-from those files.
+When R, Python, or `uv` is not installed, `fw` saves the resolved layers file and prints the exact command to run once the runtime is available. Pass `--print` to display that command without executing it.
 
-When R, Python, or uv is missing, fw prints the exact command to run once it
-is installed, and keeps the layers file for it. `--print` shows that command
-without running anything.
+## Runtime environments
 
-## Project environments
+`fw` locates the enclosing project root and executes commands inside the project's isolated environment:
 
-fw finds the project from the current folder and runs code in the project's
-own environment, so its pinned package versions apply:
+- **R**: runs from the project root so `.Rprofile` activates `renv`.
+- **Python**: runs through `uv run` when `uv.lock` is present, or uses `.venv`.
 
-- R runs from the project folder, where `.Rprofile` activates renv.
-- Python runs with `uv run` when `uv.lock` exists, or with the project's
-  `.venv`.
+Run `fw project status` to inspect the detected project root, language, runner command, and Cloud link state.
 
-`fw project status` shows what fw found and why.
-
-## Bootstrap after a clone
+## Bootstrap after cloning
 
 ```sh
 fw project bootstrap
 ```
 
-This runs `framework::bootstrap()` for R or `python -m framework bootstrap`
-for Python. It restores packages, creates `.env` from `.env.example`, creates
-the folders git does not keep, and installs the git hooks. It exits 0 when
-the project is ready, even if it lists to-dos such as empty `.env` values.
+`fw project bootstrap` runs `framework::bootstrap()` in R or `python -m framework bootstrap` in Python. It restores locked packages, copies `.env.example` to `.env`, creates gitignored directories, and installs Git hooks. It exits `0` once setup succeeds, printing any remaining manual steps such as filling empty `.env` variables.
 
-Stata projects need no bootstrap: `settings.do` creates the missing folders
-when it runs.
+In Stata projects, `fw project bootstrap` creates any missing gitignored private directories; `settings.do` creates remaining standard directories on first run, and `fw_scaffold` installs packages declared in `settings.yml`.
 
 ## Sensitive projects
 
-Projects of type `project_sensitive` keep private and public data in
-separate folders. Their AI assistant settings deny reads of private folders
-and `.env`. The R and Python packages write those rules, and fw writes the
-same ones for Stata projects.
+Projects created or upgraded as `project_sensitive` separate restricted files (`inputs/private/`, `outputs/private/`) from shareable outputs (`outputs/public/`), ignore private paths in `.gitignore`, and write AI assistant configuration rules that block reading `.env` and private directories across R, Python, and Stata.

@@ -1,74 +1,62 @@
 ---
 id: quickstart
 title: Quickstart
-description: Log in, create a project from Framework Cloud, and publish a notebook
+description: Sign in, create a project from Framework Cloud, and publish an artifact
 section: getting_started
 position: 2
 ---
 
-This guide covers the most common workflow: log in, create a project you
-started on Framework Cloud, prepare it, and publish a rendered notebook.
+This guide covers signing in to Framework Cloud, creating a linked local project, bootstrapping a cloned repository, and publishing a rendered report.
 
-## Logging in
+## Sign-in
 
 ```sh
 fw login
 ```
 
-fw explains what connecting the machine means, opens a browser to approve the
-login, and stores the token in the system keyring. The R and Python packages
-read the same keyring entry, so logging in once covers all three. To use a
-self-hosted server, add `--url https://framework.example.edu`.
+`fw` prints a data-sharing notice, opens your browser to approve the device code, and stores the resulting token in the system keyring. The R and Python packages read the same keyring entry. Pass `--url https://framework.example.edu` to connect to a self-hosted server.
 
-Check the login:
+Verify the active account and server:
 
 ```sh
 fw status
 ```
 
-## Creating a project
+## Project creation
 
-List your projects and create one locally:
+List your Cloud projects and scaffold one locally:
 
 ```sh
 fw projects list
 fw new --from vaccine-study
 ```
 
-fw asks where to create the project, offering a folder named for it in the
-current directory. `--dir` names the folder instead. fw fetches the project's layers and hands them to the project's language
-package: R, framework-py, or fw's own Stata scaffolding. It then links the
-project to the cloud by adding `FW_PROJECT_TOKEN` and `FW_CLOUD_URL` to its
-`.env`.
+At an interactive terminal, `fw` offers a directory named after the project slug (inside your configured **Projects folder** when set, or the current working directory). Pass `--dir` to set the target path directly. `fw` downloads the project layers, runs the language scaffolder (`framework` in R, `framework-py` in Python, or `fw`'s built-in Stata engine), and writes `FW_PROJECT_TOKEN` and `FW_CLOUD_URL` to `.env`.
 
-To start a project without the cloud, give a name and a language:
+To create a local project without Framework Cloud, pass a project name and language:
 
 ```sh
-fw new survey-analysis --lang python --type project
+fw new survey-analysis --lang python --type project --offline
 ```
 
-## Preparing a cloned project
+## Cloned repository setup
 
-After cloning a project someone else created, run:
+After cloning an existing Framework repository, restore its local environment:
 
 ```sh
 cd vaccine-study
 fw project bootstrap
 ```
 
-It restores packages, creates `.env` from `.env.example`, and creates the
-folders git does not keep. See [Project creation and setup](guide:projects) for what happens in each
-language.
+`fw project bootstrap` restores locked packages, copies `.env.example` to `.env` when missing, creates gitignored directories, and installs Git hooks. See [Project creation and setup](guide:projects) for language-specific behavior.
 
-## Publishing a notebook
+## Notebook publishing
 
-Render the notebook, then publish the HTML:
+Render the Quarto document, then publish the resulting HTML file:
 
 ```sh
 quarto render notebooks/results.qmd
 fw publish outputs/notebooks/results.html --slug results
 ```
 
-fw shows what it will upload and asks first. The document gets an unlisted
-link, and `--readable` also gives it a readable address under your handle.
-See [Publishing artifacts](guide:publishing).
+`fw` prints the upload summary and asks for confirmation. Published Cloud artifacts receive an unguessable unlisted URL by default; pass `--readable` to add a handle-based URL under your account. See [Publishing artifacts](guide:publishing) for collections, visibility controls, and static destinations.

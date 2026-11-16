@@ -1,20 +1,19 @@
 ---
 id: agents
 title: AI agents and scripts
-description: JSON output, exit codes, and browser-approved login
+description: Structured JSON output, exit codes, non-interactive flags, and device-code sign-in
 section: guides
 position: 1
 ---
 
-AI coding agents and scripts can run fw as well as people. Commands that report information take `--json`, failures have
-distinct exit codes, and the login keeps the token away from the agent.
+`fw` supports non-interactive execution for AI coding agents and CI scripts: inspection and sync commands accept `--json`, failure modes map to distinct exit codes, and device-code sign-in keeps API tokens out of agent transcripts.
 
-## Example session
+## Non-interactive session
 
-Without a terminal, `fw new` needs `--dir` for the project folder.
+Without an interactive terminal, pass `--dir` to `fw new` and `--yes` to commands that modify remote state or local setup:
 
 ```sh
-fw login --yes --json                 # a person approves the link
+fw login --yes --json                 # human approves the verification URL
 fw projects list --json
 fw structures list --lang r --json    # also tools, package-sets, and skills
 fw new --from vaccine-study --dir vaccine-study && cd vaccine-study
@@ -24,40 +23,30 @@ fw publish outputs/notebooks/results.html --slug results --yes --json
 fw publish outputs/notebooks/results.html --to github --yes --json
 ```
 
-## Login without a terminal
+## Browser-approved sign-in
 
-When fw has no terminal, `fw login` needs `--yes`, given after reading the
-notice it prints. It then prints a code and a link on stderr and waits. A
-person opens the link in a browser where they are signed in and approves
-it. fw stores the token in the keyring. The agent never sees it.
+When `fw login` runs without a terminal, pass `--yes` after reviewing the data-sharing notice. `fw` emits a device verification code and URL on stderr, waits for approval in a signed-in browser, and stores the resulting token directly in the system keyring so the agent never handles the secret.
 
 ```sh
 fw login --yes --json
 ```
 
-With `--json`, the code arrives on stderr as one line. Show it to the
-person:
+With `--json`, stderr receives a single JSON object to present to the user:
 
 ```json
-{"user_code": "QGMK-JE6Q", "verification_url": "https://framework.pub/device?code=QGMK-JE6Q", "expires_in": 600}
+{"user_code": "QGMK-JE6Q", "verification_url": "https://framework.pub/device?code=QGMK-JE6Q", "expires_in": 1200}
 ```
 
-The code expires after 10 minutes. When it is approved, stdout gets the same
-object as `fw status --json`.
+Verification codes expire after 20 minutes. Once approved, stdout emits the same account summary object as `fw status --json`.
 
 > [!WARNING]
-> Never paste a token into an agent's prompt or onto a command line. fw does
-> not accept tokens as arguments, because arguments end up in shell history
-> and process lists. In automation, pipe a token from a file:
-> `fw login --with-token --yes < token.txt`.
+> Never paste an API token into an agent prompt or pass a token as a command-line flag. `fw` rejects token flags because command arguments appear in shell history and process tables. In CI or headless automation, pipe a token on standard input: `fw login --with-token --yes < token.txt`.
 
 ## JSON output
 
-These commands take `--json`: `login`, `status`, `projects list`,
-`project show`, `blueprints list`, `project status`, `publish`,
-`project push-spec`, `skills pull` (Stata projects), `skills push`, and `pull`, `push`, `data pull`, and `data push` (Stata projects). The output goes to stdout as one JSON document, and
-messages for people go to stderr. Each command's reference page lists its
-fields. Token values never appear in the output.
+The following commands accept `--json`: `login`, `status`, `projects list`, `project show`, `blueprints list`, `structures list`, `structures import`, `tools list`, `package-sets list`, `skills list`, `skills sync`, `skills push`, `adopt`, `project link --create`, `project status`, `project push-spec`, `publish`, and (in Stata projects) `project upgrade`, `skills pull`, `data pull`, `data push`, `pull`, and `push`.
+
+Structured JSON writes to stdout while progress and prompts write to stderr. Token values are never included in JSON responses.
 
 ```sh
 fw projects list --json | jq -r '.projects[].slug'
@@ -65,84 +54,55 @@ fw projects list --json | jq -r '.projects[].slug'
 
 ## Exit codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Failure |
-| 2 | Bad flags or arguments |
-| 3 | Not logged in, or the server rejected the token |
-| 4 | The server has no such project or resource |
-| 5 | Browser login was denied, or its code expired |
-| 6 | An upload has "private" in a path and needs `--include-private` |
+| Code | Condition |
+|---|---|
+| `0` | Success |
+| `1` | Runtime or server error |
+| `2` | Invalid flags or arguments |
+| `3` | Unauthenticated, or token rejected by the server |
+| `4` | Requested project or resource not found |
+| `5` | Browser device-code login denied or expired |
+| `6` | Upload path contains `private` and requires `--include-private` |
 
-With `--json`, a failure also prints one JSON line on stderr:
+With `--json`, errors also emit one JSON line on stderr:
 
 ```json
 {"error": "You have no project named 'nope'. (HTTP 404)", "exit_code": 4}
 ```
 
-Exit code 6 also carries `"reason": "private_path"`. Show the person which
-files have "private" in their path, and rerun with `--include-private` only
-if they confirm the upload.
+Exit code `6` adds `"reason": "private_path"`. Show the user the flagged paths and pass `--include-private` only after explicit confirmation.
 
-## Confirmation prompts
+## Confirmation flags
 
-fw asks before it connects a machine (`fw login`), before it uploads
-(`fw publish`), before it sends new skill versions (`fw skills push`), and
-before it applies or sends a project's packages, skills, and data registry
-(`fw pull`, `fw push`) or one part of them (`fw data pull`, `fw data push`). Without a terminal it cannot ask, so these need `--yes`.
-fw prints what it is about to do first, so an agent can show it to the
-person. `fw project push-spec` asks only when the project's path contains
-"private". `fw new` with cloud choices such as `--blueprint` never creates
-the project on Framework Cloud without a terminal unless you pass `--cloud`.
-`fw new NAME --lang stata` while logged in stops with exit 1 when the server
-cannot be reached and no defaults are saved. Pass `--offline` to use fw's
-built-in defaults instead. Nothing else prompts when there is no terminal.
+`fw` asks for confirmation before connecting a machine (`fw login`), uploading artifacts (`fw publish`), publishing new skill versions (`fw skills push`), adopting directories (`fw adopt`, `fw structures import`), and syncing packages, skills, or data definitions (`fw pull`, `fw push`, `fw data pull`, `fw data push`). Without a terminal, pass `--yes` after inspecting the dry-run or preview output.
+
+- `fw project push-spec` prompts only when the project path contains `private`.
+- `fw new` with Cloud component flags (`--blueprint`, `--structure`, etc.) keeps the project local when no terminal is attached unless `--cloud` is passed.
+- `fw new NAME --lang stata` while signed in exits `1` without a terminal if the server is unreachable and no cached defaults exist; pass `--offline` to use built-in defaults.
 
 ## Project skills
 
-`fw skills pull` brings a project's skills up to date with its setup on
-Framework Cloud. It adds missing skills and updates unedited ones. It keeps
-skills the person edited and lists them; `--overwrite` replaces them, with the
-old copies in `.framework/skills-backups/`. It never deletes a skill that is
-no longer in the setup. It refreshes the Skills table in AGENTS.md. Without a
-project token, or when Framework Cloud can't be reached, it says so and uses
-the package skills for the project's type. In R and Python projects, fw runs
-the package's `pull_skills()`.
+`fw skills pull` synchronizes project skills with the project's setup on Framework Cloud. It installs missing skills, updates unedited skills to their newest versions, preserves locally edited skills (`--overwrite` backs them up to `.framework/skills-backups/` before replacing them), lists skills removed from Cloud without deleting local files, and refreshes the Skills table in `AGENTS.md`. Without `FW_PROJECT_TOKEN` or network access, `fw` installs the built-in package skills for the project type. R and Python projects delegate to `pull_skills()`.
 
 ```sh
 fw skills pull --dry-run --json
 fw skills pull
 ```
 
-The summary reads `Skills: 2 added, 3 updated, 5 up to date, 1 locally edited (kept)`.
+Summary output follows `Skills: 2 added, 3 updated, 5 up to date, 1 locally edited (kept)`.
 
-`fw skills push` sends edited skills to Framework Cloud as new versions of the
-person's own skills. Before sending, it prints what each new version replaces.
-A skill that changed on Framework Cloud since the last pull is refused with
-"Pull first", and the exit code is 1; `--force` replaces it, and the Cloud
-changes stay in the skill's history. An edited built-in skill is saved as the
-person's own copy. Skills that fw doesn't track are listed; add one with
-`fw skills sync PATH`. Without a terminal, push needs `--yes`. Show the
-person the plan from `--dry-run` first.
+`fw skills push` uploads locally edited skills to Framework Cloud as new versions of your personal skills (edited built-in skills fork into personal copies). If a skill changed on Framework Cloud since the last pull, `fw` exits `1` with `Pull first` unless `--force` is passed (preserving earlier Cloud versions in history). Untracked skill directories are listed so you can register them with `fw skills sync PATH`. Run `--dry-run` first and confirm with the user before passing `--yes`.
 
 ```sh
 fw skills push --dry-run
 fw skills push --yes --json
 ```
 
-## Pull and push
+## Combined pull and push
 
-`fw pull` and `fw push` sync everything that syncs with Framework Cloud in one
-command: the project's packages, its skills, and its data registry.
+`fw pull` and `fw push` synchronize project packages, skills, and data registry definitions in one step.
 
-`fw pull` lists the changes grouped by part, then asks "Apply these
-changes?" once before applying them. It adds packages to the project's
-settings and installs them, pulls the skills as `fw skills pull` does, and
-writes new data entries as `fw data pull` does. It never removes anything
-local. It keeps local edits, such as version pins, edited skills, and data
-definitions, unless you pass `--overwrite`. It saves the revisions in
-`.framework/setup.lock.json` and `.framework/data.lock.json`.
+`fw pull` groups incoming updates by section (`Packages`, `Skills`, `Data registry`) and prompts once (`Apply these changes?`). It appends and installs new packages, updates unedited skills, writes new data entries to `settings.yml`, and records synced revisions in `.framework/setup.lock.json` and `.framework/data.lock.json`. Local files are never deleted, and local edits (version pins, edited skills, modified data entries) are preserved unless `--overwrite` is passed.
 
 ```text
 Changes from Framework Cloud:
@@ -153,14 +113,7 @@ Data registry (revision 7):
   Entries to add: inputs.final.analysis
 ```
 
-`fw push` shows what would change on Framework Cloud, with what each part
-affects: new setups, ZIP downloads, and Update on GitHub use the package list
-and data registry, and a skill's new version is used wherever it's attached.
-It asks "Push these changes?" once. A part that changed on Framework Cloud
-since the last pull is refused with "Pull first: fw pull". `--force` replaces
-Cloud's newer changes. `--remove` also removes packages and data entries the
-project doesn't have. Edited skills need `fw login`; packages and the data
-registry go with the project token.
+`fw push` previews outgoing changes and notes their scope (new setups, ZIP downloads, and **Update on GitHub** use the synced package list and data registry; pushed skill versions apply wherever the skill is attached). Any section modified on Framework Cloud since the last pull is refused with `Pull first: fw pull` unless `--force` is set. Pass `--remove` to delete Cloud packages and data entries absent locally. Pushing edited skills uses your personal `fw login` token, while packages and data registry entries use `FW_PROJECT_TOKEN`.
 
 ```sh
 fw pull --dry-run
@@ -169,33 +122,13 @@ fw push --dry-run
 fw push --yes
 ```
 
-When one part can't be read or applied, the others still are, and fw exits 1
-with a message that names them, such as `fw push did not finish. Pushed:
-Skills. Already in step: Packages. Not pushed: Data registry (...)`.
-
-Without a terminal, both commands need `--yes`, or `--dry-run` to only list
-the changes. Show the person the `--dry-run` list first. In R and Python
-projects, fw runs the package's `pull_all()` and `push_all()`. At a
-terminal, fw runs them once as a dry run, asks, and then applies. Packages
-aren't managed for Stata projects, so for those, fw syncs skills and the data
-registry. `fw skills pull | push` and `fw data pull | push` sync one part.
+If one section fails, `fw` still applies the remaining sections and exits `1` with a per-section report (`fw push did not finish. Pushed: Skills. Already in step: Packages. Not pushed: Data registry (...)`). R and Python projects delegate to `pull_all()` and `push_all()`. For Stata projects, Cloud sync covers skills and the data registry while Stata packages live in `settings.yml` for `fw_packages`.
 
 ## Data registry
 
-A project's data registry on Framework Cloud is its data catalog: the `data`
-section of its settings, with names such as `inputs.raw.survey`. Only the
-definitions move: names, paths, types, delimiters, the locked and private
-flags, descriptions, and Stata names. Data files never do, and file hashes
-stay in the project. `fw data pull` lists entries to add, entries that
-differ, and entries only in the project, then asks "Apply these changes?".
-It writes new entries into the settings and never removes a local one. It
-keeps local definitions unless you pass `--overwrite`. It saves the
-registry's revision in `.framework/data.lock.json`.
+A project's Cloud data registry mirrors the `data` catalog in `settings.yml` (keys such as `inputs.raw.survey`). Only metadata definitions synchronize: dot-separated names, relative paths, types, delimiters, `locked` and `private` flags, descriptions, and Stata names. Data files and local file checksums never leave the machine.
 
-`fw data push` shows what would change on Framework Cloud and asks "Push
-these changes?". When the registry changed on Framework Cloud since the last
-pull, it says "Pull first". `--force` replaces Cloud's newer changes.
-`--remove` also removes entries the project doesn't have.
+`fw data pull` lists entries to add, entries that differ locally, and local-only entries, writes new entries to `settings.yml` (or overwrites differing ones with `--overwrite`), and updates `.framework/data.lock.json`. `fw data push` previews registry changes on Framework Cloud, refuses concurrent upstream edits without `--force`, and removes Cloud-only entries only when `--remove` is set.
 
 ```sh
 fw data pull --dry-run
@@ -204,18 +137,8 @@ fw data push --dry-run
 fw data push --yes
 ```
 
-Without a terminal, both commands need `--yes`, or `--dry-run`. In R and
-Python projects, fw runs the package's `pull_data_registry()` and
-`push_data_registry()`. fw handles Stata projects itself.
+R and Python projects delegate to `pull_data_registry()` and `push_data_registry()`; `fw` updates Stata `settings.yml` files directly.
 
-## Uploads and private paths
+## Upload boundaries and private paths
 
-fw never uploads anything on its own. Data files and project code go to the
-cloud only when you run `fw publish` or `fw project push-spec`, and
-`fw publish` sends only the path it is given. `fw publish --to github`
-commits and pushes only `published/SLUG/` in the project's repository, and
-its JSON is `{"url", "commit", "pushed", "pages_enabled"}`. Tell the person
-that a GitHub Pages site is public, even from a private repository. When a file's full path
-contains "private", in any letter case, fw stops with exit code 6 unless you
-pass `--include-private`. Sensitive projects keep their AI deny rules, which
-stop agents from reading private folders and `.env`.
+`fw` never uploads project files in the background. Network writes happen only on explicit commands (`fw publish`, `fw project push-spec`, `fw push`, `fw skills push`, `fw data push`, `fw structures import`, `fw project link --create`), and `fw publish` uploads only the target path. `fw publish --to github` commits and pushes only `published/<slug>/` and the `published/` index, returning `{"url", "commit", "pushed", "pages_enabled"}` under `--json`. Always remind users that GitHub Pages sites are public even on private repositories. Sensitive projects also configure AI assistant deny rules blocking reads of `.env` and private directories.
