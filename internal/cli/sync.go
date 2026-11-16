@@ -64,19 +64,18 @@ func newPullCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull",
 		Short: "Bring the project's packages, skills, and data registry up to date with Framework Cloud",
-		Long: "Pulls everything that syncs with Framework Cloud in one go: the project's\n" +
-			"packages, its skills, and its data registry. fw reads each with the project\n" +
-			"token (FW_PROJECT_TOKEN in .env), lists the changes grouped by part, and asks\n" +
-			"once before applying them. New packages are added to the project's settings\n" +
-			"and installed. Missing skills are added and unedited ones updated. New data\n" +
-			"entries are written into the settings' data section; data files never move.\n" +
-			"Nothing local is removed, and local edits (version pins, edited skills, data\n" +
-			"definitions) are kept; --overwrite uses Framework Cloud's instead, backing up\n" +
-			"edited skills first. When one part can't be read or applied, the others still\n" +
-			"are, and fw names which parts were applied and which weren't.\n\n" +
-			"Without a terminal, pass --yes to apply or --dry-run to only list the changes.\n" +
-			"In R and Python projects, fw runs the language package's pull_all(). Packages\n" +
-			"aren't managed for Stata projects. fw skills pull and fw data pull pull one part.",
+		Long: "Pulls project packages, skills, and data registry definitions from Framework\n" +
+			"Cloud using FW_PROJECT_TOKEN in .env. fw groups incoming changes by section\n" +
+			"and asks once before applying them. New packages are added to settings and\n" +
+			"installed. Missing skills are added and unedited skills are updated. New data\n" +
+			"entries are written into settings; data files never move.\n" +
+			"Local files are never deleted, and local edits (version pins, edited skills,\n" +
+			"data definitions) are preserved unless --overwrite is passed (edited skills are\n" +
+			"backed up first). If one section fails, the remaining sections still apply and\n" +
+			"fw reports each section's status.\n\n" +
+			"Without a terminal, pass --yes to apply or --dry-run to list changes.\n" +
+			"In R and Python projects, fw runs pull_all(). For Stata projects, fw syncs\n" +
+			"skills and the data registry. Use fw skills pull or fw data pull for one section.",
 		Example: "  fw pull --dry-run\n  fw pull\n  fw pull --yes --overwrite",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -110,21 +109,19 @@ func newPushCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push",
 		Short: "Send the project's packages, edited skills, and data registry to Framework Cloud",
-		Long: "Pushes everything that syncs with Framework Cloud in one go: the project's\n" +
-			"package list, its locally edited skills, and its data registry. fw shows what\n" +
-			"changes on Framework Cloud, grouped by part, with what each push affects, and\n" +
-			"asks once. New setups, ZIP downloads, and Update on GitHub use the new package\n" +
-			"list and registry; a skill's new version is used wherever it's attached.\n" +
-			"Packages and entries only on Framework Cloud are kept unless you pass --remove.\n" +
-			"No data files and no hashes are sent.\n\n" +
-			"When a part changed on Framework Cloud since this project last pulled it, fw\n" +
-			"refuses that part: run fw pull first, or pass --force to replace Cloud's newer\n" +
-			"changes. The other parts are still pushed, and fw names which parts were pushed\n" +
-			"and which weren't. Edited skills need your login (fw login); packages and the\n" +
-			"data registry go with the project token.\n\n" +
-			"Without a terminal, pass --yes. --dry-run sends nothing. In R and Python\n" +
-			"projects, fw runs the language package's push_all(). Packages aren't managed\n" +
-			"for Stata projects. fw skills push and fw data push push one part.",
+		Long: "Pushes the project's package list, locally edited skills, and data registry\n" +
+			"to Framework Cloud. fw previews outgoing changes grouped by section and asks\n" +
+			"once before sending. New setups, ZIP downloads, and Update on GitHub use the\n" +
+			"updated package list and data registry; pushed skill versions apply wherever\n" +
+			"each skill is attached. Cloud-only packages and data entries are kept unless\n" +
+			"--remove is passed. Data files and file hashes are never uploaded.\n\n" +
+			"If a section changed on Framework Cloud since the last pull, fw refuses that\n" +
+			"section until you run fw pull or pass --force. Remaining sections still push,\n" +
+			"and fw reports each section's status. Edited skills authenticate with fw login;\n" +
+			"packages and the data registry use FW_PROJECT_TOKEN.\n\n" +
+			"Without a terminal, pass --yes (or --dry-run to preview). In R and Python\n" +
+			"projects, fw runs push_all(). For Stata projects, fw syncs skills and the data\n" +
+			"registry. Use fw skills push or fw data push for one section.",
 		Example: "  fw push --dry-run\n  fw push\n  fw push --yes --remove",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

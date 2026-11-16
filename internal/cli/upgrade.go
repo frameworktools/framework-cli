@@ -28,17 +28,16 @@ func newProjectUpgradeCmd(a *app) *cobra.Command {
 			"project's own environment. When the package there has no upgrade yet, fw\n" +
 			"says to update it and changes nothing.\n\n" +
 			"fw upgrades Stata projects itself. It records .framework/spec.json from\n" +
-			"settings.do when there is none, writes settings.yml when it is missing,\n" +
-			"adds the settings.do header that names settings.yml, makes master.do\n" +
-			"check for framework-stata 0.2.0 and run fw_project, creates the private\n" +
-			"folders its settings name that are missing (git doesn't keep them, so a\n" +
-			"fresh checkout lacks them), and adds the .gitignore rules the project\n" +
-			"lacks, leaving out negations (!...) when it already has rules, since\n" +
-			"they would win over them. The spec records tools.quarto when the\n" +
+			"settings.do when missing, writes settings.yml when absent,\n" +
+			"adds the settings.do header that references settings.yml, updates master.do\n" +
+			"to check for framework-stata 0.2.0+ and run fw_scaffold when framework-stata\n" +
+			"0.3.0+ is installed (falling back to fw_project), creates missing gitignored\n" +
+			"private folders, and appends missing .gitignore rules (omitting !... negations\n" +
+			"when existing rules are present). The spec records tools.quarto when the\n" +
 			"project has a _quarto.yml, _quarto.yaml, or .qmd file at most three\n" +
-			"folders deep. It never removes or changes a line of a text file: it\n" +
-			"only creates files, inserts lines, and appends. Each file it changes\n" +
-			"is copied to .framework/backups/<timestamp>/ first, unless --no-backup.\n" +
+			"folders deep. It never deletes or modifies existing lines: it\n" +
+			"only creates files, inserts lines, and appends. Modified files are backed\n" +
+			"up to .framework/backups/<timestamp>/ first unless --no-backup is passed.\n" +
 			"Running it again changes nothing.\n\n" +
 			"--type changes the project's type, as R's upgrade(type =) does. To\n" +
 			"project_sensitive it turns on security: sensitive and adds the Privacy\n" +

@@ -100,6 +100,9 @@ func (a *app) server(flag string, scope cloud.Scope) (cloud.Server, error) {
 // userClient returns a client for the user's server with their token.
 func (a *app) userClient(flag string) (*cloud.Client, error) {
 	server, err := a.server(flag, cloud.UserScope)
+	if errors.Is(err, cloud.ErrNoServer) {
+		return nil, &errNotLoggedIn{err.Error()}
+	}
 	if err != nil {
 		return nil, err
 	}

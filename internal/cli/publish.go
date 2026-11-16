@@ -478,7 +478,7 @@ func newPublishCmd(a *app) *cobra.Command {
 					attachErr = client.AttachCollection(cmd.Context(), selected.ID, doc.ID, shareUnlisted)
 				}
 				if attachErr != nil {
-					doc.CollectionWarning = fmt.Sprintf("Artifact published at %s, but collection attachment failed: %v. Attach it from the project Outputs page; publishing again creates another version.", doc.URL, attachErr)
+					doc.CollectionWarning = fmt.Sprintf("Artifact published at %s, but collection attachment failed: %v. Attach it from the project Artifacts page; publishing again creates another version.", doc.URL, attachErr)
 					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: "+doc.CollectionWarning)
 				} else {
 					attached = true

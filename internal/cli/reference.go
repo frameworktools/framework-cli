@@ -22,10 +22,10 @@ type refCategory struct {
 }
 
 var refCategories = []refCategory{
-	{"account", "Account", "Log in to Framework Cloud and check who you are", 1, []string{"login", "status"}},
-	{"cloud", "Cloud", "Your projects, blueprints, and published documents on Framework Cloud", 2, []string{"publish", "projects list"}},
-	{"projects", "Projects", "Create, link, and prepare Framework projects on this machine", 3, []string{"new", "project bootstrap"}},
-	{"setup", "Setup", "Configuration, diagnostics, and the installed version", 4, nil},
+	{"account", "Account", "Sign in to Framework Cloud and inspect active credentials", 1, []string{"login", "status"}},
+	{"cloud", "Cloud", "Projects, blueprints, skills, data registries, and artifacts on Framework Cloud", 2, []string{"publish", "projects list"}},
+	{"projects", "Projects", "Create, adopt, link, upgrade, and bootstrap local Framework projects", 3, []string{"new", "project bootstrap"}},
+	{"setup", "Setup", "Configuration paths, runtime diagnostics, and version details", 4, nil},
 }
 
 // refCategoryOf assigns each command to a category. A test fails when a
@@ -115,14 +115,14 @@ var refReturns = map[string]string{
 	"skills pull": "With `--json`, for Stata projects, `{\"source\", \"dry_run\", \"skills\", \"counts\", \"message\", \"notes\", \"backups\"}`. `source` is `cloud`, or `package` when Framework Cloud gave no list. " +
 		"Each skill has `name`, `status` (added, updated, current, edited, replaced, removed, or unavailable), and `paths`. `counts` has a number for each status. R and Python projects print their package's own summary.",
 	"skills push": "With `--json`, `{\"dry_run\", \"skills\", \"counts\", \"message\"}`. Each skill has `name`, `path`, `status` (push in a dry run, pushed, refused, failed, or untracked), and `message`; a pushed skill also has `skill_id` and `version`.",
-	"pull": "With `--json`, for Stata projects, `{\"packages\", \"skills\", \"data_registry\", \"applied\", \"failed\", \"dry_run\", \"message\"}`. `packages` is `{\"revision\", \"managed\": false}`: packages aren't managed for Stata projects. " +
-		"`skills` is the object `fw skills pull --json` prints, and `data_registry` the one `fw data pull --json` prints; either is null when that part couldn't be read. " +
-		"`applied` lists the parts applied (`skills`, `data_registry`), and `failed` maps each part that wasn't to the reason. R and Python projects print their package's own summary.",
-	"data pull": "With `--json`, for Stata projects, `{\"revision\", \"entries\", \"applied\", \"dry_run\", \"message\"}`, as `pull_data_registry()` returns: `entries` lists names `added`, `changed`, `differ_kept`, and `kept_local`. R and Python projects print their package's own summary.",
-	"data push": "With `--json`, for Stata projects, `{\"revision\", \"changes\", \"applied\", \"dry_run\", \"message\"}`, as `push_data_registry()` returns: `changes` is Framework Cloud's `added`, `changed`, `removed`, and `kept`. R and Python projects print their package's own summary.",
+	"pull": "With `--json`, for Stata projects, `{\"packages\", \"skills\", \"data_registry\", \"applied\", \"failed\", \"dry_run\", \"message\"}`. `packages` is `{\"revision\", \"managed\": false}` because Framework Cloud does not manage Stata package installation directly. " +
+		"`skills` matches `fw skills pull --json`, and `data_registry` matches `fw data pull --json` (or `null` when unread). " +
+		"`applied` lists the sections applied (`skills`, `data_registry`), and `failed` maps each failed section to its error message. R and Python projects print their package's summary.",
+	"data pull": "With `--json`, for Stata projects, `{\"revision\", \"entries\", \"applied\", \"dry_run\", \"message\"}`, matching `pull_data_registry()`: `entries` lists `added`, `changed`, `differ_kept`, and `kept_local`. R and Python projects print their package's summary.",
+	"data push": "With `--json`, for Stata projects, `{\"revision\", \"changes\", \"applied\", \"dry_run\", \"message\"}`, matching `push_data_registry()`: `changes` lists Framework Cloud's `added`, `changed`, `removed`, and `kept`. R and Python projects print their package's summary.",
 	"push": "With `--json`, for Stata projects, `{\"packages\", \"skills\", \"data_registry\", \"applied\", \"failed\", \"dry_run\", \"message\"}`. `packages` is `{\"managed\": false}`. " +
-		"`skills` lists the skills as `fw skills push --json` does, and `data_registry` is the object `fw data push --json` prints, or null when that part couldn't be worked out. " +
-		"`applied` lists the parts pushed, and `failed` maps each part that wasn't to the reason. R and Python projects print their package's own summary.",
+		"`skills` matches `fw skills push --json`, and `data_registry` matches `fw data push --json` (or `null` when unread). " +
+		"`applied` lists the sections pushed, and `failed` maps each failed section to its error message. R and Python projects print their package's summary.",
 	"project push-spec": "With `--json`, `received_at`, `spec_version`, and `changed`, which is false when the cloud already had this spec.",
 }
 

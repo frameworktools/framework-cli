@@ -31,7 +31,9 @@ func newLoginCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Log in to Framework Cloud",
-		Long: "Logs in to framework.pub or a self-hosted server and makes it the default.\n\n" +
+		Long: "Logs in to framework.pub or a self-hosted server and makes it the default.\n" +
+			"Without --url, FW_CLOUD_URL, or an earlier login, fw names framework.pub and\n" +
+			"asks before connecting. Other commands never fall back to framework.pub.\n\n" +
 			"By default fw opens a browser to approve the login. --paste asks for a token\n" +
 			"from the server's tokens page instead, and --with-token reads one from stdin.\n" +
 			"The token is stored in the system keyring, where the R and Python packages\n" +
@@ -50,7 +52,7 @@ func newLoginCmd(a *app) *cobra.Command {
 			}
 			ctx := cmd.Context()
 			errOut := cmd.ErrOrStderr()
-			server, err := a.server(urlFlag, cloud.UserScope)
+			server, err := a.server(urlFlag, cloud.LoginScope)
 			if err != nil {
 				return err
 			}
@@ -128,7 +130,7 @@ func newLoginCmd(a *app) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&urlFlag, "url", "", "Framework Cloud server (default: FW_CLOUD_URL, your last login, or framework.pub)")
+	cmd.Flags().StringVar(&urlFlag, "url", "", "Framework Cloud server (default: FW_CLOUD_URL, your last login, or framework.pub when neither is set)")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "read the token from stdin")
 	cmd.Flags().BoolVar(&paste, "paste", false, "paste a token instead of approving in a browser")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "confirm connecting without a prompt")

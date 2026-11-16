@@ -580,6 +580,40 @@ func TestProjectStatusExitCodes(t *testing.T) {
 	}
 }
 
+// A project whose .env has no FW_CLOUD_URL uses the self-hosted server the
+// user logged in to, never framework.pub.
+func TestProjectStatusUsesLoginServer(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	(&fakeEngines{}).install(h, "Rscript")
+	if _, _, err := h.run(t, "user-tok\n", "login", "--url", srv.URL, "--with-token", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, ".env", "FW_PROJECT_TOKEN=proj-tok\n")
+	out, _, err := h.run(t, "", "project", "status", "--json")
+	if err != nil || !strings.Contains(out, srv.URL) || strings.Contains(out, "framework.pub") {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+// Without a login or FW_CLOUD_URL, project commands fail instead of using
+// framework.pub.
+func TestProjectStatusWithoutServerFails(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	(&fakeEngines{}).install(h, "Rscript")
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, ".env", "FW_PROJECT_TOKEN=proj-tok\n")
+	out, _, err := h.run(t, "", "project", "status", "--json")
+	if exitCode(err) != exitFailure || !strings.Contains(out, "no Framework Cloud server is chosen") || strings.Contains(out, "https://framework.pub") {
+		t.Errorf("exit %d %v\n%s", exitCode(err), err, out)
+	}
+	if _, _, err := h.run(t, "", "status"); exitCode(err) != exitAuth || !strings.Contains(err.Error(), "fw login") {
+		t.Errorf("fw status: exit %d %v", exitCode(err), err)
+	}
+}
+
 // Without --type, a new project is the Standard Project. bare is still there.
 func TestNewDefaultsToStandardProject(t *testing.T) {
 	h := newHarness(t, nil)

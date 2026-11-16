@@ -41,7 +41,7 @@ func exitCode(err error) int {
 	}
 	var notLoggedIn *errNotLoggedIn
 	switch {
-	case errors.As(err, &notLoggedIn):
+	case errors.As(err, &notLoggedIn), errors.Is(err, cloud.ErrNoServer):
 		return exitAuth
 	case errors.Is(err, cloud.ErrDeviceDenied), errors.Is(err, cloud.ErrDeviceExpired):
 		return exitLogin

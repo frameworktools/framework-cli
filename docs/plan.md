@@ -95,9 +95,11 @@ by `tools/docsite`, and framework-cloud imports it.
 ## Contracts shared with R and Python
 
 - **Server resolution.** User calls use `--url`, then `FW_CLOUD_URL`, then the
-  saved default in `cloud.yml`, then `https://framework.pub`. Project calls use
-  `--url`, then `FW_CLOUD_URL` in the project's `.env`, then the environment
-  variable, then framework.pub. URL normalization copies
+  saved default in `cloud.yml`. Project calls use `--url`, then `FW_CLOUD_URL`
+  in the project's `.env`, then the environment variable, then the saved login,
+  and fail when the `cloud.yml` files name different servers. Nothing falls back
+  to framework.pub except `fw login`, which names it and asks first. URL
+  normalization copies
   `.fw_normalize_cloud_url()`. A bare host gets `https://`, and plain `http` is
   accepted only for `localhost`, `127.0.0.1`, and `[::1]`. `fw status` names
   the source of the server, as `cloud_status()` does.
