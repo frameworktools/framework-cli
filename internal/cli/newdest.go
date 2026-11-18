@@ -435,7 +435,8 @@ func (a *app) waitForScaffold(cmd *cobra.Command, client *cloud.Client, slug str
 			case "done":
 				return detail, nil
 			case "failed":
-				return detail, fmt.Errorf("GitHub could not set the project up: %s. The project page has a Retry button: %s/projects/%s/github", gh.ScaffoldError, client.URL, slug)
+				// The reason is Cloud's own sentences, or the failed step's log lines, so it gets no added period
+				return detail, fmt.Errorf("GitHub could not set the project up: %s\nThe project page has a Retry button: %s/projects/%s/github", strings.TrimSpace(gh.ScaffoldError), client.URL, slug)
 			}
 			if gh.ScaffoldStatus != last && gh.ScaffoldStatus == "running" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "GitHub is building the project…")
