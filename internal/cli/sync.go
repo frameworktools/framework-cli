@@ -89,9 +89,16 @@ func newPullCmd(a *app) *cobra.Command {
 					return usageError("--json is for Stata projects; R and Python print their own summary")
 				}
 				o := engine.SetupOptions{Overwrite: overwrite}
-				return a.handOffSetup(cmd, root, "pull_all()", "Apply these changes?", yes, dryRun, func(m engine.SetupMode) (engine.Command, error) {
+				err := a.handOffSetup(cmd, root, "pull_all()", "Apply these changes?", yes, dryRun, func(m engine.SetupMode) (engine.Command, error) {
 					return a.engines.PullAll(p, o, m)
 				})
+				var old *engine.OldRSkillsError
+				if errors.As(err, &old) {
+					return a.rDataOnly(cmd, root, old, "fw pull", "pull_data_registry()", "Apply these changes?", yes, dryRun, func(m engine.SetupMode) (engine.Command, error) {
+						return a.engines.PullData(p, o, m)
+					})
+				}
+				return err
 			}
 			return a.pullStata(cmd, root, overwrite, yes, dryRun)
 		},
@@ -135,9 +142,16 @@ func newPushCmd(a *app) *cobra.Command {
 					return usageError("--json is for Stata projects; R and Python print their own summary")
 				}
 				o := engine.SetupOptions{Remove: remove, Force: force}
-				return a.handOffSetup(cmd, root, "push_all()", "Push these changes?", yes, dryRun, func(m engine.SetupMode) (engine.Command, error) {
+				err := a.handOffSetup(cmd, root, "push_all()", "Push these changes?", yes, dryRun, func(m engine.SetupMode) (engine.Command, error) {
 					return a.engines.PushAll(p, o, m)
 				})
+				var old *engine.OldRSkillsError
+				if errors.As(err, &old) {
+					return a.rDataOnly(cmd, root, old, "fw push", "push_data_registry()", "Push these changes?", yes, dryRun, func(m engine.SetupMode) (engine.Command, error) {
+						return a.engines.PushData(p, o, m)
+					})
+				}
+				return err
 			}
 			return a.pushStata(cmd, root, server, remove, force, yes, dryRun)
 		},
@@ -149,6 +163,23 @@ func newPushCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would change without sending anything")
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp+" (Stata projects)")
 	return cmd
+}
+
+// rDataOnly is fw pull or fw push for an R project whose framework package
+// has the old skill sync: fw runs only the data registry part, through the
+// package's data function, and refuses packages and skills, which only its
+// pull_all() and push_all() handle, together with the old skill sync.
+func (a *app) rDataOnly(cmd *cobra.Command, root string, old *engine.OldRSkillsError, command, what, question string, yes, dryRun bool, build func(engine.SetupMode) (engine.Command, error)) error {
+	fmt.Fprintln(cmd.ErrOrStderr(), "Packages and Skills: refused. "+old.Reason+". Running only the data registry part.")
+	refused := fmt.Sprintf("Packages and Skills (%s)", old.Reason)
+	if err := a.handOffSetup(cmd, root, what, question, yes, dryRun, build); err != nil {
+		return &exitError{code: 1, err: fmt.Errorf("%s did not finish. Not done: Data registry (%w); %s", command, err, refused)}
+	}
+	done := "Data registry"
+	if dryRun {
+		done += " (dry run)"
+	}
+	return &exitError{code: 1, err: fmt.Errorf("%s did not finish. Done: %s. Not done: %s", command, done, refused)}
 }
 
 // handOffSetup runs a language package's sync function, such as pull_all()
@@ -243,8 +274,10 @@ func fetchSetup(ctx context.Context, client *cloud.Client) (cloudSetup, error) {
 func skillsPlanLine(counts map[string]int) string {
 	parts := []string{}
 	for _, p := range []struct{ key, label string }{
-		{"added", "to add"}, {"updated", "to update"}, {"replaced", "to replace (backed up first)"},
+		{"added", "to add"}, {"restored", "to restore"}, {"updated", "to update"}, {"replaced", "to replace (backed up first)"},
 		{"edited", "locally edited (kept)"}, {"removed", "no longer in the project's setup (kept)"},
+		{"diverged", "diverged (nothing written)"}, {"missing", "missing (every copy gone)"}, {"failed", "failed"},
+		{"kept", "kept (another skill's)"}, {"untracked", "untracked (left alone)"},
 	} {
 		if n := counts[p.key]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, p.label))
@@ -265,7 +298,10 @@ type syncPart struct {
 	quiet    bool     // nothing worth showing
 	pending  bool     // something to apply
 	err      error
-	apply    func() error
+	// failed names what already can't be done, found while planning, such
+	// as diverged skills: the command reports it and exits 1, dry run or not
+	failed string
+	apply  func() error
 }
 
 // syncLines is the combined change list, by part. refused describes a part
@@ -437,13 +473,8 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 			skills.lines = append(skills.lines, "  "+line)
 		}
 		for _, s := range plan.Skills {
-			switch s.Status {
-			case skillsync.StatusEdited:
-				skills.lines = append(skills.lines, "  Kept (locally edited): "+s.Name+" — fw pull --overwrite replaces it")
-			case skillsync.StatusReplaced:
-				skills.lines = append(skills.lines, "  Replaced after a backup: "+s.Name)
-			case skillsync.StatusRemoved:
-				skills.lines = append(skills.lines, "  No longer in the project's setup (kept): "+s.Name)
+			if line := skillRowLine(s, "fw pull"); line != "" {
+				skills.lines = append(skills.lines, line)
 			}
 		}
 		if len(skills.lines) > 0 {
@@ -451,19 +482,28 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 				skills.lines = append(skills.lines, "  "+n)
 			}
 		}
-		c := plan.Counts
-		skills.pending = c["added"]+c["updated"]+c["replaced"] > 0
-		skills.quiet = len(skills.lines) == 0
-		skills.apply = func() error {
-			if !skills.pending {
-				return nil
+		// Diverged and missing skills fail the pull, as fw push's do
+		var failed []string
+		for _, s := range plan.Skills {
+			if s.Status == skillsync.StatusDiverged || s.Status == skillsync.StatusMissing || s.Status == skillsync.StatusFailed {
+				failed = append(failed, s.Name+": "+strings.TrimSuffix(s.Reason, "."))
 			}
+		}
+		skills.failed = strings.Join(failed, "; ")
+		c := plan.Counts
+		skills.pending = c["added"]+c["restored"]+c["updated"]+c["replaced"] > 0
+		skills.quiet = len(skills.lines) == 0
+		// Always applied, even with no file to write: the lock may still
+		// change, as when a folder fw skills copy filled joins its skill
+		skills.apply = func() error {
 			res, err := a.stataSkills(ctx, root, overwrite, false)
 			if err != nil {
 				return err
 			}
 			out.Skills = &res
-			fmt.Fprintln(w, "✓ "+res.Message)
+			if skills.pending {
+				fmt.Fprintln(w, "✓ "+res.Message)
+			}
 			return nil
 		}
 	}
@@ -486,9 +526,14 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 	lines := syncLines(parts, "Changes from Framework Cloud:", "Project is up to date with Framework Cloud.", "not read")
 	out.Message = strings.Join(lines, "\n")
 	fmt.Fprintln(w, out.Message)
+	planFailed := false
 	for _, p := range parts {
-		if p.err != nil {
+		switch {
+		case p.err != nil:
 			out.Failed[partNames([]string{p.label})[0]] = strings.TrimSuffix(partReason(p.err), ".")
+		case p.failed != "":
+			out.Failed[partNames([]string{p.label})[0]] = p.failed
+			planFailed = true
 		}
 	}
 	finish := func(err error) error {
@@ -499,7 +544,13 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 		}
 		return err
 	}
+	// A diverged or missing skill fails the pull, dry run or not, as a
+	// skill that can't be pushed fails fw push
+	refused := &exitError{code: 1, silent: true, reason: "skill_pull_refused"}
 	if dryRun {
+		if planFailed {
+			return finish(refused)
+		}
 		return finish(nil)
 	}
 	if err := a.confirmParts(cmd, parts, yes, "Apply these changes?", "apply"); err != nil {
@@ -507,8 +558,16 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 	}
 	o := applyParts(parts)
 	out.Applied, out.Failed = partNames(o.Applied), failedNames(o.Failed)
+	if skills.failed != "" {
+		if _, ok := out.Failed["skills"]; !ok {
+			out.Failed["skills"] = skills.failed
+		}
+	}
 	if len(o.Failed) > 0 {
 		return finish(partialError("fw pull", "Applied", parts, o))
+	}
+	if planFailed {
+		return finish(refused)
 	}
 	return finish(nil)
 }
@@ -589,8 +648,11 @@ func (a *app) pushStata(cmd *cobra.Command, root, server string, remove, force, 
 	out.Message = strings.Join(lines, "\n")
 	fmt.Fprintln(w, out.Message)
 	for _, p := range parts {
-		if p.err != nil {
+		switch {
+		case p.err != nil:
 			out.Failed[partNames([]string{p.label})[0]] = strings.TrimSuffix(partReason(p.err), ".")
+		case p.failed != "":
+			out.Failed[partNames([]string{p.label})[0]] = p.failed
 		}
 	}
 	finish := func(err error) error {
@@ -602,6 +664,13 @@ func (a *app) pushStata(cmd *cobra.Command, root, server string, remove, force, 
 		return err
 	}
 	if dryRun {
+		// A skill that can't be pushed, such as a diverged one, fails a dry
+		// run too, as in fw skills push
+		for _, p := range parts {
+			if p.failed != "" {
+				return finish(&exitError{code: 1, silent: true, reason: "skill_push_refused"})
+			}
+		}
 		return finish(nil)
 	}
 	if err := a.confirmParts(cmd, parts, yes, "Push these changes?", "push"); err != nil {
@@ -620,13 +689,25 @@ func (a *app) pushStata(cmd *cobra.Command, root, server string, remove, force, 
 // only needed when a skill was edited.
 func (a *app) planSkillsPart(ctx context.Context, root, server string, force bool, items *[]pushItem, w io.Writer) *syncPart {
 	part := &syncPart{label: "Skills"}
-	changes, untracked, err := skillsync.LocalChanges(root, projectSkillsDirs(root, readSkillsSpec(root)))
+	dirs, err := projectSkillsDirs(root, readSkillsSpec(root))
 	if err != nil {
 		part.err = err
 		return part
 	}
+	changes, untracked, err := skillsync.LocalChanges(root, dirs)
+	if err != nil {
+		part.err = err
+		return part
+	}
+	// Only a skill with a copy to push is checked against Cloud
 	var client *cloud.Client
-	if len(changes) > 0 {
+	cloudChecks := 0
+	for _, c := range changes {
+		if !c.Missing {
+			cloudChecks++
+		}
+	}
+	if cloudChecks > 0 {
 		srv, err := a.server(server, cloud.ProjectScope)
 		if err != nil {
 			part.err = err
@@ -644,18 +725,35 @@ func (a *app) planSkillsPart(ctx context.Context, root, server string, force boo
 		client = cloud.NewClient(srv.URL, found.Token)
 	}
 	*items = planSkillPush(ctx, client, root, changes, untracked, force)
+	if *items == nil {
+		*items = []pushItem{}
+	}
+	// What failed while planning is printed here, once; the error after
+	// applying only names it
+	shown := map[string]bool{}
 	var push []string
 	for _, it := range *items {
-		switch it.Status {
-		case "push":
+		switch {
+		case it.pending:
 			push = append(push, it.Name)
-			part.warnings = append(part.warnings, it.Message)
-		case "refused":
+			part.warnings = append(part.warnings, it.Reason)
+		case it.Status == "refused":
 			part.lines = append(part.lines, "  Pull first: "+it.Name+" changed on Cloud since this project pulled it. fw push --force replaces it.")
-		case "failed":
-			part.lines = append(part.lines, "  Not checked: "+it.Name+": "+it.Message)
+		case it.Status == "failed":
+			part.lines = append(part.lines, "  Not checked: "+it.Name+": "+it.Reason)
+			shown[it.Path] = true
+		case it.Status == "missing":
+			part.lines = append(part.lines, "  Missing: "+it.Name+" — "+it.Reason)
+			shown[it.Path] = true
 		}
 	}
+	var failed []string
+	for _, it := range *items {
+		if it.Status == "failed" || it.Status == "missing" {
+			failed = append(failed, it.Name+": "+strings.TrimSuffix(it.Reason, "."))
+		}
+	}
+	part.failed = strings.Join(failed, "; ")
 	if len(push) > 0 {
 		part.lines = append([]string{"  Skills to push: " + strings.Join(push, ", ")}, part.lines...)
 	}
@@ -677,8 +775,12 @@ func (a *app) planSkillsPart(ctx context.Context, root, server string, force boo
 				pushed = append(pushed, it.Name)
 			case "refused":
 				bad = append(bad, it.Name+" changed on Cloud since this project pulled it; fw push --force replaces it")
-			case "failed":
-				bad = append(bad, it.Name+": "+strings.TrimSuffix(it.Message, "."))
+			case "failed", "missing":
+				if shown[it.Path] {
+					bad = append(bad, it.Name+" (see above)")
+				} else {
+					bad = append(bad, it.Name+": "+strings.TrimSuffix(it.Reason, "."))
+				}
 			}
 		}
 		if len(pushed) > 0 {

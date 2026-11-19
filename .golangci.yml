@@ -10,6 +10,9 @@ linters:
   settings:
     misspell:
       locale: US
+      # The push status name shared with the R and Python packages
+      ignore-rules:
+        - cancelled
     gosec:
       excludes:
         - G304 # fw reads files at paths the user or the project names

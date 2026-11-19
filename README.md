@@ -34,6 +34,7 @@ fw pull | push                      sync packages, skills, and data registry ent
 fw data pull | push                 sync the project data catalog
 fw skills pull | push               sync project skills
 fw skills sync PATH                 sync one skill directory
+fw skills copy --from claude        copy skills to the other assistants' folders
 fw publish PATH [--to github]       publish an artifact or rendered report
 fw snippet publish NB --cell LABEL  publish a notebook cell as a code snippet
 fw config path | sync               inspect or copy configuration directories
@@ -53,6 +54,18 @@ fw skills push
 `fw skills pull` reads the project setup from Framework Cloud using `FW_PROJECT_TOKEN`. It adds missing skills, updates unedited skills to their latest versions, preserves locally edited skills (`--overwrite` backs up and replaces them), and lists skills removed from the Cloud setup without deleting local files. Without a token or network connection, `fw` installs the built-in skills for the project type. In R and Python projects, `fw` delegates to `pull_skills()`.
 
 `fw skills push` uploads locally edited skills to Framework Cloud as new versions after confirmation. If a skill changed on Framework Cloud since the last pull, `fw` stops until you pull or pass `--force`. Pushing an edited built-in skill saves a personal copy under your account.
+
+A project can hold the same skill in `.claude/skills/` for Claude Code and `.agents/skills/` for Codex and Copilot. If you edit one copy, skill sync stops with "assistant skill copies diverged". Copy the edited one over the others, then push:
+
+```sh
+fw skills copy --from claude --dry-run
+fw skills copy --from claude
+fw skills push
+```
+
+`--from` and `--to` take `claude` or `agents` (`codex` and `copilot` also mean `agents`). `--from-dir` and `--to-dir` take folders relative to the project. Without `--to`, `fw` copies to every other assistant skills folder in the project. `--skill NAME` limits the copy.
+
+A skill is a folder with a `SKILL.md` file. `fw` copies `SKILL.md` and its syncable companion files, with their executable modes. Files sync excludes, such as `.env`, are not copied and stay in the target. `fw` backs up each copy it replaces to `.framework/skills-backups/`. Other files that only the replaced copy had are gone from it, and kept in the backup. `fw` skips copies that already match and never deletes a skill. When the source skill is tracked, `fw` records each copy in `.framework/skills.lock.json`, so pull and push keep every copy together. Skills only in a target are listed, not read or changed. Folders whose names start with a dot are skipped, and no target may be in `.framework/`.
 
 ### Pull and push
 

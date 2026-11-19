@@ -280,3 +280,78 @@ func TestAllAdvice(t *testing.T) {
 		t.Errorf("push: %v", push.Args)
 	}
 }
+
+// fakeR answers fw's R probes for a framework package that is installed or
+// not, has the functions fw calls (pull_*, push_*) or not, and has the new
+// skill sync (skills_copy) or not. R's 2.0.14 has the functions without
+// skills_copy.
+func fakeR(installed, functions, newSync bool) func(Command) bool {
+	return func(c Command) bool {
+		expr := c.Args[len(c.Args)-1]
+		switch {
+		case strings.Contains(expr, "requireNamespace") && !installed:
+			return false
+		case (strings.Contains(expr, `c("pull_`) || strings.Contains(expr, `c("push_`)) && !functions:
+			return false
+		case strings.Contains(expr, `"skills_copy"`) && !newSync:
+			return false
+		}
+		return true
+	}
+}
+
+// R skill delegation needs the new skill sync, found by its skills_copy(),
+// not by version (2.0.14 still has the old pull); data-only commands don't
+func TestRSkillDelegationNeedsTheNewSkillSync(t *testing.T) {
+	if !strings.Contains(rSkillSync, `"skills_copy"`) {
+		t.Fatalf("the gate isn't skills_copy: %s", rSkillSync)
+	}
+	p := Project{Root: t.TempDir(), Language: "r", Runner: []string{"Rscript"}}
+	skills := map[string]func(Finder) error{
+		"fw skills pull": func(f Finder) error { _, err := f.PullSkills(p, false, false); return err },
+		"fw pull":        func(f Finder) error { _, err := f.PullAll(p, SetupOptions{}, SetupDryRun); return err },
+		"fw push":        func(f Finder) error { _, err := f.PushAll(p, SetupOptions{}, SetupConfirmed); return err },
+		"fw skills push": func(f Finder) error { return f.CheckRSkills(p, "fw skills push") },
+	}
+	for again, call := range skills {
+		f := finder(nil, true, nil)
+
+		f.Probe = fakeR(true, true, true)
+		if err := call(f); err != nil {
+			t.Errorf("%s, new skill sync: %v", again, err)
+		}
+
+		// 2.0.14: every function, the old skill sync
+		f.Probe = fakeR(true, true, false)
+		err := call(f)
+		var old *OldRSkillsError
+		if !errors.As(err, &old) || !strings.Contains(err.Error(), "skills_copy()") || !strings.Contains(err.Error(), MinRFramework) ||
+			!strings.Contains(err.Error(), `pak::pak("frameworktools/framework")`) || !strings.Contains(err.Error(), "then run "+again+" again") {
+			t.Errorf("%s, old skill sync: %v", again, err)
+		}
+
+		f.Probe = fakeR(false, false, false)
+		if err = call(f); err == nil || errors.As(err, &old) {
+			t.Errorf("%s, no package: %v", again, err)
+		}
+	}
+	// Data-only commands run with the old skill sync
+	f := finder(nil, true, nil)
+	f.Probe = fakeR(true, true, false)
+	if _, err := f.PullData(p, SetupOptions{}, SetupDryRun); err != nil {
+		t.Errorf("fw data pull: %v", err)
+	}
+	if _, err := f.PushData(p, SetupOptions{}, SetupDryRun); err != nil {
+		t.Errorf("fw data push: %v", err)
+	}
+	// A package without the function still gets that message
+	f.Probe = fakeR(true, false, true)
+	if _, err := f.PullSkills(p, false, false); err == nil || !strings.Contains(err.Error(), "has no pull_skills() yet") {
+		t.Errorf("no pull_skills: %v", err)
+	}
+	// Other languages aren't checked
+	f.Probe = func(Command) bool { t.Error("probed a Stata project"); return false }
+	if err := f.CheckRSkills(Project{Language: "stata"}, "fw skills push"); err != nil {
+		t.Error(err)
+	}
+}

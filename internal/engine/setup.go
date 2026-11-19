@@ -23,7 +23,7 @@ type SetupOptions struct {
 // framework.pull_all() in Python, from the project's root.
 func (f Finder) PullAll(p Project, o SetupOptions, mode SetupMode) (Command, error) {
 	r, py := []string{"overwrite = " + rBool(o.Overwrite)}, []string{"overwrite=" + pyBool(o.Overwrite)}
-	c, err := f.packageCall(p, "pull_all", "fw pull", setupArgs(r, py, mode))
+	c, err := f.packageCall(p, "pull_all", "fw pull", setupArgs(r, py, mode), true)
 	c.Rewrite = allAdvice
 	return c, err
 }
@@ -33,7 +33,7 @@ func (f Finder) PullAll(p Project, o SetupOptions, mode SetupMode) (Command, err
 func (f Finder) PushAll(p Project, o SetupOptions, mode SetupMode) (Command, error) {
 	r := []string{"remove = " + rBool(o.Remove), "force = " + rBool(o.Force)}
 	py := []string{"remove=" + pyBool(o.Remove), "force=" + pyBool(o.Force)}
-	c, err := f.packageCall(p, "push_all", "fw push", setupArgs(r, py, mode))
+	c, err := f.packageCall(p, "push_all", "fw push", setupArgs(r, py, mode), true)
 	c.Rewrite = allAdvice
 	return c, err
 }
@@ -73,8 +73,9 @@ func pyBool(b bool) string {
 // packageCall runs one function of the language package, framework::fn(args)
 // in R and framework.fn(args) in Python, in the project's environment. When
 // the package lacks it, fw says to update the package; again is the fw
-// command to rerun after.
-func (f Finder) packageCall(p Project, fn, again string, args [2]string) (Command, error) {
+// command to rerun after. A function that syncs skills (skills) also needs
+// an R package with the new skill sync; data-only ones don't.
+func (f Finder) packageCall(p Project, fn, again string, args [2]string, skills bool) (Command, error) {
 	switch p.Language {
 	case "r", "python":
 	case "":
@@ -89,11 +90,8 @@ func (f Finder) packageCall(p Project, fn, again string, args [2]string) (Comman
 		return Command{Program: runner[0], Args: append(append([]string{}, runner[1:]...), a...), Dir: p.Root}
 	}
 	if p.Language == "r" {
-		probe := run(p.Runner, "-e", `if (!requireNamespace("framework", quietly = TRUE)) quit(status = 3); if (`+rHas(fn)+`) quit(status = 4)`)
-		if !f.Probe(probe) {
-			return Command{}, &UnavailableError{Msg: "the framework R package in this project's environment is missing or has no " + fn + "() yet. " +
-				"Update it with pak::pak(\"frameworktools/framework\") (or renv::update(\"framework\") in an renv project), then run " + again + " again. Nothing was changed. " +
-				"To check the environment, run: " + probe.String()}
+		if err := f.rProbe(func(a ...string) Command { return run(p.Runner, a...) }, fn, again, skills); err != nil {
+			return Command{}, err
 		}
 		return run(p.Runner, "-e", "invisible(framework::"+fn+"("+args[0]+"))"), nil
 	}
@@ -131,7 +129,7 @@ func pyCall(call string) string {
 // R or framework.pull_data_registry() in Python, from the project's root.
 func (f Finder) PullData(p Project, o SetupOptions, mode SetupMode) (Command, error) {
 	r, py := []string{"overwrite = " + rBool(o.Overwrite)}, []string{"overwrite=" + pyBool(o.Overwrite)}
-	return f.packageCall(p, "pull_data_registry", "fw data pull", setupArgs(r, py, mode))
+	return f.packageCall(p, "pull_data_registry", "fw data pull", setupArgs(r, py, mode), false)
 }
 
 // PushData returns the command that runs framework::push_data_registry() in
@@ -139,7 +137,7 @@ func (f Finder) PullData(p Project, o SetupOptions, mode SetupMode) (Command, er
 func (f Finder) PushData(p Project, o SetupOptions, mode SetupMode) (Command, error) {
 	r := []string{"remove = " + rBool(o.Remove), "force = " + rBool(o.Force)}
 	py := []string{"remove=" + pyBool(o.Remove), "force=" + pyBool(o.Force)}
-	c, err := f.packageCall(p, "push_data_registry", "fw data push", setupArgs(r, py, mode))
+	c, err := f.packageCall(p, "push_data_registry", "fw data push", setupArgs(r, py, mode), false)
 	c.Rewrite = pushDataAdvice
 	return c, err
 }

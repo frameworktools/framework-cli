@@ -89,7 +89,7 @@ func TestPullStata(t *testing.T) {
 	c.layerVer = 2
 	d.entries[1].Path = "inputs/raw/survey_v2.csv"
 	out, _, err = h.run(t, "", "pull", "--yes")
-	if err != nil || !strings.Contains(out, "Kept (locally edited): analysis — fw pull --overwrite replaces it") ||
+	if err != nil || !strings.Contains(out, "Edited: analysis — .claude/skills/analysis has local edits, which were kept. --overwrite replaces them with the Cloud version. Run: fw pull --overwrite") ||
 		!strings.Contains(out, "inputs.raw.survey (path inputs/raw/survey.csv -> inputs/raw/survey_v2.csv) — kept; fw pull --overwrite uses Cloud's") ||
 		readFile(t, analysis) != "mine\n" || !strings.Contains(readFile(t, settings), "path: inputs/raw/survey.csv\n") {
 		t.Fatalf("kept: %v\n%s", err, out)

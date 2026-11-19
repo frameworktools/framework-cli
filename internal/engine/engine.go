@@ -103,6 +103,82 @@ type Request struct {
 // CRLF text files as LF, as fw's do, and whose skills match fw's.
 const MinPython = "0.1.0.dev27"
 
+// MinRFramework is the first framework R package release with the new
+// skill sync, which plans every assistant folder against the lock before
+// writing, reports diverged copies, and keeps a skill's Cloud identity, as
+// fw's own pull does. It is only named in messages: fw checks what the
+// installed package can do, through its skills_copy(), since 2.0.14 still
+// has the old pull, which goes one folder at a time.
+const MinRFramework = "2.0.15"
+
+// rSkillSync is an R condition that is true when the installed framework
+// package has the old skill sync: no skills_copy().
+var rSkillSync = rHas("skills_copy")
+
+// rInstalled quits with status 3 when the framework R package is missing.
+const rInstalled = `if (!requireNamespace("framework", quietly = TRUE)) quit(status = 3)`
+
+// OldRSkillsError is a framework R package with the old skill sync. fw
+// won't run its skill pull or push; parts that don't touch skills, such as
+// the data registry, still can.
+// Reason says why, and how to update, without the command to rerun.
+type OldRSkillsError struct{ Msg, Reason string }
+
+func (e *OldRSkillsError) Error() string { return e.Msg }
+
+func oldRSkills(again string) error {
+	reason := "the framework R package in this project's environment has the old skill sync, which pulls one assistant folder " +
+		"at a time and can leave copies of a skill out of step. fw needs a release with skills_copy() (framework " + MinRFramework + " or later). " +
+		"Update it with pak::pak(\"frameworktools/framework\") (or renv::update(\"framework\") in an renv project)"
+	return &OldRSkillsError{Reason: reason, Msg: reason + ", then run " + again + " again. Nothing was changed."}
+}
+
+// CheckRSkills checks that an R project's framework package has the new
+// skill sync, for skill commands fw runs itself on the skills that package
+// pulls, such as fw skills push. Other languages pass.
+func (f Finder) CheckRSkills(p Project, again string) error {
+	if p.Language != "r" {
+		return nil
+	}
+	if len(p.Runner) == 0 {
+		return &UnavailableError{Msg: "cannot run this R project: " + p.Reason}
+	}
+	run := func(a ...string) Command {
+		return Command{Program: p.Runner[0], Args: append(append([]string{}, p.Runner[1:]...), a...), Dir: p.Root}
+	}
+	if f.Probe(run("-e", rInstalled+"; if ("+rSkillSync+") quit(status = 5)")) {
+		return nil
+	}
+	if f.Probe(run("-e", rInstalled)) {
+		return oldRSkills(again)
+	}
+	return &UnavailableError{Msg: "the framework R package isn't installed in this project's environment. " +
+		"Install it with pak::pak(\"frameworktools/framework\") (or renv::install(\"framework\") in an renv project), then run " + again + " again. Nothing was changed."}
+}
+
+// rProbe checks an R project's framework package before fw runs one of its
+// functions: installed, with fn, and, for a function that syncs skills,
+// with the new skill sync. One R start checks it all; only when that fails
+// does a second say which.
+func (f Finder) rProbe(run func(...string) Command, fn, again string, skills bool) error {
+	capable := run("-e", rInstalled+"; if ("+rHas(fn)+") quit(status = 4)")
+	if !skills {
+		if f.Probe(capable) {
+			return nil
+		}
+	} else {
+		if f.Probe(run("-e", rInstalled+"; if ("+rHas(fn)+") quit(status = 4); if ("+rSkillSync+") quit(status = 5)")) {
+			return nil
+		}
+		if f.Probe(capable) {
+			return oldRSkills(again)
+		}
+	}
+	return &UnavailableError{Msg: "the framework R package in this project's environment is missing or has no " + fn + "() yet. " +
+		"Update it with pak::pak(\"frameworktools/framework\") (or renv::update(\"framework\") in an renv project), then run " + again + " again. Nothing was changed. " +
+		"To check the environment, run: " + capable.String()}
+}
+
 // Create returns the command that creates the project in language.
 func (f Finder) Create(language string, req Request) (Command, error) {
 	switch language {

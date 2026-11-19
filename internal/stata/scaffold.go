@@ -47,11 +47,11 @@ func yamlScalar(s string) string {
 var checkoutAllowlist = map[string]bool{".git": true, ".github": true, ".framework": true, "README.md": true, "LICENSE": true}
 
 // assistantTable maps each assistant to its skills folder and stub file, as
-// in the R package.
+// in the R package. skillsync holds the skills folders.
 var assistantTable = map[string]struct{ skillsDir, stub string }{
-	"claude":  {".claude/skills", "CLAUDE.md"},
-	"codex":   {".agents/skills", ""},
-	"copilot": {".agents/skills", ".github/copilot-instructions.md"},
+	"claude":  {skillsync.AssistantSkillsDir("claude"), "CLAUDE.md"},
+	"codex":   {skillsync.AssistantSkillsDir("codex"), ""},
+	"copilot": {skillsync.AssistantSkillsDir("copilot"), ".github/copilot-instructions.md"},
 }
 
 // Options control scaffolding.

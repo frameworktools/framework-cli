@@ -28,6 +28,8 @@ type skillsCloud struct {
 	own      *skillsync.Snapshot // the copy a built-in push made
 	noSetup  bool                // GET /api/v1/projects/setup answers 404
 	data     http.Handler        // the data registry, when set
+	// assistants, when set, go in the project layer's ai.assistants
+	assistants map[string]any
 }
 
 func skillText(name, body string) string {
@@ -68,7 +70,7 @@ func newSkillsCloud(t *testing.T) *skillsCloud {
 		env := map[string]any{"spec_version": 1, "name": "Trial", "layers": []any{
 			map[string]any{"kind": "base", "key": "project", "layer": map[string]any{"type": "project", "language": "stata",
 				"skills": map[string]any{"analysis": entry}}},
-			map[string]any{"kind": "project", "key": "trial", "layer": map[string]any{"language": "stata"}},
+			map[string]any{"kind": "project", "key": "trial", "layer": c.projectLayer()},
 		}}
 		_ = json.NewEncoder(w).Encode(env)
 	})
@@ -154,6 +156,15 @@ func newSkillsCloud(t *testing.T) *skillsCloud {
 	return c
 }
 
+// projectLayer is the project's own layer, with its assistants when set.
+func (c *skillsCloud) projectLayer() map[string]any {
+	layer := map[string]any{"language": "stata"}
+	if c.assistants != nil {
+		layer["ai"] = map[string]any{"assistants": c.assistants}
+	}
+	return layer
+}
+
 func stataSkillsProject(t *testing.T, home, server string, token bool) string {
 	t.Helper()
 	dir := filepath.Join(home, "trial")
@@ -216,8 +227,9 @@ func TestSkillsPullStata(t *testing.T) {
 	c.publish(skillText("analysis", "Third"))
 	out, _, err = h.run(t, "", "skills", "pull")
 	want := "Skills: 1 updated, 1 locally edited (kept), 1 no longer in the project's setup"
-	if err != nil || !strings.Contains(out, want) || !strings.Contains(out, "Kept (locally edited): framework-stata — fw skills pull --overwrite replaces it") ||
-		!strings.Contains(out, "No longer in the project's setup (kept): old-skill") {
+	if err != nil || !strings.Contains(out, want) ||
+		!strings.Contains(out, "Edited: framework-stata — .claude/skills/framework-stata has local edits, which were kept. --overwrite replaces them with the Cloud version. Run: fw skills pull --overwrite") ||
+		!strings.Contains(out, "Removed: old-skill — old-skill is no longer in the project's setup, so pull left its folder alone.") {
 		t.Fatalf("edited: %v\n%s", err, out)
 	}
 	if readFile(t, builtin) != "mine\n" || readFile(t, filepath.Join(dir, ".claude", "skills", "old-skill", "SKILL.md")) == "" {
@@ -317,7 +329,7 @@ func TestSkillsPush(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, ".claude", "skills", "scratch", "SKILL.md"), skillText("scratch", "Scratch"))
 	out, _, err = h.run(t, "", "skills", "push", "--dry-run")
 	if err != nil || !strings.Contains(out, "This replaces the current version of analysis, used wherever it's attached.") ||
-		!strings.Contains(out, "not tracked; use fw skills sync .claude/skills/scratch to add it") ||
+		!strings.Contains(out, ".claude/skills/scratch isn't tracked, so push left it alone. To push it as a new skill: fw skills sync .claude/skills/scratch") ||
 		!strings.Contains(out, "Skills pushed (dry run, nothing sent): 1 to push, 1 not tracked") || len(c.posts) != 0 {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
@@ -328,8 +340,8 @@ func TestSkillsPush(t *testing.T) {
 	}
 	// At a terminal, No sends nothing
 	h.app.interactive = true
-	if _, _, err = h.run(t, "n\n", "skills", "push"); err == nil || len(c.posts) != 0 {
-		t.Fatalf("declined: %v", err)
+	if out, _, err = h.run(t, "n\n", "skills", "push"); err == nil || len(c.posts) != 0 || !strings.Contains(out, "Skills pushed: 1 cancelled, 1 not tracked") {
+		t.Fatalf("declined: %v\n%s", err, out)
 	}
 	out, _, err = h.run(t, "y\n", "skills", "push")
 	if err != nil || !strings.Contains(out, "Skills pushed: 1 pushed, 1 not tracked") || len(c.versions) != 2 {

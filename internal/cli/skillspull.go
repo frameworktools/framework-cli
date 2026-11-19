@@ -43,10 +43,13 @@ func readSkillsSpec(root string) skillsSpec {
 	return s
 }
 
-// projectSkillsDirs are the skills folders the project's assistants read
-// (.agents/skills when none is set), then .agents/skills and .claude/skills
-// when they exist. The first is the one AGENTS.md lists.
-func projectSkillsDirs(root string, s skillsSpec) []string {
+// projectSkillsDirs are the skills folders the project's enabled
+// assistants read (.agents/skills when none is set). The first is the one
+// AGENTS.md lists. A disabled assistant's folder isn't looked at: the
+// copies the lock tracks there are found through the lock. An enabled
+// folder fw can't look up, or that isn't a folder, is an error, so a pull
+// never installs into some assistants' folders and silently skips another's.
+func projectSkillsDirs(root string, s skillsSpec) ([]string, error) {
 	var names []string
 	for name, on := range s.AI.Assistants {
 		if on && stata.AssistantSkillsDir(name) != "" {
@@ -66,12 +69,17 @@ func projectSkillsDirs(root string, s skillsSpec) []string {
 	if len(dirs) == 0 {
 		add(".agents/skills")
 	}
-	for _, dir := range []string{".agents/skills", ".claude/skills"} {
-		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); err == nil && info.IsDir() {
-			add(dir)
+	for _, dir := range dirs {
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(dir)))
+		switch {
+		case os.IsNotExist(err):
+		case err != nil:
+			return nil, fmt.Errorf("look up %s: %w", dir, err)
+		case !info.IsDir():
+			return nil, fmt.Errorf("%s is not a folder; skills folders must be real folders", dir)
 		}
 	}
-	return dirs
+	return dirs, nil
 }
 
 // pullJSON is fw skills pull --json.
@@ -154,10 +162,26 @@ func (a *app) pullStataSkills(cmd *cobra.Command, root string, overwrite, dryRun
 // pull would do, and returns the result unprinted.
 func (a *app) stataSkills(ctx context.Context, root string, overwrite, dryRun bool) (pullJSON, error) {
 	local := readSkillsSpec(root)
-	dirs := projectSkillsDirs(root, local)
 	out := pullJSON{Source: "cloud", DryRun: dryRun, Notes: []string{}, Backups: []string{}}
 
-	wanted, reason, err := a.cloudSkills(ctx, root, &out.Notes)
+	// The Cloud setup's assistants count too: one turned on there gets its
+	// skills folder, so folders are chosen once the setup is read
+	cloudAssistants := map[string]bool{}
+	wanted, reason, err := a.cloudSkills(ctx, root, &out.Notes, cloudAssistants)
+	if err != nil {
+		return out, err
+	}
+	merged := local
+	merged.AI.Assistants = map[string]bool{}
+	for name, on := range local.AI.Assistants {
+		merged.AI.Assistants[name] = on
+	}
+	for name, on := range cloudAssistants {
+		if on {
+			merged.AI.Assistants[name] = true
+		}
+	}
+	dirs, err := projectSkillsDirs(root, merged)
 	if err != nil {
 		return out, err
 	}
@@ -174,7 +198,14 @@ func (a *app) stataSkills(ctx context.Context, root string, overwrite, dryRun bo
 		}
 	}
 
-	res, err := skillsync.Pull(skillsync.PullOptions{Root: root, Dirs: dirs, Skills: wanted, Overwrite: overwrite, DryRun: dryRun, Variant: "stata"})
+	var restore map[string][]skillsync.File
+	if out.Source == "cloud" {
+		if restore, err = a.restoreMissing(ctx, root); err != nil {
+			return out, err
+		}
+	}
+	res, err := skillsync.Pull(skillsync.PullOptions{Root: root, Dirs: dirs, Skills: wanted, Overwrite: overwrite, DryRun: dryRun, Variant: "stata",
+		Fallback: out.Source == "package", Restore: restore})
 	if err != nil {
 		return out, err
 	}
@@ -195,11 +226,14 @@ func (a *app) stataSkills(ctx context.Context, root string, overwrite, dryRun bo
 	if out.Skills == nil {
 		out.Skills = []skillsync.SkillStatus{}
 	}
-	for _, k := range []string{"added", "updated", "current", "edited", "replaced", "removed", "unavailable"} {
+	for _, k := range []string{"added", "restored", "updated", "current", "edited", "replaced", "diverged", "missing", "removed", "unavailable", "failed", "kept", "untracked"} {
 		out.Counts[k] += 0
 	}
 	if !dryRun {
-		names := orderedSkills(root, dirs[0], wanted)
+		names, err := orderedSkills(root, dirs[0], wanted)
+		if err != nil {
+			return out, err
+		}
 		if file, err := skillsync.RefreshSkillsTable(root, dirs[0], names); err != nil {
 			return out, err
 		} else if file != "" {
@@ -210,10 +244,46 @@ func (a *app) stataSkills(ctx context.Context, root string, overwrite, dryRun bo
 	return out, nil
 }
 
+// restoreMissing fetches, with your login, each tracked Cloud skill that
+// has no copy left, at the lock's version, so pull can put it back from
+// its own identity. A skill fw can't fetch at that version is left out:
+// pull then reports it missing, with what would put it back.
+func (a *app) restoreMissing(ctx context.Context, root string) (map[string][]skillsync.File, error) {
+	missing, err := skillsync.MissingEntries(root)
+	if err != nil || len(missing) == 0 {
+		return nil, err
+	}
+	restore := map[string][]skillsync.File{}
+	for _, m := range missing {
+		server := strings.TrimRight(m.Server, "/")
+		if server == "" {
+			continue
+		}
+		found, ok := a.tokens().Lookup(server)
+		if !ok {
+			continue
+		}
+		var snap skillsync.Snapshot
+		route := "/api/v1/skills/sync/" + url.PathEscape(m.ID) + "?variant=" + url.QueryEscape(m.Variant)
+		if err := cloud.NewClient(server, found.Token).Do(ctx, "GET", route, nil, &snap); err != nil {
+			continue
+		}
+		// Only the lock's own version: anything else isn't a restore
+		if h, err := skillsync.Hash(snap.Bundle); err != nil || h != snap.Hash || snap.Hash != m.Hash {
+			continue
+		}
+		restore[m.Key] = snap.Bundle
+	}
+	return restore, nil
+}
+
 // orderedSkills lists the skill folders in dir: the setup's order first,
 // then the others sorted.
-func orderedSkills(root, dir string, wanted []skillsync.Wanted) []string {
-	present := skillsync.SkillFolders(root, dir)
+func orderedSkills(root, dir string, wanted []skillsync.Wanted) ([]string, error) {
+	present, err := skillsync.SkillFolders(root, dir)
+	if err != nil {
+		return nil, err
+	}
 	var names []string
 	for _, w := range wanted {
 		if contains(present, w.Name) {
@@ -225,13 +295,14 @@ func orderedSkills(root, dir string, wanted []skillsync.Wanted) []string {
 			names = append(names, name)
 		}
 	}
-	return names
+	return names, nil
 }
 
 // cloudSkills reads the project's skills from its layers on Framework Cloud.
 // A non-empty reason means Cloud gave no list, and the caller falls back to
 // the package skills.
-func (a *app) cloudSkills(ctx context.Context, root string, notes *[]string) ([]skillsync.Wanted, string, error) {
+// The setup's assistants are copied into assistants.
+func (a *app) cloudSkills(ctx context.Context, root string, notes *[]string, assistants map[string]bool) ([]skillsync.Wanted, string, error) {
 	token := a.getenv("FW_PROJECT_TOKEN")
 	if token == "" {
 		token = project.EnvValue(root, "FW_PROJECT_TOKEN")
@@ -267,6 +338,9 @@ func (a *app) cloudSkills(ctx context.Context, root string, notes *[]string) ([]
 	resolved, err := stata.Resolve(env, "")
 	if err != nil {
 		return nil, "", fmt.Errorf("the project's setup on Framework Cloud: %w", err)
+	}
+	for name, on := range resolved.View.AI.Assistants {
+		assistants[name] = on
 	}
 	wanted := stata.WantedSkills(resolved.View)
 	for i := range wanted {
@@ -310,8 +384,10 @@ func (a *app) latestSkill(ctx context.Context, w *skillsync.Wanted, projectServe
 func pullSummary(counts map[string]int, dryRun bool) string {
 	parts := []string{}
 	for _, p := range []struct{ key, label string }{
-		{"added", "added"}, {"updated", "updated"}, {"current", "up to date"}, {"edited", "locally edited (kept)"},
+		{"added", "added"}, {"restored", "restored"}, {"updated", "updated"}, {"current", "up to date"}, {"edited", "locally edited (kept)"},
 		{"replaced", "replaced (backed up)"}, {"removed", "no longer in the project's setup"}, {"unavailable", "not available"},
+		{"diverged", "diverged (nothing written)"}, {"missing", "missing (every copy gone)"}, {"failed", "failed"},
+		{"kept", "kept (another skill's)"}, {"untracked", "untracked (left alone)"},
 	} {
 		if n := counts[p.key]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, p.label))
@@ -334,20 +410,35 @@ func printPull(w io.Writer, out pullJSON) {
 	}
 	fmt.Fprintln(w, out.Message)
 	for _, s := range out.Skills {
-		switch s.Status {
-		case skillsync.StatusEdited:
-			fmt.Fprintf(w, "  Kept (locally edited): %s — fw skills pull --overwrite replaces it\n", s.Name)
-		case skillsync.StatusRemoved:
-			fmt.Fprintf(w, "  No longer in the project's setup (kept): %s\n", s.Name)
-		case skillsync.StatusUnavailable:
-			fmt.Fprintf(w, "  Not available from fw: %s ships with the R package\n", s.Name)
-		case skillsync.StatusReplaced:
-			fmt.Fprintf(w, "  Replaced: %s (the old copy is in .framework/skills-backups/)\n", s.Name)
+		if line := skillRowLine(s, "fw skills pull"); line != "" {
+			fmt.Fprintln(w, line)
 		}
 	}
 	for _, n := range out.Notes {
 		fmt.Fprintln(w, n)
 	}
+}
+
+// skillRowLine is one pull row as text: its status, its name, and its
+// reason, then the command when the reason doesn't already give it. Rows
+// that need no explanation (added, updated, current) print nothing.
+func skillRowLine(s skillsync.SkillStatus, pull string) string {
+	if s.Reason == "" && s.Status != skillsync.StatusRestored {
+		return ""
+	}
+	label := strings.ToUpper(s.Status[:1]) + s.Status[1:]
+	line := "  " + label + ": " + s.Name
+	if s.Reason != "" {
+		line += " — " + s.Reason
+	}
+	hint := s.Hint
+	if hint == "fw skills pull --overwrite" {
+		hint = pull + " --overwrite"
+	}
+	if hint != "" && !strings.Contains(s.Reason, hint) {
+		line += " Run: " + hint
+	}
+	return line
 }
 
 // pushItem is one skill fw skills push looked at.
@@ -357,10 +448,15 @@ type pushItem struct {
 	Status  string `json:"status"`
 	ID      string `json:"skill_id,omitempty"`
 	Version int    `json:"version,omitempty"`
-	Message string `json:"message,omitempty"`
+	// Reason says why, on every row that isn't pushed; Hint is the exact
+	// command that fixes it, when there is one
+	Reason string `json:"reason,omitempty"`
+	Hint   string `json:"hint,omitempty"`
 
-	builtin, forced bool
-	variant         string
+	// pending marks a skill to push: in a dry run it stays pushed, as the
+	// shared vocabulary has it, with dry_run true
+	builtin, forced, pending bool
+	variant                  string
 }
 
 type pushJSON struct {
@@ -393,6 +489,11 @@ func newSkillsPushCmd(a *app) *cobra.Command {
 			}
 			if server == "" {
 				server, _ = cmd.Parent().PersistentFlags().GetString("url")
+			}
+			// An R project's skills come from its framework package's pull:
+			// an older one can leave copies out of step, so push waits for it
+			if err := a.engines.CheckRSkills(a.engines.Detect(root), "fw skills push"); err != nil {
+				return err
 			}
 			client, err := a.skillsClient(server)
 			if err != nil {
@@ -443,16 +544,26 @@ func planSkillPush(ctx context.Context, client *cloud.Client, root string, chang
 			v = variant
 		}
 		item := pushItem{Name: c.Name, Path: c.Path, builtin: c.Builtin, variant: v}
+		if c.Missing {
+			item.Status, item.Reason, item.Hint = "missing", c.Reason, c.Hint
+			items = append(items, item)
+			continue
+		}
 		r, err := skillsync.Sync(ctx, client, skillsync.Options{Root: root, Path: c.Path, Direction: "status", Variant: v})
 		switch {
 		case err != nil:
-			item.Status, item.Message = "failed", explain(err, client.URL).Error()
+			item.Status, item.Reason = "failed", explain(err, client.URL).Error()
+			var se *skillsync.SkillError
+			if errors.As(err, &se) {
+				item.Hint = se.Hint
+			}
 		case r.Action == "push":
-			item.Status = "push"
+			item.Status, item.pending = "pushed", true
 		case r.Action == "conflict" && force:
-			item.Status, item.forced = "push", true
+			item.Status, item.pending, item.forced = "pushed", true, true
 		case r.Action == "conflict":
-			item.Status, item.Message = "refused", "Pull first: "+c.Name+" changed on Framework Cloud since this project pulled it. Run fw skills pull, or fw skills push --force to replace it."
+			item.Status, item.Hint = "refused", "fw skills pull"
+			item.Reason = "Pull first: " + c.Name + " changed on Framework Cloud since this project pulled it. Run fw skills pull, or fw skills push --force to replace it."
 		default:
 			continue
 		}
@@ -460,33 +571,34 @@ func planSkillPush(ctx context.Context, client *cloud.Client, root string, chang
 	}
 	for _, p := range untracked {
 		items = append(items, pushItem{Name: filepath.Base(p), Path: p, Status: "untracked",
-			Message: "not tracked; use fw skills sync " + p + " to add it"})
+			Reason: p + " isn't tracked, so push left it alone. To push it as a new skill: fw skills sync " + p, Hint: "fw skills sync " + p})
 	}
 	for i := range items {
 		it := &items[i]
-		if it.Status != "push" {
+		if !it.pending {
 			continue
 		}
 		switch {
 		case it.forced:
-			it.Message = "Cloud has a newer version of " + it.Name + " than this project pulled. Pushing replaces it as the latest version; the Cloud changes stay in its history."
+			it.Reason = "Cloud has a newer version of " + it.Name + " than this project pulled. Pushing replaces it as the latest version; the Cloud changes stay in its history."
 		case it.builtin:
-			it.Message = "This saves " + it.Name + " as your own skill; the built-in Framework skill stays as it is."
+			it.Reason = "This saves " + it.Name + " as your own skill; the built-in Framework skill stays as it is."
 		default:
-			it.Message = "This replaces the current version of " + it.Name + ", used wherever it's attached."
+			it.Reason = "This replaces the current version of " + it.Name + ", used wherever it's attached."
 		}
 	}
 	return items
 }
 
-// applySkillPush pushes each skill with status push. Each becomes pushed,
-// refused, failed, or unchanged.
+// applySkillPush pushes each pending skill. Each becomes pushed, refused
+// (Framework Cloud moved on), or failed.
 func applySkillPush(ctx context.Context, client *cloud.Client, root, projectToken string, items []pushItem) {
 	for i := range items {
 		it := &items[i]
-		if it.Status != "push" {
+		if !it.pending {
 			continue
 		}
+		it.pending = false
 		o := skillsync.Options{Root: root, Path: it.Path, Direction: "push", Variant: it.variant, ProjectToken: projectToken}
 		if it.forced {
 			o.Resolve = "local"
@@ -494,13 +606,16 @@ func applySkillPush(ctx context.Context, client *cloud.Client, root, projectToke
 		r, err := skillsync.Sync(ctx, client, o)
 		switch {
 		case err != nil:
-			it.Status, it.Message = "failed", explain(err, client.URL).Error()
+			it.Status, it.Reason = "failed", explain(err, client.URL).Error()
 		case r.Action == "push":
-			it.Status, it.ID, it.Version = "pushed", r.ID, r.Version
-		case r.Action == "conflict" || r.Action == "blocked":
-			it.Status, it.Message = "refused", "Pull first: "+it.Name+" changed on Framework Cloud while pushing."
+			it.Status, it.ID, it.Version, it.Reason = "pushed", r.ID, r.Version, ""
+		case r.Action == "conflict" || r.Action == "blocked" || r.Action == "pull":
+			// Framework Cloud moved on while pushing
+			it.Status, it.Hint = "refused", "fw skills pull"
+			it.Reason = "Pull first: " + it.Name + " changed on Framework Cloud while pushing."
 		default:
-			it.Status = "unchanged"
+			// Framework Cloud already had it
+			it.Status, it.Reason = "pushed", "Framework Cloud already had this version."
 		}
 	}
 }
@@ -512,31 +627,49 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 	if a.jsonOut {
 		w = cmd.ErrOrStderr()
 	}
-	changes, untracked, err := skillsync.LocalChanges(root, projectSkillsDirs(root, readSkillsSpec(root)))
+	dirs, err := projectSkillsDirs(root, readSkillsSpec(root))
+	if err != nil {
+		return err
+	}
+	changes, untracked, err := skillsync.LocalChanges(root, dirs)
 	if err != nil {
 		return err
 	}
 	items := planSkillPush(ctx, client, root, changes, untracked, force)
 	pending := 0
 	for _, it := range items {
-		if it.Status == "push" {
+		if it.pending {
 			pending++
-			fmt.Fprintln(w, it.Message)
+			fmt.Fprintln(w, it.Reason)
 		}
 	}
+	// Failed skills are printed once, at the end, with any that fail while
+	// pushing
 	for _, it := range items {
-		if it.Status != "push" && it.Message != "" {
-			fmt.Fprintf(w, "  %s: %s\n", it.Path, it.Message)
+		if !it.pending && it.Status != "failed" && it.Reason != "" {
+			fmt.Fprintf(w, "  %s: %s\n", it.Path, it.Reason)
 		}
 	}
 
+	var cancelled error
 	if pending > 0 && !dryRun {
 		if err := a.confirm(cmd, yes, "Continue?"); err != nil {
-			return err
+			var exit *exitError
+			if errors.As(err, &exit) {
+				return err // no terminal: nothing was asked
+			}
+			// Declined: what would have been pushed is cancelled
+			cancelled = err
+			for i := range items {
+				if items[i].pending {
+					items[i].Status, items[i].pending, items[i].Reason = "cancelled", false, "Not pushed: you answered no."
+				}
+			}
+		} else {
+			applySkillPush(ctx, client, root, a.projectTokenFor(root, client.URL), items)
 		}
-		applySkillPush(ctx, client, root, a.projectTokenFor(root, client.URL), items)
 	}
-	counts := map[string]int{"pushed": 0, "push": 0, "refused": 0, "untracked": 0, "failed": 0}
+	counts := map[string]int{"pushed": 0, "refused": 0, "missing": 0, "untracked": 0, "cancelled": 0, "failed": 0}
 	for _, it := range items {
 		counts[it.Status]++
 	}
@@ -546,7 +679,7 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 	}
 	for _, it := range items {
 		if it.Status == "failed" {
-			fmt.Fprintf(w, "  %s: %s\n", it.Path, it.Message)
+			fmt.Fprintf(w, "  %s: %s\n", it.Path, it.Reason)
 		}
 	}
 	if a.jsonOut {
@@ -554,7 +687,10 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 	} else {
 		_, err = fmt.Fprintln(w, out.Message)
 	}
-	if err == nil && (counts["refused"] > 0 || counts["failed"] > 0) {
+	if err == nil && cancelled != nil {
+		return cancelled
+	}
+	if err == nil && (counts["refused"] > 0 || counts["failed"] > 0 || counts["missing"] > 0) {
 		return &exitError{code: 1, silent: true, reason: "skill_push_refused"}
 	}
 	return err
@@ -562,7 +698,12 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 
 func pushSummary(counts map[string]int, dryRun bool) string {
 	parts := []string{}
-	labels := []struct{ key, label string }{{"pushed", "pushed"}, {"push", "to push"}, {"refused", "refused (pull first)"}, {"failed", "failed"}, {"untracked", "not tracked"}}
+	pushed := "pushed"
+	if dryRun {
+		pushed = "to push"
+	}
+	labels := []struct{ key, label string }{{"pushed", pushed}, {"refused", "refused (pull first)"}, {"failed", "failed"},
+		{"missing", "missing (every copy gone)"}, {"cancelled", "cancelled"}, {"untracked", "not tracked"}}
 	for _, l := range labels {
 		if n := counts[l.key]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, l.label))

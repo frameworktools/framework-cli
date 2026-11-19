@@ -14,11 +14,13 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
 )
@@ -184,12 +186,65 @@ func safePath(root, relative string) (string, error) {
 		if err == nil && info.Mode()&os.ModeSymlink != 0 {
 			return "", fmt.Errorf("skill paths cannot contain symlinks")
 		}
-		if err != nil && !os.IsNotExist(err) {
+		if notThere(err) {
+			// Nothing further down exists, so nothing there is a link
+			return filepath.Join(root, filepath.FromSlash(relative)), nil
+		}
+		if err != nil {
 			return "", err
 		}
 	}
 	return p, nil
 }
+
+// freeKey is base, or base with a number, whichever no entry uses.
+func freeKey(state State, base string) string {
+	key := base
+	for i := 2; ; i++ {
+		if _, taken := state.Skills[key]; !taken {
+			return key
+		}
+		key = fmt.Sprintf("%s#%d", base, i)
+	}
+}
+
+// notThere is a lookup error that means the path doesn't exist: missing,
+// or under a file, as when an assistant folder was replaced by one.
+func notThere(err error) bool {
+	return err != nil && (os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR))
+}
+
+// windowsModes is true where file modes can't mark a file executable, so
+// .framework-skill.json lists executable files instead. Tests switch it on.
+var windowsModes = runtime.GOOS == "windows"
+
+// readExecutablePaths reads .framework-skill.json's executable_paths: a JSON
+// array, or a single string as older writers left it.
+func readExecutablePaths(raw []byte) (map[string]bool, error) {
+	var metadata struct {
+		ExecutablePaths json.RawMessage `json:"executable_paths"`
+	}
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return nil, fmt.Errorf(".framework-skill.json: %w", err)
+	}
+	paths := map[string]bool{}
+	if len(metadata.ExecutablePaths) == 0 || string(metadata.ExecutablePaths) == "null" {
+		return paths, nil
+	}
+	var list []string
+	if err := json.Unmarshal(metadata.ExecutablePaths, &list); err != nil {
+		var one string
+		if json.Unmarshal(metadata.ExecutablePaths, &one) != nil {
+			return nil, fmt.Errorf(".framework-skill.json: executable_paths must be a list of file paths")
+		}
+		list = []string{one}
+	}
+	for _, name := range list {
+		paths[name] = true
+	}
+	return paths, nil
+}
+
 func Scan(root string) ([]File, error) {
 	reader, err := os.OpenRoot(root)
 	if err != nil {
@@ -198,17 +253,11 @@ func Scan(root string) ([]File, error) {
 	defer reader.Close()
 	files := []File{}
 	executablePaths := map[string]bool{}
-	if runtime.GOOS == "windows" {
+	if windowsModes {
 		raw, readErr := reader.ReadFile(".framework-skill.json")
 		if readErr == nil {
-			var metadata struct {
-				ExecutablePaths []string `json:"executable_paths"`
-			}
-			if err = json.Unmarshal(raw, &metadata); err != nil {
+			if executablePaths, err = readExecutablePaths(raw); err != nil {
 				return nil, err
-			}
-			for _, name := range metadata.ExecutablePaths {
-				executablePaths[name] = true
 			}
 		} else if !os.IsNotExist(readErr) {
 			return nil, readErr
@@ -250,7 +299,7 @@ func Scan(root string) ([]File, error) {
 		}
 		rel, _ := filepath.Rel(root, p)
 		executable := info.Mode()&0111 != 0
-		if runtime.GOOS == "windows" {
+		if windowsModes {
 			executable = executablePaths[filepath.ToSlash(rel)]
 		}
 		files = append(files, File{filepath.ToSlash(rel), base64.StdEncoding.EncodeToString(data), executable})
@@ -287,7 +336,57 @@ func load(root string) (State, error) {
 	if err == nil && (state.Schema != 1 || state.Skills == nil) {
 		err = fmt.Errorf("unsupported skill lock file")
 	}
+	if err == nil {
+		mergeSplit(&state)
+	}
 	return state, err
+}
+
+// mergeSplit joins legacy entries that are one skill split in two: the
+// same server, skill_id, and variant, or for a built-in without an ID the
+// same name, origin, and variant. The merged entry has every path, and the
+// newest version's record, so divergence is judged across all its copies.
+func mergeSplit(state *State) {
+	keys := make([]string, 0, len(state.Skills))
+	for k := range state.Skills {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	identity := func(e *Entry) string {
+		switch {
+		case e.ID != "":
+			return "id\x00" + e.Server + "\x00" + e.ID + "\x00" + e.Variant
+		case e.Origin != nil && len(e.Paths) > 0:
+			return "origin\x00" + path.Base(e.Paths[0]) + "\x00" + e.Origin.ID + "\x00" + e.Variant
+		}
+		return ""
+	}
+	first := map[string]string{}
+	for _, k := range keys {
+		e := state.Skills[k]
+		id := identity(e)
+		if id == "" {
+			continue
+		}
+		into, seen := first[id]
+		if !seen {
+			first[id] = k
+			continue
+		}
+		kept := state.Skills[into]
+		paths := kept.Paths
+		for _, p := range e.Paths {
+			if !contains(paths, p) {
+				paths = append(paths, p)
+			}
+		}
+		if e.Version > kept.Version {
+			kept = e
+			state.Skills[into] = e
+		}
+		kept.Paths = paths
+		delete(state.Skills, k)
+	}
 }
 func save(root string, state State) error {
 	path, err := safePath(root, ".framework/skills.lock.json")
@@ -320,6 +419,30 @@ type swap struct {
 	existed               bool
 }
 
+// RestoreError is an install that failed after it moved the old copy aside,
+// and then could not put it back. Target and Backup are project-relative.
+type RestoreError struct {
+	Target, Backup string
+	Err            error
+}
+
+func (e *RestoreError) Error() string {
+	return fmt.Sprintf("could not put %s back; the old copy is in %s: %v", e.Target, e.Backup, e.Err)
+}
+
+func (e *RestoreError) Unwrap() error { return e.Err }
+
+// dirModeBits are the mode bits a rebuilt folder keeps: its permissions,
+// and the setuid, setgid, and sticky bits.
+const dirModeBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+
+// errChanged is the installer declining: the copy it was to replace changed
+// since the caller hashed it.
+var errChanged = errors.New("local skill changed during sync")
+
+// rename is os.Rename; tests replace it to fail.
+var rename = os.Rename
+
 func install(root string, paths []string, files []File, expected string) error {
 	return installInto(nil, root, paths, files, expected)
 }
@@ -337,12 +460,16 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 			for i := len(swaps) - 1; i >= 0; i-- {
 				s := swaps[i]
 				if _, e := os.Stat(s.backup); e == nil {
-					if cleanup := os.RemoveAll(s.target); cleanup != nil {
-						err = errors.Join(err, cleanup)
-						continue
+					restore := os.RemoveAll(s.target)
+					if restore == nil {
+						restore = rename(s.backup, s.target)
 					}
-					if rollback := os.Rename(s.backup, s.target); rollback != nil {
-						err = errors.Join(err, fmt.Errorf("restore backup %s: %w", s.backup, rollback))
+					if restore != nil {
+						target, _ := filepath.Rel(root, s.target)
+						backup, _ := filepath.Rel(root, s.backup)
+						err = errors.Join(err, &RestoreError{Target: filepath.ToSlash(target), Backup: filepath.ToSlash(backup), Err: restore})
+						err = errors.Join(err, os.RemoveAll(s.stage))
+						continue
 					}
 				} else if _, e = os.Stat(s.stage); os.IsNotExist(e) && !s.existed {
 					err = errors.Join(err, os.RemoveAll(s.target))
@@ -365,7 +492,7 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 			}
 			h, _ := Hash(old)
 			if h != expected {
-				return fmt.Errorf("local skill changed during sync")
+				return errChanged
 			}
 		} else if !os.IsNotExist(e) {
 			return e
@@ -373,14 +500,17 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 		if e = os.MkdirAll(filepath.Dir(target), 0755); e != nil {
 			return e
 		}
-		stage, e := os.MkdirTemp(filepath.Dir(target), ".skill-stage-")
-		if e != nil {
-			return e
-		}
 		backup, e := safePath(root, ".framework/skills-backups/"+uuid())
 		if e != nil {
 			return e
 		}
+		stage, e := os.MkdirTemp(filepath.Dir(target), ".skill-stage-")
+		if e != nil {
+			return e
+		}
+		// Registered at once, so any later failure removes the stage
+		s := swap{target, stage, backup, existed}
+		swaps = append(swaps, s)
 		if existed {
 			if e = private(root); e != nil {
 				return e
@@ -389,8 +519,8 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 				return e
 			}
 		}
-		s := swap{target, stage, backup, existed}
-		swaps = append(swaps, s)
+		// Rebuilt folders keep their modes; a new skill folder gets 0755
+		dirModes := map[string]os.FileMode{stage: 0755}
 		// Preserve excluded local material. Symlinks anywhere in the tree fail closed.
 		if existed {
 			reader, openErr := os.OpenRoot(target)
@@ -406,12 +536,13 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 				}
 				rel, _ := filepath.Rel(target, p)
 				dest := filepath.Join(stage, rel)
-				if d.IsDir() {
-					return os.MkdirAll(dest, 0755)
-				}
 				info, e := d.Info()
 				if e != nil {
 					return e
+				}
+				if d.IsDir() {
+					dirModes[dest] = info.Mode() & dirModeBits
+					return os.MkdirAll(dest, 0700)
 				}
 				if !info.Mode().IsRegular() {
 					return fmt.Errorf("only regular files are supported")
@@ -473,7 +604,7 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 				return e
 			}
 		}
-		if runtime.GOOS == "windows" {
+		if windowsModes {
 			executablePaths := []string{}
 			for _, f := range files {
 				if f.Executable {
@@ -495,6 +626,22 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 				}
 			}
 		}
+		// Deepest first, so a read-only folder is set after its contents
+		dirs := make([]string, 0, len(dirModes))
+		for dir := range dirModes {
+			dirs = append(dirs, dir)
+		}
+		sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+		for _, dir := range dirs {
+			// Only onto a path that is still a folder: the new copy may have
+			// emptied it away, or put a file in its place
+			if info, statErr := os.Lstat(dir); statErr != nil || !info.IsDir() {
+				continue
+			}
+			if e = os.Chmod(dir, dirModes[dir]); e != nil {
+				return e
+			}
+		}
 		staged, e := Scan(stage)
 		if e != nil {
 			return e
@@ -513,11 +660,11 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 			}
 			h, _ := Hash(current)
 			if h != expected {
-				return fmt.Errorf("local skill changed during sync")
+				return errChanged
 			}
 		}
 		if s.existed {
-			if err = os.Rename(s.target, s.backup); err != nil {
+			if err = rename(s.target, s.backup); err != nil {
 				return
 			}
 			if backups != nil {
@@ -525,7 +672,7 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 				*backups = append(*backups, filepath.ToSlash(rel))
 			}
 		}
-		if err = os.Rename(s.stage, s.target); err != nil {
+		if err = rename(s.stage, s.target); err != nil {
 			return
 		}
 	}
@@ -568,45 +715,89 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 	if err != nil {
 		return result, err
 	}
-	key := opts.Path
-	entry := &Entry{Paths: []string{opts.Path}, Variant: opts.Variant}
+	// The path as given must hold no link before any case alias is
+	// resolved: a symlinked skill is refused, as it always was
+	if _, err = safePath(root, opts.Path); err != nil {
+		return result, err
+	}
+	server := strings.TrimRight(client.URL, "/")
+	// A new entry's key is never one in use: map keys aren't paths
+	key := freeKey(state, diskSpelling(root, opts.Path))
+	entry := &Entry{Paths: []string{diskSpelling(root, opts.Path)}, Variant: opts.Variant}
+	tracked := false
 	for k, e := range state.Skills {
 		for _, p := range e.Paths {
-			if p == opts.Path {
-				key, entry = k, e
+			if samePath(root, p, opts.Path) {
+				key, entry, tracked = k, e, true
 			}
 		}
 	}
-	server := strings.TrimRight(client.URL, "/")
+	// Adopting: --id names a skill whose entry has no copy left, as after
+	// an assistant folder was renamed. That entry moves to this path; this
+	// is the explicit join, never inferred from a name or bytes
+	if !tracked && opts.ID != "" {
+		keys := make([]string, 0, len(state.Skills))
+		for k := range state.Skills {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			e := state.Skills[k]
+			named := e.ID == opts.ID || (e.ID == "" && e.Origin != nil && e.Origin.ID == opts.ID)
+			if !named || e.Variant != opts.Variant || (e.Server != "" && e.Server != server) {
+				continue
+			}
+			for _, p := range e.Paths {
+				if h, ok, err := copyHash(root, p); err != nil {
+					return result, err
+				} else if ok && h != "" {
+					return result, fmt.Errorf("%s is already tracked at %s; copy it from there with fw skills copy instead", opts.ID, p)
+				}
+			}
+			// Re-keyed with its new path, so the vacated path's key is free
+			// for whatever skill goes there next
+			e.Paths = []string{diskSpelling(root, opts.Path)}
+			delete(state.Skills, k)
+			key, entry = freeKey(state, e.Paths[0]), e
+			break
+		}
+	}
 	if entry.Server != "" && entry.Server != server {
 		return result, fmt.Errorf("skill tracks another server")
 	}
 	if opts.ID != "" && entry.ID != "" && opts.ID != entry.ID {
 		return result, fmt.Errorf("skill identity mismatch")
 	}
+	// Every recorded copy must match: the first that exists is the one sync
+	// sends, and a missing copy is named so fw skills copy can recreate it
 	var files []File
 	localHash := ""
-	for i, relative := range entry.Paths {
+	var present, missing []string
+	hashes := map[string]string{}
+	for _, relative := range entry.Paths {
 		target, e := safePath(root, relative)
 		if e != nil {
 			return result, e
 		}
-		var b []File
-		h := ""
-		if _, e = os.Stat(target); e == nil {
-			b, e = Scan(target)
-			if e != nil {
-				return result, e
-			}
-			h, _ = Hash(b)
-		} else if !os.IsNotExist(e) {
+		if _, e = os.Stat(target); notThere(e) {
+			missing = append(missing, relative)
+			continue
+		} else if e != nil {
 			return result, e
 		}
-		if i == 0 {
-			files, localHash = b, h
-		} else if h != localHash {
-			return result, fmt.Errorf("assistant skill copies diverged; reconcile aliases before syncing")
+		b, e := Scan(target)
+		if e != nil {
+			return result, e
 		}
+		h, _ := Hash(b)
+		if len(present) == 0 {
+			files, localHash = b, h
+		}
+		present = append(present, relative)
+		hashes[relative] = h
+	}
+	if n := copiesNote(root, &state, entry, present, missing, hashes); n.reason != "" {
+		return result, copiesError(n)
 	}
 	id := entry.ID
 	if id == "" {
