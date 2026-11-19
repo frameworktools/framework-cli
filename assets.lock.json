@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "v2.0.13",
-  "commit": "76a587f92c08ada9b7d81d61d0514c91bb216300",
+  "ref": "v2.0.14",
+  "commit": "9145fd05bac2b09c4a4db8e10a58a372e386c155",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
