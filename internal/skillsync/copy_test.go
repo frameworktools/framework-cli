@@ -462,8 +462,15 @@ func TestCopyTargetMustBeAFolder(t *testing.T) {
 			t.Errorf("dry run %v: %v", dry, err)
 		}
 	}
-	if _, err := Copy(CopyOptions{Root: root, From: "src", To: []string{"dst/skills"}, DryRun: true}); err == nil || !strings.Contains(err.Error(), "dst") {
-		t.Errorf("under a file: %v", err)
+	// Under a file, on every OS (Windows reports such a path as not found),
+	// in a dry run too
+	for _, to := range []string{"dst/skills", "dst/a/b"} {
+		for _, dry := range []bool{true, false} {
+			_, err := Copy(CopyOptions{Root: root, From: "src", To: []string{to}, DryRun: dry})
+			if err == nil || err.Error() != "the target "+to+" is under dst, which is a file, not a folder" {
+				t.Errorf("under a file, %s (dry run %v): %v", to, dry, err)
+			}
+		}
 	}
 	if got := readRel(t, root, "dst"); got != "a file\n" {
 		t.Errorf("dst changed: %q", got)

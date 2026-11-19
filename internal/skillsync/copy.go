@@ -604,6 +604,12 @@ func copyTargets(root, from string, named []string) ([]string, error) {
 		if _, err := safePath(root, to); err != nil {
 			return nil, fmt.Errorf("%s: %w", to, err)
 		}
+		// A file anywhere above the target, checked first and directly, so
+		// every OS refuses it the same way: Windows reports a path under a
+		// file as not found, where others say "not a directory"
+		if blocked := inTheWay(root, to); blocked != "" && blocked != to {
+			return nil, fmt.Errorf("the target %s is under %s, which is a file, not a folder", to, blocked)
+		}
 		if r, err := isReserved(root, to); err != nil {
 			return nil, err
 		} else if r {
