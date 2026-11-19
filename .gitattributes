@@ -6,6 +6,8 @@ internal/spec/testdata/conformance/merge/*.json -text
 internal/spec/testdata/conformance/create/stata/*.json -text
 internal/spec/testdata/conformance/resolve/*.json -text
 internal/spec/testdata/conformance/adopt/*.json -text
+internal/spec/testdata/conformance/skills/*.json -text
+internal/spec/testdata/conformance/skills/README.md -text
 internal/adopt/rules.json -text
 
 # The docs site archive ships these as written; keep LF on Windows too.
@@ -14,3 +16,4 @@ docs/site/** text eol=lf
 # fw embeds these and writes them into projects; keep LF on Windows too.
 internal/stata/templates/** text eol=lf
 internal/stata/skills/** text eol=lf
+internal/stata/skill-history.json text eol=lf
