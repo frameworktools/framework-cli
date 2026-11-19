@@ -73,23 +73,6 @@ func quoteArg(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// copyable reports whether fw skills copy can repair target from source:
-// it copies a skill folder to the same name, so the names must match, and
-// target mustn't be another skill's copy in the lock.
-func copyable(root string, state *State, entry *Entry, source, target string) bool {
-	if path.Base(source) != path.Base(target) {
-		return false
-	}
-	if state != nil {
-		for _, e := range state.Skills {
-			if e != entry && records(root, e, target) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 // copyTo is the fw skills copy command that copies source to target, with
 // the target folder named.
 func copyTo(source, target string) string {
@@ -100,18 +83,11 @@ func copyTo(source, target string) string {
 	return "fw skills copy --from-dir " + quoteArg(from) + " --to-dir " + quoteArg(to) + " --skill " + quoteArg(name)
 }
 
-// note is what a row or an error says: reason, one plain sentence (or
-// two) saying why, and hint, the exact command that fixes it, or "".
-type note struct{ reason, hint string }
-
 // SkillError is a skill problem with the exact command that fixes it, as
 // sync reports diverged copies.
 type SkillError struct{ Msg, Hint string }
 
 func (e *SkillError) Error() string { return e.Msg }
-
-// noCopy says why fw skills copy can't do a repair.
-const noCopy = "fw skills copy can't, because the folder names differ or a folder belongs to another skill"
 
 // listPaths is "a and b", or "a, b, and c".
 func listPaths(paths []string) string {
@@ -119,69 +95,6 @@ func listPaths(paths []string) string {
 		return strings.Join(paths, " and ")
 	}
 	return strings.Join(paths[:len(paths)-1], ", ") + ", and " + paths[len(paths)-1]
-}
-
-// copiesNote says what's wrong with an entry's copies, if anything: some
-// differ (every command needed to make them match the first), or some are
-// missing (the commands that copy the first back), or neither.
-func copiesNote(root string, state *State, entry *Entry, present, missing []string, hashes map[string]string) note {
-	if len(present) == 0 {
-		return note{}
-	}
-	source := present[0]
-	var differ []string
-	for _, p := range present[1:] {
-		if hashes[p] != hashes[source] {
-			differ = append(differ, p)
-		}
-	}
-	commands := func(targets []string) ([]string, bool) {
-		var out []string
-		for _, p := range targets {
-			if !copyable(root, state, entry, source, p) {
-				return nil, false
-			}
-			out = append(out, copyTo(source, p))
-		}
-		return out, true
-	}
-	if len(differ) > 0 {
-		names := listPaths(append([]string{source}, differ...))
-		other := "the other"
-		if len(differ) > 1 {
-			other = "the others"
-		}
-		cmds, ok := commands(differ)
-		if !ok {
-			return note{reason: fmt.Sprintf("%s differ. Pick one and copy its files over %s by hand: %s.", names, other, noCopy)}
-		}
-		return note{reason: fmt.Sprintf("%s differ. Pick one and copy it over %s: %s", names, other, strings.Join(cmds, " && ")),
-			hint: strings.Join(cmds, " && ")}
-	}
-	if len(missing) == 0 {
-		return note{}
-	}
-	is := "is"
-	if len(missing) > 1 {
-		is = "are"
-	}
-	lead := fmt.Sprintf("%s %s missing, and %s is the only copy.", listPaths(missing), is, source)
-	for _, m := range missing {
-		if blocked := inTheWay(root, m); blocked != "" {
-			// The command would fail on it: say so first
-			lead += fmt.Sprintf(" %s is a file where %s's folder should be: move it aside first.", blocked, m)
-		}
-	}
-	cmds, ok := commands(missing)
-	if !ok {
-		return note{reason: fmt.Sprintf("%s Copy its files back by hand: %s.", lead, noCopy)}
-	}
-	return note{reason: lead + " Copy it back: " + strings.Join(cmds, " && "), hint: strings.Join(cmds, " && ")}
-}
-
-// copiesError is copiesNote as sync's error.
-func copiesError(n note) error {
-	return &SkillError{Msg: "assistant skill copies diverged: " + n.reason, Hint: n.hint}
 }
 
 // inTheWay is the first part of rel that exists but isn't a folder, as a
@@ -355,6 +268,8 @@ type CopyResult struct {
 	Skills  []CopyItem     `json:"skills"`
 	Counts  map[string]int `json:"counts"`
 	Backups []string       `json:"backups"`
+	// Steps are the plan's steps.
+	Steps []Step `json:"-"`
 }
 
 // Copy statuses. A skill in a target but not in the source is missing; copy
@@ -470,31 +385,6 @@ func samePath(root, a, b string) bool {
 		return da == db
 	}
 	return samePath(root, da, db)
-}
-
-// records reports whether an entry records p, matched by samePath.
-func records(root string, e *Entry, p string) bool {
-	for _, q := range e.Paths {
-		if samePath(root, q, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// ownerOf is the entry that records p, or nil.
-func ownerOf(root string, state *State, p string) *Entry {
-	keys := make([]string, 0, len(state.Skills))
-	for k := range state.Skills {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		if records(root, state.Skills[k], p) {
-			return state.Skills[k]
-		}
-	}
-	return nil
 }
 
 // diskSpelling is rel as the filesystem spells it: each part that exists
@@ -728,33 +618,24 @@ func Copy(o CopyOptions) (CopyResult, error) {
 	}
 
 	// Read and check everything before writing anything
-	type step struct {
-		item    int // index in res.Skills
-		files   []File
-		current string
-	}
 	bundles := map[string][]File{}
-	hashes := map[string]string{}
 	for _, name := range names {
 		files, err := Scan(filepath.Join(root, filepath.FromSlash(from), name))
 		if err != nil {
 			return res, fmt.Errorf("%s/%s: %w", from, name, err)
 		}
-		if hashes[name], err = Hash(files); err != nil {
+		if _, err = Hash(files); err != nil {
 			return res, fmt.Errorf("%s/%s: %w", from, name, err)
 		}
 		bundles[name] = files
 	}
-	var steps []step
 	for _, to := range targets {
-		existing, targetLinks, err := discover(root, to)
+		_, targetLinks, err := discover(root, to)
 		if err != nil {
 			return res, err
 		}
 		for _, name := range names {
-			// The target in the filesystem's spelling, to its last part:
-			// ANALYSIS on disk is recorded and shown as ANALYSIS
-			relative := diskSpelling(root, to+"/"+name)
+			relative := to + "/" + name
 			if contains(targetLinks, name) {
 				return res, unsupported(to, name)
 			}
@@ -762,7 +643,6 @@ func Copy(o CopyOptions) (CopyResult, error) {
 			if err != nil {
 				return res, fmt.Errorf("%s: %w", relative, err)
 			}
-			current := ""
 			info, err := lookup(root, relative)
 			if err != nil {
 				return res, err
@@ -777,73 +657,81 @@ func Copy(o CopyOptions) (CopyResult, error) {
 				if !info.IsDir() || err != nil || !md.Mode().IsRegular() {
 					return res, fmt.Errorf("%s is not a skill (it has no SKILL.md); move it aside and copy again", relative)
 				}
-				local, err := Scan(target)
-				if err != nil {
-					return res, fmt.Errorf("%s: %w", relative, err)
-				}
-				if current, err = Hash(local); err != nil {
+				if _, err := Scan(target); err != nil {
 					return res, fmt.Errorf("%s: %w", relative, err)
 				}
 			}
-			item := CopyItem{Name: name, Status: StatusCopied, From: from + "/" + name, To: relative}
-			if current == hashes[name] {
-				item.Status = StatusCurrent
-			}
-			steps = append(steps, step{len(res.Skills), bundles[name], current})
-			res.Skills = append(res.Skills, item)
 		}
-		if len(requested) == 0 {
-			if len(targetLinks) > 0 {
-				return res, unsupported(to, targetLinks[0])
-			}
-			for _, other := range existing {
-				// Matched the way the copy writes: by folder identity
-				copied := false
-				for _, name := range names {
-					same, err := sameFolder(root, to+"/"+name, to+"/"+other)
-					if err != nil {
-						return res, err
-					}
-					if same {
-						copied = true
-						break
-					}
-				}
-				if !copied {
-					res.Skills = append(res.Skills, CopyItem{Name: other, Status: StatusMissing, To: to + "/" + other})
-				}
-			}
+		if len(requested) == 0 && len(targetLinks) > 0 {
+			return res, unsupported(to, targetLinks[0])
 		}
-	}
-	for _, it := range res.Skills {
-		res.Counts[it.Status]++
 	}
 
-	// The lock: a target the lock records as another skill's copy is never
-	// copied over. A tracked source's entry gains the targets after a real
-	// copy; nothing joins it by name or bytes otherwise
-	state, err := load(root)
+	// The plan: a target the lock records as another skill's copy is never
+	// copied over, and a tracked source's entry gains each target, with the
+	// source's record
+	lock, _, err := loadLock(root)
 	if err != nil {
 		return res, err
 	}
-	// Paths match the lock's spelling by filesystem identity too, so a
-	// case alias such as .Claude/skills finds its entry
-	sources := map[string]*Entry{}
-	for _, name := range names {
-		sources[name] = ownerOf(root, &state, from+"/"+name)
+	disk := NewDisk(root)
+	plan, err := Plan(PlanInput{Command: CommandCopy, Disk: disk, Lock: lock,
+		Options: PlanOptions{CopyFrom: from, CopyTo: targets, CopyNames: names, CopyAll: len(requested) == 0}})
+	if err != nil {
+		return res, err
 	}
-	for _, it := range res.Skills {
-		if it.Status == StatusMissing {
+	// Each target as the filesystem spells it, to its last part: ANALYSIS
+	// on disk is recorded and shown as ANALYSIS
+	for i := range plan.Steps {
+		st := &plan.Steps[i]
+		spelled := diskSpelling(root, st.Path)
+		if spelled == st.Path {
 			continue
 		}
-		for _, e := range state.Skills {
-			if e == sources[it.Name] {
-				continue
-			}
-			if records(root, e, it.To) {
-				return res, fmt.Errorf("%s is recorded as a different skill in .framework/skills.lock.json, so fw won't copy %s over it; pick another folder", it.To, it.From)
+		if e := plan.LockAfter.Skills[st.Entry]; e != nil && st.Entry != "" {
+			if r, ok := e.Copies[st.Path]; ok {
+				delete(e.Copies, st.Path)
+				e.Copies[spelled] = r
 			}
 		}
+		st.Path = spelled
+	}
+	// Only skill folders, with a SKILL.md, are listed as missing from the
+	// source
+	listed := map[string]bool{}
+	for _, to := range targets {
+		existing, _, err := discover(root, to)
+		if err != nil {
+			return res, err
+		}
+		for _, n := range existing {
+			listed[to+"/"+n] = true
+		}
+	}
+	kept := plan.Steps[:0]
+	for _, st := range plan.Steps {
+		if st.Status != StatusMissing || listed[st.Path] {
+			kept = append(kept, st)
+		}
+	}
+	plan.Steps = kept
+	res.Steps = plan.Steps
+	type step struct {
+		item    int // index in res.Skills
+		files   []File
+		current string
+	}
+	var steps []step
+	for _, st := range plan.Steps {
+		item := CopyItem{Name: st.Name, Status: st.Status, To: st.Path}
+		if st.Status != StatusMissing {
+			item.From = st.From
+			steps = append(steps, step{len(res.Skills), bundles[st.Name], disk.Look(st.Path).Hash})
+		}
+		res.Skills = append(res.Skills, item)
+	}
+	for _, it := range res.Skills {
+		res.Counts[it.Status]++
 	}
 	if o.DryRun {
 		return res, nil
@@ -872,22 +760,8 @@ func Copy(o CopyOptions) (CopyResult, error) {
 		}
 		done = append(done, s.item)
 	}
-	recorded := false
-	for _, it := range res.Skills {
-		if it.Status == StatusMissing || sources[it.Name] == nil {
-			continue
-		}
-		if e := sources[it.Name]; !records(root, e, it.To) {
-			// The entry keeps its hash: an edited source stays an edit
-			// that push sends, now with every copy in step
-			e.Paths = append(e.Paths, it.To)
-			recorded = true
-		}
-	}
-	if recorded {
-		if err = save(root, state); err != nil {
-			return res, fmt.Errorf("copied, but could not record the copies in .framework/skills.lock.json: %w", err)
-		}
+	if _, err = saveIfChanged(root, lock, plan.LockAfter); err != nil {
+		return res, fmt.Errorf("copied, but could not record the copies in %s: %w", lockFile, err)
 	}
 	return res, nil
 }

@@ -14,7 +14,6 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -38,28 +37,10 @@ type Snapshot struct {
 	Variant string `json:"variant"`
 	System  bool   `json:"system"`
 }
-type Origin struct {
-	ID   string `json:"skill_id"`
-	Hash string `json:"hash"`
-}
 type Pending struct {
 	RequestID string `json:"request_id"`
 	Hash      string `json:"hash"`
 	Basis     string `json:"basis"`
-}
-type Entry struct {
-	Paths   []string `json:"paths"`
-	Variant string   `json:"variant"`
-	Server  string   `json:"server,omitempty"`
-	ID      string   `json:"skill_id,omitempty"`
-	Version int      `json:"version,omitempty"`
-	Hash    string   `json:"hash,omitempty"`
-	Origin  *Origin  `json:"origin,omitempty"`
-	Pending *Pending `json:"pending,omitempty"`
-}
-type State struct {
-	Schema int               `json:"schema"`
-	Skills map[string]*Entry `json:"skills"`
 }
 type Options struct {
 	Root, Path, Direction, ID, Variant, Resolve string
@@ -197,17 +178,6 @@ func safePath(root, relative string) (string, error) {
 	return p, nil
 }
 
-// freeKey is base, or base with a number, whichever no entry uses.
-func freeKey(state State, base string) string {
-	key := base
-	for i := 2; ; i++ {
-		if _, taken := state.Skills[key]; !taken {
-			return key
-		}
-		key = fmt.Sprintf("%s#%d", base, i)
-	}
-}
-
 // notThere is a lookup error that means the path doesn't exist: missing,
 // or under a file, as when an assistant folder was replaced by one.
 func notThere(err error) bool {
@@ -318,100 +288,6 @@ func uuid() string {
 	b[6] = (b[6] & 15) | 64
 	b[8] = (b[8] & 63) | 128
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
-}
-func load(root string) (State, error) {
-	state := State{Schema: 1, Skills: map[string]*Entry{}}
-	path, err := safePath(root, ".framework/skills.lock.json")
-	if err != nil {
-		return state, err
-	}
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return state, nil
-	}
-	if err != nil {
-		return state, err
-	}
-	err = json.Unmarshal(data, &state)
-	if err == nil && (state.Schema != 1 || state.Skills == nil) {
-		err = fmt.Errorf("unsupported skill lock file")
-	}
-	if err == nil {
-		mergeSplit(&state)
-	}
-	return state, err
-}
-
-// mergeSplit joins legacy entries that are one skill split in two: the
-// same server, skill_id, and variant, or for a built-in without an ID the
-// same name, origin, and variant. The merged entry has every path, and the
-// newest version's record, so divergence is judged across all its copies.
-func mergeSplit(state *State) {
-	keys := make([]string, 0, len(state.Skills))
-	for k := range state.Skills {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	identity := func(e *Entry) string {
-		switch {
-		case e.ID != "":
-			return "id\x00" + e.Server + "\x00" + e.ID + "\x00" + e.Variant
-		case e.Origin != nil && len(e.Paths) > 0:
-			return "origin\x00" + path.Base(e.Paths[0]) + "\x00" + e.Origin.ID + "\x00" + e.Variant
-		}
-		return ""
-	}
-	first := map[string]string{}
-	for _, k := range keys {
-		e := state.Skills[k]
-		id := identity(e)
-		if id == "" {
-			continue
-		}
-		into, seen := first[id]
-		if !seen {
-			first[id] = k
-			continue
-		}
-		kept := state.Skills[into]
-		paths := kept.Paths
-		for _, p := range e.Paths {
-			if !contains(paths, p) {
-				paths = append(paths, p)
-			}
-		}
-		if e.Version > kept.Version {
-			kept = e
-			state.Skills[into] = e
-		}
-		kept.Paths = paths
-		delete(state.Skills, k)
-	}
-}
-func save(root string, state State) error {
-	path, err := safePath(root, ".framework/skills.lock.json")
-	if err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err = private(root); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".skill-state-")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(append(data, '\n')); err != nil {
-		return errors.Join(err, f.Close())
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
 }
 
 type swap struct {
@@ -699,88 +575,72 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 	}
 	// A dry run or status check writes nothing, not even the lock.
 	if !opts.DryRun && opts.Direction != "status" {
-		lock, err := safePath(root, ".framework/skills.sync.lock")
+		release, err := lockSync(root)
 		if err != nil {
 			return result, err
 		}
-		if err = os.MkdirAll(filepath.Dir(lock), 0755); err != nil {
-			return result, err
-		}
-		if err = os.Mkdir(lock, 0700); err != nil {
-			return result, fmt.Errorf("skill sync is locked; if the previous process stopped, remove .framework/skills.sync.lock and retry")
-		}
-		defer os.Remove(lock)
+		defer release()
 	}
-	state, err := load(root)
+	lock, _, err := loadLock(root)
 	if err != nil {
 		return result, err
 	}
+	before := lock.clone()
 	// The path as given must hold no link before any case alias is
 	// resolved: a symlinked skill is refused, as it always was
 	if _, err = safePath(root, opts.Path); err != nil {
 		return result, err
 	}
 	server := strings.TrimRight(client.URL, "/")
-	// A new entry's key is never one in use: map keys aren't paths
-	key := freeKey(state, diskSpelling(root, opts.Path))
-	entry := &Entry{Paths: []string{diskSpelling(root, opts.Path)}, Variant: opts.Variant}
-	tracked := false
-	for k, e := range state.Skills {
-		for _, p := range e.Paths {
-			if samePath(root, p, opts.Path) {
-				key, entry, tracked = k, e, true
+	disk := NewDisk(root)
+	key := ""
+	for _, k := range lock.keys() {
+		for p := range lock.Skills[k].Copies {
+			if disk.Same(p, opts.Path) {
+				key = k
 			}
 		}
 	}
-	// Adopting: --id names a skill whose entry has no copy left, as after
-	// an assistant folder was renamed. That entry moves to this path; this
-	// is the explicit join, never inferred from a name or bytes
-	if !tracked && opts.ID != "" {
-		keys := make([]string, 0, len(state.Skills))
-		for k := range state.Skills {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			e := state.Skills[k]
-			named := e.ID == opts.ID || (e.ID == "" && e.Origin != nil && e.Origin.ID == opts.ID)
-			if !named || e.Variant != opts.Variant || (e.Server != "" && e.Server != server) {
-				continue
-			}
-			for _, p := range e.Paths {
-				if h, ok, err := copyHash(root, p); err != nil {
-					return result, err
-				} else if ok && h != "" {
-					return result, fmt.Errorf("%s is already tracked at %s; copy it from there with fw skills copy instead", opts.ID, p)
+	var entry *LockEntry
+	if key != "" {
+		entry = lock.Skills[key].clone()
+	} else {
+		spelled := diskSpelling(root, opts.Path)
+		entry = &LockEntry{Identity: Identity{Kind: KindLocal, Variant: opts.Variant}, Known: []string{}, Copies: map[string]Record{spelled: {}}}
+		key = entry.Identity.Key(spelled)
+		if opts.ID != "" {
+			// The ID's entry may track copies elsewhere: those are its copies,
+			// and moving one here is fw skills move, never a join by ID
+			for _, k := range lock.keys() {
+				e := lock.Skills[k]
+				if e.Identity.SkillID != opts.ID || e.Identity.Variant != opts.Variant {
+					continue
+				}
+				if ps := e.paths(); len(ps) > 0 {
+					cmd := "fw skills move " + quoteArg(ps[0]) + " " + quoteArg(spelled)
+					return result, &SkillError{Msg: fmt.Sprintf("%s is already tracked at %s. If you moved it here, record the move: %s", opts.ID, ps[0], cmd), Hint: cmd}
 				}
 			}
-			// Re-keyed with its new path, so the vacated path's key is free
-			// for whatever skill goes there next
-			e.Paths = []string{diskSpelling(root, opts.Path)}
-			delete(state.Skills, k)
-			key, entry = freeKey(state, e.Paths[0]), e
-			break
 		}
 	}
-	if entry.Server != "" && entry.Server != server {
+	if entry.Identity.Kind == KindCloud && entry.Identity.Server != server {
 		return result, fmt.Errorf("skill tracks another server")
 	}
-	if opts.ID != "" && entry.ID != "" && opts.ID != entry.ID {
+	if opts.ID != "" && (entry.Identity.Kind == KindCloud || entry.Identity.Kind == KindBuiltin) && opts.ID != entry.Identity.SkillID {
 		return result, fmt.Errorf("skill identity mismatch")
 	}
-	// Every recorded copy must match: the first that exists is the one sync
-	// sends, and a missing copy is named so fw skills copy can recreate it
+	// Every tracked copy must match: the first that exists is the one sync
+	// sends, and an absent copy is named so fw skills copy can recreate it
 	var files []File
 	localHash := ""
-	var present, missing []string
-	hashes := map[string]string{}
-	for _, relative := range entry.Paths {
-		target, e := safePath(root, relative)
+	var states []copyState
+	for _, p := range entry.paths() {
+		target, e := safePath(root, p)
 		if e != nil {
 			return result, e
 		}
 		if _, e = os.Stat(target); notThere(e) {
-			missing = append(missing, relative)
+			states = append(states, copyState{path: p, state: "absent"})
 			continue
 		} else if e != nil {
 			return result, e
@@ -790,26 +650,40 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 			return result, e
 		}
 		h, _ := Hash(b)
-		if len(present) == 0 {
+		if files == nil {
 			files, localHash = b, h
 		}
-		present = append(present, relative)
-		hashes[relative] = h
+		st := "edited"
+		if r := entry.Copies[p].Hash; r != "" && r == h {
+			st = "clean"
+		}
+		states = append(states, copyState{path: p, state: st, hash: h})
 	}
-	if n := copiesNote(root, &state, entry, present, missing, hashes); n.reason != "" {
-		return result, copiesError(n)
+	if row, bad := copiesProblem(states); bad {
+		reason, hint := describe(root, row, DefaultCommands, false)
+		return result, &SkillError{Msg: "assistant skill copies diverged: " + reason, Hint: hint}
 	}
-	id := entry.ID
-	if id == "" {
+	// Tied to a Cloud skill: a Cloud skill, or a built-in Cloud delivered
+	cloudTied := entry.Identity.Kind == KindCloud || (entry.Identity.Kind == KindBuiltin && entry.Base != nil && entry.Base.Channel == ChannelCloud)
+	base := ""
+	if entry.Base != nil {
+		base = entry.Base.Hash
+	}
+	id := ""
+	if cloudTied {
+		id = entry.Identity.SkillID
+	} else if entry.Identity.Kind != KindBuiltin {
 		id = opts.ID
 	}
 	remote := Snapshot{}
 	hasRemote := false
 	route := ""
-	if id != "" {
-		route = "/api/v1/skills/sync/" + url.PathEscape(id) + "?variant=" + entry.Variant
-	} else if entry.Origin != nil {
-		route = "/api/v1/skills/sync/" + url.PathEscape(entry.Origin.ID) + "?variant=" + entry.Variant + "&hash=" + entry.Origin.Hash
+	variant := entry.Identity.Variant
+	switch {
+	case id != "":
+		route = "/api/v1/skills/sync/" + url.PathEscape(id) + "?variant=" + variant
+	case entry.Identity.Kind == KindBuiltin:
+		route = "/api/v1/skills/sync/" + url.PathEscape(entry.Identity.SkillID) + "?variant=" + variant + "&hash=" + base
 	}
 	if route != "" {
 		err = client.Do(ctx, "GET", route, nil, &remote)
@@ -828,25 +702,19 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 			return result, err
 		}
 	}
-	base := ""
-	if entry.ID != "" {
-		base = entry.Hash
-	} else if entry.Origin != nil {
-		base = entry.Origin.Hash
-	}
 	action := "conflict"
 	switch {
 	case !hasRemote:
 		switch {
 		case files == nil:
 			action = "missing"
-		case entry.ID == "" && base != "" && localHash == base:
+		case !cloudTied && base != "" && localHash == base:
 			action = "unchanged"
 		default:
 			action = "push"
 		}
 	case localHash == remote.Hash:
-		if entry.ID == "" {
+		if !cloudTied {
 			action = "adopt"
 		} else {
 			action = "unchanged"
@@ -871,28 +739,31 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 	if (opts.Direction == "push" || opts.Direction == "pull") && (action == "push" || action == "pull") && opts.Direction != action {
 		action = "blocked"
 	}
-	result = Result{Action: action, ID: remote.ID, Version: remote.Version, LocalHash: localHash, RemoteHash: remote.Hash, Paths: entry.Paths}
+	result = Result{Action: action, ID: remote.ID, Version: remote.Version, LocalHash: localHash, RemoteHash: remote.Hash, Paths: entry.paths()}
 	if opts.DryRun || opts.Direction == "status" || action == "conflict" || action == "blocked" || action == "missing" {
 		return result, nil
 	}
 	if action == "push" {
-		expected := entry.Version
+		expected := 0
+		if cloudTied && entry.Base != nil {
+			expected = entry.Base.Version
+		}
 		if expected == 0 || (opts.Resolve == "local" && !remote.System) {
 			expected = remote.Version
 		}
-		basis := fmt.Sprintf("%d:%s:%s", expected, remote.ID, entry.Variant)
+		basis := fmt.Sprintf("%d:%s:%s", expected, remote.ID, variant)
 		if entry.Pending == nil || entry.Pending.Hash != localHash || entry.Pending.Basis != basis {
 			entry.Pending = &Pending{uuid(), localHash, basis}
 		}
-		state.Skills[key] = entry
-		if err = save(root, state); err != nil {
+		lock.Skills[key] = entry
+		if err = saveLock(root, lock); err != nil {
 			return result, err
 		}
 		var identity any
 		if hasRemote {
 			identity = remote.ID
 		}
-		body := map[string]any{"request_id": entry.Pending.RequestID, "skill_id": identity, "expected_version": expected, "variant": entry.Variant, "bundle": files, "client": map[string]string{"app": "framework-cli"}}
+		body := map[string]any{"request_id": entry.Pending.RequestID, "skill_id": identity, "expected_version": expected, "variant": variant, "bundle": files, "client": map[string]string{"app": "framework-cli"}}
 		if opts.ProjectToken != "" {
 			body["project_token"] = opts.ProjectToken
 		}
@@ -908,19 +779,66 @@ func Sync(ctx context.Context, client *cloud.Client, opts Options) (Result, erro
 		}
 		if action == "pull" {
 			var backups []string
-			if err = installInto(&backups, root, entry.Paths, remote.Bundle, localHash); err != nil {
+			if err = installInto(&backups, root, entry.paths(), remote.Bundle, localHash); err != nil {
 				return result, err
 			}
 			result.Backups = backups
 		}
-		entry.Server, entry.ID, entry.Version, entry.Hash, entry.Pending = server, remote.ID, remote.Version, remote.Hash, nil
-		state.Skills[key] = entry
-		if err = save(root, state); err != nil {
+		lock.Skills[key] = entry
+		recordSynced(&lock, key, remote, server)
+		if _, err = saveIfChanged(root, before, lock); err != nil {
 			return result, err
 		}
 		result.ID, result.Version = remote.ID, remote.Version
 	}
 	return result, nil
+}
+
+// copiesProblem is the row for copies sync can't treat as one: copies that
+// differ, or one absent beside another, with the copy that fixes it.
+func copiesProblem(states []copyState) (Row, bool) {
+	present := filter(states, "clean", "edited")
+	absent := filter(states, "absent")
+	if len(present) == 0 || (!differ(present) && len(absent) == 0) {
+		return Row{}, false
+	}
+	edited := filter(present, "edited")
+	src := present[0].path
+	if len(edited) == 1 {
+		src = edited[0].path
+	} else if len(edited) > 1 && differ(present) {
+		src = ""
+	}
+	all := append(append([]copyState{}, present...), absent...)
+	row := Row{Status: StatusDiverged, Reason: ReasonCopiesDiffer, Hint: copyHint(all, src), Paths: pathsOf(all)}
+	if !differ(present) {
+		row.Reason = ReasonCopyAbsent
+		row.Hint = &Hint{Key: HintCopy, From: src, To: pathsOf(absent)}
+	}
+	return row, true
+}
+
+// recordSynced makes a Cloud version the entry's base and every copy's
+// record. An entry that wasn't that Cloud skill becomes it.
+func recordSynced(lock *Lock, key string, snap Snapshot, server string) {
+	e := lock.Skills[key]
+	id := Identity{Kind: KindCloud, SkillID: snap.ID, Variant: e.Identity.Variant, Server: server}
+	if strings.HasPrefix(snap.ID, "framework:") {
+		id = Identity{Kind: KindBuiltin, SkillID: snap.ID, Variant: e.Identity.Variant}
+	}
+	f := e.clone()
+	for p := range f.Copies {
+		f.Copies[p] = Record{Hash: snap.Hash}
+	}
+	f.Base = &Base{Channel: ChannelCloud, Hash: snap.Hash, Version: snap.Version, Server: server}
+	f.Known, f.Pending = sortedUnique(f.Known, []string{snap.Hash}), nil
+	if id != e.Identity {
+		f.Identity = id
+		delete(lock.Skills, key)
+		addEntry(lock, id.Key(""), f)
+		return
+	}
+	lock.Skills[key] = f
 }
 
 func private(root string) error {
@@ -950,96 +868,19 @@ func private(root string) error {
 	return os.WriteFile(path, []byte(text), 0644)
 }
 
-// InstallSource records the exact scaffolded source before any local edits.
-func InstallSource(root, relative, canonical, variant string, files []File, snapshot *Snapshot, server string) error {
-	lock, err := safePath(root, ".framework/skills.sync.lock")
+// Install puts a new project's setup skills in its skills folders and
+// records each in the lock, through the planner, as a pull would. A copy
+// already there with other content is kept, and reported as an error.
+func Install(root string, dirs []string, sources []Source) error {
+	res, err := Pull(PullOptions{Root: root, Dirs: dirs, Offer: Offer{Source: "package", Skills: sources}})
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(filepath.Dir(lock), 0755); err != nil {
-		return err
-	}
-	if err = os.Mkdir(lock, 0700); err != nil {
-		return fmt.Errorf("skill sync is locked")
-	}
-	defer os.Remove(lock)
-	state, err := load(root)
-	if err != nil {
-		return err
-	}
-	hash, err := Hash(files)
-	if err != nil {
-		return err
-	}
-	key := relative
-	if canonical != "" {
-		key = "package:" + strings.TrimPrefix(canonical, "framework:")
-	}
-	if snapshot != nil {
-		key = "account:" + server + ":" + snapshot.ID + ":" + variant
-	}
-	for existingKey, existing := range state.Skills {
-		for _, p := range existing.Paths {
-			if p == relative {
-				key = existingKey
-			}
+	for _, s := range res.Skills {
+		switch s.Status {
+		case StatusEdited, StatusDiverged, StatusFailed, StatusKept:
+			return fmt.Errorf("preserved edited skill %s", strings.Join(s.Paths, ", "))
 		}
 	}
-	entry := state.Skills[key]
-	if entry == nil {
-		entry = &Entry{Paths: []string{}, Variant: variant}
-	}
-	if snapshot != nil && hash != snapshot.Hash {
-		return fmt.Errorf("cloud skill verification failed")
-	}
-	if canonical != "" && entry.ID != "" && !strings.HasPrefix(entry.ID, "framework:") {
-		return nil
-	}
-	target, err := safePath(root, relative)
-	if err != nil {
-		return err
-	}
-	current := ""
-	if _, err = os.Stat(target); err == nil {
-		local, e := Scan(target)
-		if e != nil {
-			return e
-		}
-		current, _ = Hash(local)
-		base := entry.Hash
-		if base == "" {
-			base = hash
-		}
-		if current != base {
-			return fmt.Errorf("preserved edited skill %s", relative)
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if current != hash {
-		if err = install(root, []string{relative}, files, current); err != nil {
-			return err
-		}
-	}
-	found := false
-	for _, p := range entry.Paths {
-		if p == relative {
-			found = true
-		}
-	}
-	if !found {
-		entry.Paths = append(entry.Paths, relative)
-	}
-	entry.Hash = hash
-	if canonical != "" {
-		entry.Origin = &Origin{canonical, hash}
-	}
-	if snapshot != nil {
-		if hash != snapshot.Hash {
-			return fmt.Errorf("cloud skill verification failed")
-		}
-		entry.ID, entry.Version, entry.Server = snapshot.ID, snapshot.Version, server
-	}
-	state.Skills[key] = entry
-	return save(root, state)
+	return nil
 }

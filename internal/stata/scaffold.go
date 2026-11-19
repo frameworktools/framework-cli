@@ -3,7 +3,6 @@ package stata
 import (
 	"bytes"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -391,6 +390,7 @@ func (s *scaffolder) ai() error {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	var tracked []string
 	for _, name := range names {
 		entry := v.Skills[name]
 		files := map[string]string{}
@@ -410,45 +410,23 @@ func (s *scaffolder) ai() error {
 				s.res.Notes = append(s.res.Notes, fmt.Sprintf("Skipped skill %s: it ships with the R package, not with fw.", name))
 				continue
 			}
-		} else {
-			files["SKILL.md"] = entry.Content
-			for p, c := range entry.Files {
-				files[p] = c
+		}
+		// Tracked from the start: installed and recorded through the
+		// planner below, as a pull would, inline setup text too
+		tracked = append(tracked, name)
+		for _, dir := range skillsDirs {
+			s.res.Created = append(s.res.Created, dir+"/"+name+"/SKILL.md")
+		}
+	}
+	if len(tracked) > 0 {
+		var sources []skillsync.Source
+		for _, src := range SetupSkills(v, "") {
+			if contains(tracked, src.Name) {
+				sources = append(sources, src)
 			}
 		}
-		for _, dir := range skillsDirs {
-			if entry.Package || entry.Sync != nil {
-				bundle := entry.Bundle
-				if len(bundle) == 0 {
-					for p, c := range files {
-						if p != ".framework-skill.json" {
-							bundle = append(bundle, skillsync.File{Path: p, Content: base64.StdEncoding.EncodeToString([]byte(c))})
-						}
-					}
-				}
-				canonical := ""
-				variant := "stata"
-				server := ""
-				var snapshot *skillsync.Snapshot
-				if entry.Package {
-					canonical = "framework:" + name
-				}
-				if entry.Sync != nil {
-					variant = entry.Sync.Variant
-					server = entry.Sync.Server
-					snapshot = &skillsync.Snapshot{ID: entry.Sync.ID, Version: entry.Sync.Version, Hash: entry.Sync.Hash}
-				}
-				if err := skillsync.InstallSource(s.o.Dir, dir+"/"+name, canonical, variant, bundle, snapshot, server); err != nil {
-					return err
-				}
-				s.res.Created = append(s.res.Created, dir+"/"+name+"/SKILL.md")
-				continue
-			}
-			for p, c := range files {
-				if err := s.write(dir+"/"+name+"/"+p, c, 0o644); err != nil {
-					return err
-				}
-			}
+		if err := skillsync.Install(s.o.Dir, skillsDirs, sources); err != nil {
+			return err
 		}
 	}
 

@@ -228,7 +228,7 @@ func TestSkillsPullStata(t *testing.T) {
 	out, _, err = h.run(t, "", "skills", "pull")
 	want := "Skills: 1 updated, 1 locally edited (kept), 1 no longer in the project's setup"
 	if err != nil || !strings.Contains(out, want) ||
-		!strings.Contains(out, "Edited: framework-stata — .claude/skills/framework-stata has local edits, which were kept. --overwrite replaces them with the Cloud version. Run: fw skills pull --overwrite") ||
+		!strings.Contains(out, "Edited: framework-stata — .claude/skills/framework-stata has local edits, which were kept. To replace them with the setup's version: fw skills pull --overwrite") ||
 		!strings.Contains(out, "Removed: old-skill — old-skill is no longer in the project's setup, so pull left its folder alone.") {
 		t.Fatalf("edited: %v\n%s", err, out)
 	}
@@ -329,7 +329,7 @@ func TestSkillsPush(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, ".claude", "skills", "scratch", "SKILL.md"), skillText("scratch", "Scratch"))
 	out, _, err = h.run(t, "", "skills", "push", "--dry-run")
 	if err != nil || !strings.Contains(out, "This replaces the current version of analysis, used wherever it's attached.") ||
-		!strings.Contains(out, ".claude/skills/scratch isn't tracked, so push left it alone. To push it as a new skill: fw skills sync .claude/skills/scratch") ||
+		!strings.Contains(out, `.claude/skills/scratch isn't tracked, so push left it alone. To push it as a new skill: fw skills sync ".claude/skills/scratch"`) ||
 		!strings.Contains(out, "Skills pushed (dry run, nothing sent): 1 to push, 1 not tracked") || len(c.posts) != 0 {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
@@ -353,11 +353,11 @@ func TestSkillsPush(t *testing.T) {
 	c.publish(skillText("analysis", "Theirs"))
 	writeTestFile(t, analysis, skillText("analysis", "Mine again"))
 	out, _, err = h.run(t, "", "skills", "push", "--yes")
-	if err == nil || !strings.Contains(out, "Pull first: analysis changed on Framework Cloud") || !strings.Contains(out, "1 refused (pull first)") || len(c.versions) != 3 {
+	if err == nil || !strings.Contains(out, "Pull first: analysis changed on Framework Cloud") || !strings.Contains(out, "1 refused") || len(c.versions) != 3 {
 		t.Fatalf("conflict: %v\n%s", err, out)
 	}
 	out, _, err = h.run(t, "", "skills", "push", "--yes", "--force")
-	if err != nil || !strings.Contains(out, "Cloud has a newer version of analysis than this project pulled.") || len(c.versions) != 4 ||
+	if err != nil || !strings.Contains(out, "over changes this project never pulled") || len(c.versions) != 4 ||
 		!strings.Contains(string(mustDecode(t, c.versions[3].Bundle[0].Content)), "Mine again") {
 		t.Fatalf("force: %v\n%s", err, out)
 	}

@@ -1,0 +1,23 @@
+{
+  "schema": 2,
+  "skills": {
+    "framework-sensitive-data": {
+      "stata": [
+        "598917f2cdf428dcfd83ed9ad0d81a50f7beccb20edebc8dccd8e7ab8748e36c",
+        "77f8a7c0f25af3f7eeff0077e953dd8a769d20474b59048331773a0720e902ae"
+      ]
+    },
+    "framework-stata": {
+      "stata": [
+        "0a9e823316882838bbcc718529bf5ad6746b0c7dc66a41a34aa075843101a601",
+        "2a221b842520efada4cd4c872bb4132c9202cdec98e7cfbbb5755fef7e12267c",
+        "3f4602241b22e0454f9437a5da761e6ee4c3baf07bf8fd634febd642a101ba07",
+        "531a81d02322cd44aaabc996f8f5a850b096f6de24ac635391e693c2b6ac4596",
+        "5568ca6ecda78567943c576e832167e469ee752020fd52822bbc5b7f2f6bc6d5",
+        "6b34869aaf945437fb88f6fff4c4979a0999d7af6f4664f21a2ec4ee3da6e904",
+        "b8d1c83da5dc3fe496b575d12445dd0eb0a4b5eb3742d24cb1efa701f2d356bd",
+        "cdad205a14b2aeb1225f5b51e85b1b49d8046cd033ab8cde90cc82209b1d89fe"
+      ]
+    }
+  }
+}

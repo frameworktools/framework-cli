@@ -463,7 +463,7 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 		apply: func() error { return writeSetupLock(root, setup.Revision, client.URL, time.Now()) }}
 
 	skills := &syncPart{label: "Skills"}
-	if plan, err := a.stataSkills(ctx, root, overwrite, true); err != nil {
+	if plan, err := a.stataSkills(ctx, root, overwrite, true, syncCommands); err != nil {
 		skills.err = err
 	} else if plan.Source != "cloud" {
 		skills.err = errors.New(strings.TrimSuffix(plan.Notes[0], "; using the package skills for this project type."))
@@ -473,7 +473,7 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 			skills.lines = append(skills.lines, "  "+line)
 		}
 		for _, s := range plan.Skills {
-			if line := skillRowLine(s, "fw pull"); line != "" {
+			if line := skillRowLine(s); line != "" {
 				skills.lines = append(skills.lines, line)
 			}
 		}
@@ -496,7 +496,7 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 		// Always applied, even with no file to write: the lock may still
 		// change, as when a folder fw skills copy filled joins its skill
 		skills.apply = func() error {
-			res, err := a.stataSkills(ctx, root, overwrite, false)
+			res, err := a.stataSkills(ctx, root, overwrite, false, syncCommands)
 			if err != nil {
 				return err
 			}
@@ -600,12 +600,12 @@ type syncPushJSON struct {
 	Packages struct {
 		Managed bool `json:"managed"`
 	} `json:"packages"`
-	Skills       []pushItem        `json:"skills"`
-	DataRegistry *dataPushJSON     `json:"data_registry"`
-	Applied      []string          `json:"applied"`
-	Failed       map[string]string `json:"failed"`
-	DryRun       bool              `json:"dry_run"`
-	Message      string            `json:"message"`
+	Skills       []skillsync.SkillStatus `json:"skills"`
+	DataRegistry *dataPushJSON           `json:"data_registry"`
+	Applied      []string                `json:"applied"`
+	Failed       map[string]string       `json:"failed"`
+	DryRun       bool                    `json:"dry_run"`
+	Message      string                  `json:"message"`
 }
 
 // pushStata is fw push for a Stata project: its edited skills and its data
@@ -620,7 +620,7 @@ func (a *app) pushStata(cmd *cobra.Command, root, server string, remove, force, 
 	if err != nil {
 		return err
 	}
-	out := syncPushJSON{DryRun: dryRun, Skills: []pushItem{}, Applied: []string{}, Failed: map[string]string{}}
+	out := syncPushJSON{DryRun: dryRun, Skills: []skillsync.SkillStatus{}, Applied: []string{}, Failed: map[string]string{}}
 
 	packages := &syncPart{label: "Packages", state: "not managed for Stata projects", quiet: true}
 	skills := a.planSkillsPart(ctx, root, server, force, &out.Skills, w)
@@ -684,30 +684,28 @@ func (a *app) pushStata(cmd *cobra.Command, root, server string, remove, force, 
 	return finish(nil)
 }
 
+// syncCommands are the commands fw pull and fw push hints name.
+var syncCommands = skillsync.Commands{Pull: "fw pull", Push: "fw push"}
+
 // planSkillsPart is the skills part of fw push: the edited, tracked skills
 // to push. Checking them against Framework Cloud needs your login, so it is
-// only needed when a skill was edited.
-func (a *app) planSkillsPart(ctx context.Context, root, server string, force bool, items *[]pushItem, w io.Writer) *syncPart {
+// only needed when a skill would be pushed.
+func (a *app) planSkillsPart(ctx context.Context, root, server string, force bool, items *[]skillsync.SkillStatus, w io.Writer) *syncPart {
 	part := &syncPart{label: "Skills"}
 	dirs, err := projectSkillsDirs(root, readSkillsSpec(root))
 	if err != nil {
 		part.err = err
 		return part
 	}
-	changes, untracked, err := skillsync.LocalChanges(root, dirs)
+	o := skillsync.PushOptions{Root: root, Dirs: dirs, Force: force, Commands: syncCommands}
+	pp, err := skillsync.PlanPush(o)
 	if err != nil {
 		part.err = err
 		return part
 	}
 	// Only a skill with a copy to push is checked against Cloud
 	var client *cloud.Client
-	cloudChecks := 0
-	for _, c := range changes {
-		if !c.Missing {
-			cloudChecks++
-		}
-	}
-	if cloudChecks > 0 {
+	if names := pushCandidates(pp); len(names) > 0 {
 		srv, err := a.server(server, cloud.ProjectScope)
 		if err != nil {
 			part.err = err
@@ -715,68 +713,68 @@ func (a *app) planSkillsPart(ctx context.Context, root, server string, force boo
 		}
 		found, ok := a.tokens().Lookup(srv.URL)
 		if !ok {
-			names := make([]string, len(changes))
-			for i, c := range changes {
-				names[i] = c.Name
-			}
 			part.err = fmt.Errorf("not signed in, so edited skills (%s) can't be pushed. Run: %s", strings.Join(names, ", "), loginCommand(srv.URL))
 			return part
 		}
 		client = cloud.NewClient(srv.URL, found.Token)
-	}
-	*items = planSkillPush(ctx, client, root, changes, untracked, force)
-	if *items == nil {
-		*items = []pushItem{}
-	}
-	// What failed while planning is printed here, once; the error after
-	// applying only names it
-	shown := map[string]bool{}
-	var push []string
-	for _, it := range *items {
-		switch {
-		case it.pending:
-			push = append(push, it.Name)
-			part.warnings = append(part.warnings, it.Reason)
-		case it.Status == "refused":
-			part.lines = append(part.lines, "  Pull first: "+it.Name+" changed on Cloud since this project pulled it. fw push --force replaces it.")
-		case it.Status == "failed":
-			part.lines = append(part.lines, "  Not checked: "+it.Name+": "+it.Reason)
-			shown[it.Path] = true
-		case it.Status == "missing":
-			part.lines = append(part.lines, "  Missing: "+it.Name+" — "+it.Reason)
-			shown[it.Path] = true
+		o.Remote = skillRemote(ctx, client)
+		if pp, err = skillsync.PlanPush(o); err != nil {
+			part.err = err
+			return part
 		}
 	}
-	var failed []string
-	for _, it := range *items {
-		if it.Status == "failed" || it.Status == "missing" {
+	rows := pp.Rows()
+	*items = rows
+	var push, failed []string
+	shown := map[string]bool{}
+	for _, it := range rows {
+		if it.Status == skillsync.StatusFailed || it.Status == skillsync.StatusMissing {
+			shown[it.Name+"\x00"+it.Reason] = true
+		}
+		switch it.Status {
+		case skillsync.StatusPushed:
+			push = append(push, it.Name)
+		case skillsync.StatusRefused:
+			part.lines = append(part.lines, "  Refused: "+it.Name+" — "+it.Reason)
+		case skillsync.StatusFailed:
+			part.lines = append(part.lines, "  Not checked: "+it.Name+" — "+it.Reason)
+			failed = append(failed, it.Name+": "+strings.TrimSuffix(it.Reason, "."))
+		case skillsync.StatusMissing:
+			part.lines = append(part.lines, "  Missing: "+it.Name+" — "+it.Reason)
 			failed = append(failed, it.Name+": "+strings.TrimSuffix(it.Reason, "."))
 		}
 	}
+	part.warnings = pushNotes(pp)
 	part.failed = strings.Join(failed, "; ")
 	if len(push) > 0 {
 		part.lines = append([]string{"  Skills to push: " + strings.Join(push, ", ")}, part.lines...)
 	}
 	part.quiet = len(part.lines) == 0
-	for _, it := range *items {
-		if it.Status == "untracked" {
-			part.lines = append(part.lines, "  Not tracked: "+it.Name+" — use fw skills sync "+it.Path+" to add it")
+	for _, it := range rows {
+		if it.Status == skillsync.StatusUntracked {
+			part.lines = append(part.lines, "  Not tracked: "+it.Name+" — "+it.Reason)
 		}
 	}
-	part.pending = len(push) > 0
+	part.pending = pp.Pending()
 	part.apply = func() error {
 		if client != nil && part.pending {
-			applySkillPush(ctx, client, root, a.projectTokenFor(root, client.URL), *items)
+			token := a.projectTokenFor(root, client.URL)
+			if err := pp.Apply(client.URL, skillSender(ctx, client, token)); err != nil {
+				return err
+			}
 		}
+		rows := pp.Rows()
+		*items = rows
 		var pushed, bad []string
-		for _, it := range *items {
+		for _, it := range rows {
 			switch it.Status {
-			case "pushed":
+			case skillsync.StatusPushed:
 				pushed = append(pushed, it.Name)
-			case "refused":
+			case skillsync.StatusRefused:
 				bad = append(bad, it.Name+" changed on Cloud since this project pulled it; fw push --force replaces it")
-			case "failed", "missing":
-				if shown[it.Path] {
+			case skillsync.StatusFailed, skillsync.StatusMissing:
+				// What failed while planning was printed then, once
+				if shown[it.Name+"\x00"+it.Reason] {
 					bad = append(bad, it.Name+" (see above)")
 				} else {
 					bad = append(bad, it.Name+": "+strings.TrimSuffix(it.Reason, "."))
@@ -796,4 +794,16 @@ func (a *app) planSkillsPart(ctx context.Context, root, server string, force boo
 		return nil
 	}
 	return part
+}
+
+// pushCandidates names the skills a push would check against Cloud: those
+// to push, and those refused for want of Cloud's head.
+func pushCandidates(pp *skillsync.PushPlan) []string {
+	var names []string
+	for _, it := range pp.Rows() {
+		if it.Status == skillsync.StatusPushed || it.Status == skillsync.StatusRefused {
+			names = append(names, it.Name)
+		}
+	}
+	return names
 }

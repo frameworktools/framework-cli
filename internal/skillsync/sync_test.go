@@ -14,13 +14,6 @@ import (
 	"github.com/frameworktools/framework-cli/internal/cloud"
 )
 
-func check(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Error(err)
-	}
-}
-
 func TestCRLFHash(t *testing.T) {
 	data, err := os.ReadFile("testdata/skill-bundle-crlf.json")
 	if err != nil {
@@ -241,8 +234,8 @@ func TestSyncPushesAnUnpublishedBuiltinAsNew(t *testing.T) {
 	files, err := Scan(target)
 	check(t, err)
 	shipped, _ := Hash(files)
-	check(t, save(root, State{Schema: 1, Skills: map[string]*Entry{"package:framework-stata": {
-		Paths: []string{relative}, Variant: "stata", Hash: shipped, Origin: &Origin{ID: "framework:framework-stata", Hash: shipped}}}}))
+	writeRel(t, root, lockFile, `{"schema":1,"skills":{"package:framework-stata":{"paths":["`+relative+`"],"variant":"stata","hash":"`+shipped+
+		`","origin":{"skill_id":"framework:framework-stata","hash":"`+shipped+`"}}}}`)
 	var posts []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -273,39 +266,12 @@ func TestSyncPushesAnUnpublishedBuiltinAsNew(t *testing.T) {
 	if err != nil || result.Action != "push" || len(posts) != 1 || posts[0]["skill_id"] != nil || posts[0]["expected_version"] != float64(0) {
 		t.Fatalf("edited: %+v %v %v", result, err, posts)
 	}
-	if state, _ := load(root); state.Skills["package:framework-stata"].ID != "own-id" {
-		t.Fatal("the lock does not track the new skill")
+	// The built-in becomes your own Cloud skill, in a v2 lock
+	lock, err := ReadLock(root)
+	if e := lock.Skills[server.URL+"/own-id@stata"]; err != nil || e == nil || e.Copies[relative].Hash == "" || len(lock.Skills) != 1 {
+		t.Fatalf("the lock does not track the new skill: %+v %v", lock, err)
 	}
-}
-
-// After fw skills push, the lock tracks a newer version than the setup
-// names. A pull without a login has only the setup's: it keeps the newer one.
-func TestPullKeepsANewerPushedVersion(t *testing.T) {
-	root := t.TempDir()
-	relative := ".claude/skills/lab-notes"
-	v1 := []File{{Path: "SKILL.md", Content: base64.StdEncoding.EncodeToString([]byte("---\nname: lab-notes\ndescription: x\n---\nOne\n"))}}
-	h1, _ := Hash(v1)
-	wanted := Wanted{Name: "lab-notes", Files: v1, Sync: &Source{ID: "lab-id", Version: 1, Hash: h1, Variant: "stata", Server: "https://cloud.example"}}
-	opts := PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{wanted}, Variant: "stata"}
-	if _, err := Pull(opts); err != nil {
-		t.Fatal(err)
-	}
-	pushed := []byte("---\nname: lab-notes\ndescription: x\n---\nTwo\n")
-	check(t, os.WriteFile(filepath.Join(root, filepath.FromSlash(relative), "SKILL.md"), pushed, 0644))
-	state, err := load(root)
-	check(t, err)
-	for _, e := range state.Skills {
-		e.Version = 2
-		files, _ := Scan(filepath.Join(root, filepath.FromSlash(relative)))
-		e.Hash, _ = Hash(files)
-	}
-	check(t, save(root, state))
-	res, err := Pull(opts)
-	if err != nil || res.Skills[0].Status != StatusCurrent {
-		t.Fatalf("%+v %v", res, err)
-	}
-	raw, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative), "SKILL.md"))
-	if string(raw) != string(pushed) {
-		t.Fatalf("replaced with %q", raw)
+	if !strings.Contains(readRel(t, root, lockFile), `"schema": 2`) {
+		t.Error("the lock was not written as schema 2")
 	}
 }

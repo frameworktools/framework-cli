@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -14,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/frameworktools/framework-cli/internal/cloud"
 	"github.com/frameworktools/framework-cli/internal/engine"
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 )
@@ -299,13 +297,15 @@ func TestSkillsPushReportsAnEditedSecondCopy(t *testing.T) {
 		`{"schema":1,"skills":{"k":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata","hash":"`+h+`"}}}`+"\n")
 	writeTestFile(t, filepath.Join(root, ".agents", "skills", "x", "SKILL.md"), skillText("x", "Edited in agents"))
 
-	changes, untracked, err := skillsync.LocalChanges(root, []string{".claude/skills", ".agents/skills"})
-	if err != nil || len(changes) != 1 {
-		t.Fatalf("changes: %+v %v", changes, err)
+	pp, err := skillsync.PlanPush(skillsync.PushOptions{Root: root, Dirs: []string{".claude/skills", ".agents/skills"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	items := planSkillPush(context.Background(), cloud.NewClient("http://127.0.0.1:1", "user-tok"), root, changes, untracked, false)
-	if len(items) != 1 || items[0].Status != "failed" || !strings.Contains(items[0].Reason, "assistant skill copies diverged") ||
-		items[0].Hint != `fw skills copy --from claude --to agents --skill "x"` {
+	// v2: the edited copy is the one to keep, so the hint copies it over
+	// the unedited one
+	items := pp.Rows()
+	if len(items) != 1 || items[0].Status != "failed" || !strings.Contains(items[0].Reason, "differ") ||
+		items[0].Hint != `fw skills copy --from agents --to claude --skill "x"` {
 		t.Errorf("items: %+v", items)
 	}
 }
@@ -361,10 +361,16 @@ func TestSkillsPushDivergedAndUnreadableCopies(t *testing.T) {
 		return h
 	}
 	hx, hz := hashOf("x"), hashOf("z")
+	// v2: x is missing a copy beside an edited one; y can't be read; z is a
+	// Cloud skill whose edit pushes
 	writeTestFile(t, filepath.Join(dir, ".framework", "skills.lock.json"), `{"schema":1,"skills":{`+
 		`"kx":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata","hash":"`+hx+`"},`+
 		`"ky":{"paths":[".claude/skills/y"],"variant":"stata","hash":"`+hz+`"},`+
-		`"kz":{"paths":[".claude/skills/z"],"variant":"stata","hash":"`+hz+`"}}}`+"\n")
+		`"kz":{"paths":[".claude/skills/z"],"variant":"stata","server":"`+c.server.URL+`","skill_id":"acct-1","version":1,"hash":"`+hz+`"}}}`+"\n")
+	writeTestFile(t, filepath.Join(skills, "x", "SKILL.md"), skillText("x", "Edited"))
+	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o750); err != nil {
+		t.Fatal(err)
+	}
 	writeTestFile(t, filepath.Join(skills, "y", "my notes.md"), "a name sync refuses\n")
 	writeTestFile(t, filepath.Join(skills, "z", "SKILL.md"), skillText("z", "Edited"))
 
@@ -376,7 +382,7 @@ func TestSkillsPushDivergedAndUnreadableCopies(t *testing.T) {
 	if !strings.Contains(out, "Skills pushed (dry run, nothing sent): 1 to push, 2 failed") {
 		t.Errorf("summary:\n%s", out)
 	}
-	if n := strings.Count(out, "assistant skill copies diverged"); n != 1 || !strings.Contains(out, `fw skills copy --from claude --to agents --skill "x"`) {
+	if n := strings.Count(out, ".agents/skills/x is missing"); n != 1 || !strings.Contains(out, `fw skills copy --from claude --to agents --skill "x"`) {
 		t.Errorf("the divergence printed %d times:\n%s", n, out)
 	}
 	if n := strings.Count(out, "my notes.md"); n != 1 {
@@ -422,13 +428,14 @@ func TestSkillsPushAllCopiesGone(t *testing.T) {
 	out, _, err := h.run(t, "", "skills", "push", "--dry-run")
 	var exit *exitError
 	if !errors.As(err, &exit) || exit.code != 1 || !strings.Contains(out, "Every tracked copy is gone.") ||
-		!strings.Contains(out, "1 missing (every copy gone)") || strings.Contains(out, "nothing to push") {
+		!strings.Contains(out, "1 missing") || strings.Contains(out, "nothing to push") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
 
-// Item 4: a fallback skills pull (no project token) reports a diverged
-// tracked skill with its hint
+// Item 4: a fallback skills pull (no project token) reports a tracked
+// skill it can't judge offline as unavailable (v2: offline, every tracked
+// skill the package doesn't name is reported, diverged or not)
 func TestSkillsPullFallbackReportsDiverged(t *testing.T) {
 	h := newHarness(t, nil)
 	dir := stataSkillsProject(t, h.app.home, "http://127.0.0.1:1", false)
@@ -436,8 +443,8 @@ func TestSkillsPullFallbackReportsDiverged(t *testing.T) {
 	trackTwoCopies(t, dir)
 	writeTestFile(t, filepath.Join(dir, ".agents", "skills", "x", "SKILL.md"), skillText("x", "Edited in agents"))
 	out, _, err := h.run(t, "", "skills", "pull", "--dry-run")
-	if err != nil || !strings.Contains(out, "1 diverged (nothing written)") ||
-		!strings.Contains(out, `Diverged: x — .claude/skills/x and .agents/skills/x differ. Pick one and copy it over the other: fw skills copy --from claude --to agents --skill "x"`) {
+	if err != nil || !strings.Contains(out, "1 not available") ||
+		!strings.Contains(out, "Unavailable: x — Framework Cloud wasn't reached, so x was left as it is.") {
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
@@ -486,7 +493,7 @@ func TestSyncOutputConsistency(t *testing.T) {
 		t.Fatalf("push --yes succeeded:\n%s", out)
 	}
 	all := out + stderr + err.Error()
-	if n := strings.Count(all, "assistant skill copies diverged"); n != 1 || !strings.Contains(err.Error(), "x (see above)") {
+	if n := strings.Count(all, "has local edits. Copy it over"); n != 1 || !strings.Contains(err.Error(), "x (see above)") {
 		t.Errorf("printed %d times:\n%s", n, all)
 	}
 }
@@ -524,7 +531,7 @@ func TestROldSkillSync(t *testing.T) {
 	}
 	before := len(f.ran)
 	for _, args := range [][]string{{"skills", "pull"}, {"skills", "push", "--dry-run"}} {
-		if _, _, err := h.run(t, "", args...); err == nil || !strings.Contains(err.Error(), "old skill sync") {
+		if _, _, err := h.run(t, "", args...); err == nil || !strings.Contains(err.Error(), "older skill sync") {
 			t.Errorf("fw %v: %v", args, err)
 		}
 	}
@@ -566,34 +573,24 @@ func TestCopyRecordsTheCopiedFolder(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, ".agents", "skills", "analysis", "SKILL.md"), skillText("analysis", "Edited again, one side"))
 	out, _, err = h.run(t, "", "skills", "push", "--dry-run")
 	var exit *exitError
-	if !errors.As(err, &exit) || exit.code != 1 || !strings.Contains(out, "assistant skill copies diverged") {
+	// v2: the copy took the edited source's record, so both copies count as
+	// edited, and the person picks which to keep
+	if !errors.As(err, &exit) || exit.code != 1 || !strings.Contains(out, "differ, and more than one has local edits") {
 		t.Errorf("one-sided edit: %v\n%s", err, out)
 	}
 }
 
-// Rule J end to end: the hint pull prints is a command that works. Run
-// it, then fw pull and fw skills push see one skill in two folders, and a
-// later one-sided edit fails as diverged
+// Rule J end to end, v2: turning on an assistant fills its folder with the
+// unedited skills. A later one-sided edit fails push, and the hint it
+// prints is a command that works: run it, and push sends the edit
 func TestPrintedHintThenPullThenPush(t *testing.T) {
 	h, _, _, dir := stataSyncProject(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok"})
 	if _, _, err := h.run(t, "", "pull", "--yes"); err != nil {
 		t.Fatal(err)
 	}
 	enableCodex(t, dir)
-	out, _, err := h.run(t, "", "skills", "pull", "--dry-run")
-	i := strings.Index(out, "fw skills copy ")
-	if err != nil || i < 0 {
-		t.Fatalf("no hint: %v\n%s", err, out)
-	}
-	hint := strings.TrimSuffix(strings.SplitN(out[i:], "\n", 2)[0], ".")
-	if hint != `fw skills copy --from claude --to agents --skill "analysis"` {
-		t.Fatalf("hint: %s", hint)
-	}
-	args := strings.Fields(strings.ReplaceAll(strings.TrimPrefix(hint, "fw "), `"`, ""))
-	if _, _, err = h.run(t, "", args...); err != nil {
-		t.Fatalf("%s: %v", hint, err)
-	}
-	if out, _, err = h.run(t, "", "pull", "--yes"); err != nil {
+	out, _, err := h.run(t, "", "skills", "pull")
+	if err != nil || !strings.Contains(out, "2 added") {
 		t.Fatalf("pull: %v\n%s", err, out)
 	}
 	out, _, err = h.run(t, "", "skills", "push", "--dry-run")
@@ -603,8 +600,21 @@ func TestPrintedHintThenPullThenPush(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, ".agents", "skills", "analysis", "SKILL.md"), skillText("analysis", "One side"))
 	out, _, err = h.run(t, "", "skills", "push", "--dry-run")
 	var exit *exitError
-	if !errors.As(err, &exit) || exit.code != 1 || !strings.Contains(out, "assistant skill copies diverged") {
-		t.Errorf("one-sided edit: %v\n%s", err, out)
+	i := strings.Index(out, "fw skills copy ")
+	if !errors.As(err, &exit) || exit.code != 1 || i < 0 {
+		t.Fatalf("one-sided edit: %v\n%s", err, out)
+	}
+	hint := strings.TrimSuffix(strings.SplitN(out[i:], "\n", 2)[0], ".")
+	if hint != `fw skills copy --from agents --to claude --skill "analysis"` {
+		t.Fatalf("hint: %s", hint)
+	}
+	args := strings.Fields(strings.ReplaceAll(strings.TrimPrefix(hint, "fw "), `"`, ""))
+	if _, _, err = h.run(t, "", args...); err != nil {
+		t.Fatalf("%s: %v", hint, err)
+	}
+	out, _, err = h.run(t, "", "skills", "push", "--dry-run")
+	if err != nil || !strings.Contains(out, "1 to push") {
+		t.Errorf("push after the copy: %v\n%s", err, out)
 	}
 }
 
@@ -618,7 +628,7 @@ func TestPushDryRunFailsOnDivergedSkills(t *testing.T) {
 	var exit *exitError
 	var res syncPushJSON
 	if !errors.As(err, &exit) || exit.code != 1 || json.Unmarshal([]byte(out), &res) != nil ||
-		!strings.HasPrefix(res.Failed["skills"], "x: assistant skill copies diverged") {
+		!strings.HasPrefix(res.Failed["skills"], "x: .agents/skills/x and .claude/skills/x differ") {
 		t.Errorf("%v\n%s", err, out)
 	}
 }
@@ -634,15 +644,15 @@ func TestPullFailsOnDivergedSkills(t *testing.T) {
 		var exit *exitError
 		var res syncPullJSON
 		if !errors.As(err, &exit) || exit.code != 1 || json.Unmarshal([]byte(out), &res) != nil ||
-			!strings.HasPrefix(res.Failed["skills"], "x: .claude/skills/x and .agents/skills/x differ") {
+			!strings.HasPrefix(res.Failed["skills"], "x: .agents/skills/x and .claude/skills/x differ") {
 			t.Errorf("%v: %v\n%s", args, err, out)
 		}
 	}
 }
 
-// CLI 2: the only copy of a personal fork is deleted. Push says what puts
-// it back; pull, signed in, restores the fork itself at the lock's
-// version; and the command push named does what it says
+// CLI 2: the only copy of a personal fork is deleted. Push says it's gone;
+// pull, signed in, restores the fork itself by its own identity; not
+// signed in, pull says to sign in
 func TestRestoreAPersonalFork(t *testing.T) {
 	c := newSkillsCloud(t)
 	// Signed in, with the server chosen, as fw login leaves it
@@ -659,8 +669,7 @@ func TestRestoreAPersonalFork(t *testing.T) {
 	}
 
 	out, _, err := h.run(t, "", "skills", "push", "--dry-run")
-	hint := `fw skills sync ".claude/skills/framework-stata" --resolve remote`
-	if err == nil || !strings.Contains(out, "Every tracked copy is gone. Restore it from Framework Cloud: "+hint) {
+	if err == nil || !strings.Contains(out, "Missing: framework-stata — Every tracked copy is gone.") {
 		t.Fatalf("push: %v\n%s", err, out)
 	}
 
@@ -669,25 +678,14 @@ func TestRestoreAPersonalFork(t *testing.T) {
 		t.Fatalf("pull: %v\n%s", err, out)
 	}
 
-	// The command push named, run as printed
-	if err = os.RemoveAll(filepath.Dir(path)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = runHint(t, h, hint); err != nil {
-		t.Fatalf("%s: %v", hint, err)
-	}
-	if readFile(t, path) != skillText("framework-stata", "Mine") {
-		t.Error("the hint didn't put the fork back")
-	}
-
-	// Not signed in, pull can't fetch it: missing, with the same command
+	// Not signed in, pull can't fetch it: missing, with what would
 	if err = os.RemoveAll(filepath.Dir(path)); err != nil {
 		t.Fatal(err)
 	}
 	h2 := newHarness(t, nil)
 	h2.app.cwd = dir
 	out, _, err = h2.run(t, "", "skills", "pull", "--dry-run")
-	if err != nil || !strings.Contains(out, "Missing: framework-stata — Every tracked copy is gone. Restore it from Framework Cloud: "+hint) {
+	if err != nil || !strings.Contains(out, "Missing: framework-stata — Every tracked copy is gone. Sign in so pull can restore it from Framework Cloud: fw login") {
 		t.Errorf("not signed in: %v\n%s", err, out)
 	}
 }
@@ -714,7 +712,7 @@ func TestOverwriteResetsYourOwnSkill(t *testing.T) {
 	writeTestFile(t, analysis, skillText("analysis", "Mine"))
 	out, _, err := h.run(t, "", "skills", "pull")
 	hint := "fw skills pull --overwrite"
-	if err != nil || !strings.Contains(out, "Edited: analysis — .claude/skills/analysis has local edits, which were kept. --overwrite replaces them with the Cloud version. Run: "+hint) {
+	if err != nil || !strings.Contains(out, "Edited: analysis — .claude/skills/analysis has local edits, which were kept. To replace them with the setup's version: "+hint) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if out, err = runHint(t, h, hint); err != nil || !strings.Contains(out, "1 replaced (backed up)") || readFile(t, analysis) != skillText("analysis", "First") {
@@ -735,8 +733,8 @@ func TestPullIgnoresADisabledAssistantsFolder(t *testing.T) {
 	}
 }
 
-// Round 12, 5a: after renaming .claude to .agents, push names the adopt
-// command, not a pull that wouldn't restore it; run as printed, it tracks
+// Round 12, 5a: after renaming .claude to .agents, push names fw skills
+// move, not a pull that wouldn't restore it; run as printed, it records
 // each copy where it now is, and push then has nothing missing
 func TestRenamedFolderPushHintAdopts(t *testing.T) {
 	c := newSkillsCloud(t)
@@ -756,7 +754,12 @@ func TestRenamedFolderPushHintAdopts(t *testing.T) {
 	if strings.Contains(out, "fw skills pull puts it back") {
 		t.Errorf("push names a pull that wouldn't restore it:\n%s", out)
 	}
-	hints := regexp.MustCompile(`fw skills sync "[^"]+" --id "[^"]+"`).FindAllString(out, -1)
+	var hints []string
+	for _, hint := range regexp.MustCompile(`fw skills move "[^"]+" "[^"]+"`).FindAllString(out, -1) {
+		if !contains(hints, hint) {
+			hints = append(hints, hint)
+		}
+	}
 	if len(hints) != 2 {
 		t.Fatalf("hints %v in:\n%s", hints, out)
 	}
@@ -776,9 +779,9 @@ func TestRenamedFolderPushHintAdopts(t *testing.T) {
 }
 
 // Round 13, scenario 12: the setup names a different Cloud skill (acct-1)
-// under the name the lock tracks as acct-0. Following the printed
-// instruction verbatim (move the folder, run the sync command, pull) puts
-// acct-1 in place and keeps acct-0's Cloud ID at the new location
+// under the name the lock tracks as acct-0. Pull keeps the folder, with the
+// retarget command. Moving acct-0's copy aside with fw skills move keeps
+// its Cloud ID at the new folder, and pull then puts acct-1 in place
 func TestMovedSkillKeepsItsCloudID(t *testing.T) {
 	c := newSkillsCloud(t)
 	old := snapshot("acct-0", 1, skillText("analysis", "Old"))
@@ -792,38 +795,29 @@ func TestMovedSkillKeepsItsCloudID(t *testing.T) {
 		`"server":"`+c.server.URL+`","skill_id":"acct-0","version":1,"hash":"`+old.Hash+`"}}}`+"\n")
 
 	out, _, err := h.run(t, "", "skills", "pull", "--dry-run")
-	m := regexp.MustCompile(`— (\S+) belongs to a different skill \([^)]+\), so pull left it alone; to put the setup's \S+ there, move it to (\S+), run (fw skills sync "[^"]+" --id "[^"]+") to keep`).FindStringSubmatch(out)
-	if err != nil || m == nil {
+	if err != nil || !strings.Contains(out, `Kept: analysis — .claude/skills/analysis is tracked as a different skill, so pull left it alone. `+
+		`To track it as the setup's analysis instead: fw skills move ".claude/skills/analysis" --id "acct-1" --variant stata`) {
 		t.Fatalf("no instruction: %v\n%s", err, out)
 	}
-	from, to, hint := m[1], m[2], m[3]
-	if err = os.MkdirAll(filepath.Dir(filepath.Join(dir, to)), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
-		t.Fatal(err)
-	}
-	if out, err = runHint(t, h, hint); err != nil {
-		t.Fatalf("%s: %v\n%s", hint, err, out)
+	if out, _, err = h.run(t, "", "skills", "move", ".claude/skills/analysis", "kept-skills/analysis"); err != nil || !strings.Contains(out, "Moved: .claude/skills/analysis -> kept-skills/analysis") {
+		t.Fatalf("move: %v\n%s", err, out)
 	}
 	if out, _, err = h.run(t, "", "skills", "pull"); err != nil {
 		t.Fatalf("pull: %v\n%s", err, out)
 	}
-
-	var lock struct {
-		Skills map[string]struct {
-			Paths []string `json:"paths"`
-			ID    string   `json:"skill_id"`
-		} `json:"skills"`
-	}
-	if err = json.Unmarshal([]byte(readFile(t, lockPath)), &lock); err != nil {
+	lock, err := skillsync.ReadLock(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
 	for _, e := range lock.Skills {
-		ids[e.ID] = strings.Join(e.Paths, ",")
+		var paths []string
+		for p := range e.Copies {
+			paths = append(paths, p)
+		}
+		ids[e.Identity.SkillID] = strings.Join(paths, ",")
 	}
-	if ids["acct-0"] != to || ids["acct-1"] != ".claude/skills/analysis" {
+	if ids["acct-0"] != "kept-skills/analysis" || ids["acct-1"] != ".claude/skills/analysis" {
 		t.Errorf("entries: %v", ids)
 	}
 	if readFile(t, filepath.Join(dir, ".claude", "skills", "analysis", "SKILL.md")) != skillText("analysis", "First") {
@@ -831,5 +825,31 @@ func TestMovedSkillKeepsItsCloudID(t *testing.T) {
 	}
 	if out, _, err = h.run(t, "", "skills", "pull", "--dry-run"); err != nil || strings.Contains(out, "acct-0") {
 		t.Errorf("acct-0 still reported: %v\n%s", err, out)
+	}
+}
+
+// fw skills move --id, as pull's retarget hint prints it, switches the
+// copy to the setup's skill; the next pull updates the unedited copy
+func TestRetargetHintThenPull(t *testing.T) {
+	c := newSkillsCloud(t)
+	old := snapshot("acct-0", 1, skillText("analysis", "Old"))
+	c.own = &old
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_CLOUD_URL": c.server.URL})
+	dir := stataSkillsProject(t, h.app.home, c.server.URL, true)
+	h.app.cwd = dir
+	writeTestFile(t, filepath.Join(dir, ".claude", "skills", "analysis", "SKILL.md"), skillText("analysis", "Old"))
+	writeTestFile(t, filepath.Join(dir, ".framework", "skills.lock.json"), `{"schema":1,"skills":{"a":{"paths":[".claude/skills/analysis"],"variant":"stata",`+
+		`"server":"`+c.server.URL+`","skill_id":"acct-0","version":1,"hash":"`+old.Hash+`"}}}`+"\n")
+	out, _, err := h.run(t, "", "skills", "pull", "--dry-run")
+	i := strings.Index(out, "fw skills move ")
+	if err != nil || i < 0 {
+		t.Fatalf("no hint: %v\n%s", err, out)
+	}
+	if out, err = runHint(t, h, strings.SplitN(out[i:], "\n", 2)[0]); err != nil || !strings.Contains(out, "Now tracks") {
+		t.Fatalf("move: %v\n%s", err, out)
+	}
+	if out, _, err = h.run(t, "", "skills", "pull"); err != nil || !strings.Contains(out, "1 updated") ||
+		readFile(t, filepath.Join(dir, ".claude", "skills", "analysis", "SKILL.md")) != skillText("analysis", "First") {
+		t.Fatalf("pull: %v\n%s", err, out)
 	}
 }

@@ -2,10 +2,7 @@ package skillsync
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,38 +11,6 @@ import (
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
 )
-
-func writeRel(t *testing.T, root, rel, body string) {
-	t.Helper()
-	p := filepath.Join(root, filepath.FromSlash(rel))
-	check(t, os.MkdirAll(filepath.Dir(p), 0755))
-	check(t, os.WriteFile(p, []byte(body), 0644))
-}
-
-func readRel(t *testing.T, root, rel string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(data)
-}
-
-func skillMD(name, body string) string { return "---\nname: " + name + "\n---\n" + body + "\n" }
-
-// entriesIn lists a folder's entries, or nothing when it doesn't exist.
-func entriesIn(t *testing.T, root, rel string) []string {
-	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
-	if err != nil && !os.IsNotExist(err) {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		names = append(names, e.Name())
-	}
-	return names
-}
 
 func TestAssistantSkillsDirs(t *testing.T) {
 	for name, want := range map[string]string{"claude": ".claude/skills", "agents": ".agents/skills", "codex": ".agents/skills", "copilot": ".agents/skills", "cursor": ""} {
@@ -70,56 +35,6 @@ func TestCleanFolder(t *testing.T) {
 		if got, err := CleanFolder(in); err == nil {
 			t.Errorf("%q: accepted as %q", in, got)
 		}
-	}
-}
-
-// Diverged copies name the fix, and fw skills copy settles them without
-// touching the lock.
-func TestDivergedCopiesNameTheFix(t *testing.T) {
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "edited"))
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "original"))
-	lock := `{"schema":1,"skills":{".claude/skills/x":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	client := cloud.NewClient("http://127.0.0.1:1", "token")
-	opts := Options{Root: root, Path: ".claude/skills/x", Direction: "status", Variant: "stata"}
-
-	_, err := Sync(context.Background(), client, opts)
-	want := `assistant skill copies diverged: .claude/skills/x and .agents/skills/x differ. Pick one and copy it over the other: fw skills copy --from claude --to agents --skill "x"`
-	if err == nil || err.Error() != want {
-		t.Fatalf("got %v", err)
-	}
-
-	res, err := Copy(CopyOptions{Root: root, From: ".claude/skills", To: []string{".agents/skills"}})
-	if err != nil || res.Counts[StatusCopied] != 1 || len(res.Backups) != 1 || res.Skills[0].Backup != res.Backups[0] {
-		t.Fatalf("copy: %+v %v", res, err)
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock {
-		t.Error("the copy changed the lock")
-	}
-	// No longer diverged: with no Cloud identity, an edited skill is one to push
-	if r, err := Sync(context.Background(), client, opts); err != nil || r.Action != "push" {
-		t.Errorf("after the copy: %+v %v", r, err)
-	}
-}
-
-// A custom folder gets --from-dir and --to-dir, with both paths, quoted
-func TestDivergedHintForCustomFolders(t *testing.T) {
-	two := []string{"vendor/skills/x", ".agents/skills/x"}
-	n := copiesNote("", nil, &Entry{Paths: two}, two, nil, map[string]string{two[0]: "a", two[1]: "b"})
-	cmd := `fw skills copy --from-dir "vendor/skills" --to-dir ".agents/skills" --skill "x"`
-	if n.reason != "vendor/skills/x and .agents/skills/x differ. Pick one and copy it over the other: "+cmd || n.hint != cmd {
-		t.Errorf("two: %+v", n)
-	}
-	// Three or more: every command needed
-	three := []string{".claude/skills/x", ".agents/skills/x", "vendor/skills/x"}
-	n = copiesNote("", nil, &Entry{Paths: three}, three, nil, map[string]string{three[0]: "a", three[1]: "b", three[2]: "c"})
-	cmds := `fw skills copy --from claude --to agents --skill "x" && fw skills copy --from-dir ".claude/skills" --to-dir "vendor/skills" --skill "x"`
-	if n.reason != ".claude/skills/x, .agents/skills/x, and vendor/skills/x differ. Pick one and copy it over the others: "+cmds || n.hint != cmds {
-		t.Errorf("three: %+v", n)
-	}
-	if got := copyTo("my skills/it's", ".claude/skills/it's"); got != `fw skills copy --from-dir 'my skills' --to-dir ".claude/skills" --skill 'it'\''s'` {
-		t.Errorf("quoting: %s", got)
 	}
 }
 
@@ -580,125 +495,6 @@ func TestCopyNamesALostCopysBackup(t *testing.T) {
 	}
 }
 
-// With one recorded copy missing, the hint copies from the one that exists
-// and names the missing side, so the copy recreates it
-func TestMissingCopyHint(t *testing.T) {
-	root := t.TempDir()
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "x"))
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"k":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata"}}}`+"\n")
-	_, err := Sync(context.Background(), cloud.NewClient("http://127.0.0.1:1", "token"), Options{Root: root, Path: ".claude/skills/x", Direction: "status", Variant: "stata"})
-	cmd := `fw skills copy --from agents --to claude --skill "x"`
-	want := "assistant skill copies diverged: .claude/skills/x is missing, and .agents/skills/x is the only copy. Copy it back: " + cmd
-	var se *SkillError
-	if err == nil || err.Error() != want || !errors.As(err, &se) || se.Hint != cmd {
-		t.Errorf("got  %v\nwant %s", err, want)
-	}
-	p := []string{".claude/skills/x"}
-	n := copiesNote("", nil, &Entry{Paths: []string{p[0], "vendor/skills/x"}}, p, []string{"vendor/skills/x"}, map[string]string{p[0]: "a"})
-	cmd = `fw skills copy --from-dir ".claude/skills" --to-dir "vendor/skills" --skill "x"`
-	if n.reason != "vendor/skills/x is missing, and .claude/skills/x is the only copy. Copy it back: "+cmd || n.hint != cmd {
-		t.Errorf("custom: %+v", n)
-	}
-}
-
-// An edit to any recorded copy is a local change, not only the first
-func TestLocalChangesChecksEveryCopy(t *testing.T) {
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "x"))
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "x"))
-	files, err := Scan(filepath.Join(root, ".claude", "skills", "x"))
-	check(t, err)
-	h, _ := Hash(files)
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"k":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata","hash":"`+h+`"}}}`+"\n")
-	if changes, _, err := LocalChanges(root, nil); err != nil || len(changes) != 0 {
-		t.Fatalf("unedited: %+v %v", changes, err)
-	}
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "edited in agents"))
-	changes, _, err := LocalChanges(root, nil)
-	if err != nil || len(changes) != 1 || changes[0].Path != ".agents/skills/x" {
-		t.Errorf("second copy edited: %+v %v", changes, err)
-	}
-}
-
-// A skills folder pull can't list stops it before it installs anything or
-// saves the lock
-func TestPullListsBeforeWriting(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("needs an unreadable folder")
-	}
-	root := t.TempDir()
-	check(t, os.MkdirAll(filepath.Join(root, ".claude", "skills"), 0755))
-	check(t, os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0755))
-	check(t, os.Chmod(filepath.Join(root, ".agents", "skills"), 0o300))
-	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, ".agents", "skills"), 0755) })
-	w := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "x"), nil)}
-	_, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills", ".agents/skills"}, Skills: []Wanted{w}, Variant: "stata"})
-	if err == nil || !strings.Contains(err.Error(), "read .agents/skills") {
-		t.Fatalf("got %v", err)
-	}
-	if entriesIn(t, root, ".claude/skills") != nil {
-		t.Error("pull installed a skill before failing")
-	}
-	if _, err := os.Stat(filepath.Join(root, ".framework", "skills.lock.json")); !os.IsNotExist(err) {
-		t.Error("pull saved the lock before failing")
-	}
-}
-
-// Two unedited copies of a built-in skill both move from v1 to v2: the
-// first install mustn't make the second look edited
-func TestPullUpdatesEveryUneditedCopy(t *testing.T) {
-	root := t.TempDir()
-	dirs := []string{".claude/skills", ".agents/skills"}
-	v1 := Wanted{Name: "framework-stata", Package: true, Files: BundleFromText(skillMD("framework-stata", "v1"), nil)}
-	v2 := Wanted{Name: "framework-stata", Package: true, Files: BundleFromText(skillMD("framework-stata", "v2"), nil)}
-	if res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v1}, Variant: "stata"}); err != nil || res.Counts[StatusAdded] != 1 {
-		t.Fatalf("v1: %+v %v", res, err)
-	}
-	for _, dry := range []bool{true, false} {
-		res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v2}, Variant: "stata", DryRun: dry})
-		if err != nil || res.Counts[StatusUpdated] != 1 || res.Counts[StatusEdited] != 0 {
-			t.Errorf("v2 (dry run %v): %+v %v", dry, res, err)
-		}
-	}
-	for _, dir := range dirs {
-		if !strings.Contains(readRel(t, root, dir+"/framework-stata/SKILL.md"), "v2") {
-			t.Errorf("%s was not updated", dir)
-		}
-	}
-	h, _ := Hash(v2.Files)
-	if lock := readRel(t, root, ".framework/skills.lock.json"); !strings.Contains(lock, `"hash": "`+h+`"`) {
-		t.Errorf("lock:\n%s", lock)
-	}
-}
-
-// A copy edited after the plan, before its install, is kept and reported
-// as edited
-func TestPullKeepsACopyEditedDuringThePull(t *testing.T) {
-	root := t.TempDir()
-	dirs := []string{".claude/skills", ".agents/skills"}
-	v1 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v1"), nil)}
-	v2 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v2"), nil)}
-	if _, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v1}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	edited := false
-	pullInstall = func(backups *[]string, root string, paths []string, files []File, expected string) error {
-		if !edited {
-			edited = true
-			writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "mine"))
-		}
-		return installInto(backups, root, paths, files, expected)
-	}
-	t.Cleanup(func() { pullInstall = installInto })
-	res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v2}, Variant: "stata"})
-	if err != nil || res.Skills[0].Status != StatusEdited {
-		t.Fatalf("%+v %v", res, err)
-	}
-	if !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v2") || !strings.Contains(readRel(t, root, ".agents/skills/x/SKILL.md"), "mine") {
-		t.Error("the edit was overwritten, or .claude wasn't updated")
-	}
-}
-
 // An assistant skills folder that is a broken symlink or a file is an
 // error, not a target left out; so is one inside the source
 func TestCopyDefaultTargetsMustBeFolders(t *testing.T) {
@@ -785,150 +581,17 @@ func TestCopyKeepsSpecialFolderBits(t *testing.T) {
 }
 
 // cloudSkill is a Cloud skill at a version, for pull tests.
-func cloudSkill(t *testing.T, version int, body string) (Wanted, string) {
+func cloudSkill(t *testing.T, version int, body string) (Source, string) {
 	t.Helper()
 	files := BundleFromText(skillMD("x", body), nil)
 	h, err := Hash(files)
 	check(t, err)
-	return Wanted{Name: "x", Files: files, Known: []string{h},
-		Sync: &Source{ID: "acct-1", Version: version, Hash: h, Variant: "stata", Server: "https://cloud.test"}}, h
+	return CloudSource("x", SyncSource{ID: "acct-1", Version: version, Hash: h, Variant: "stata", Server: "https://cloud.test"}, files, ""), h
 }
 
-// Rule P in pull: copies that differ, or a missing copy, make the skill
-// diverged. Pull writes no copy, leaves the lock alone, and gives the hint.
-func TestPullReportsDivergedCopies(t *testing.T) {
-	dirs := []string{".claude/skills", ".agents/skills"}
-	v1, _ := cloudSkill(t, 1, "v1")
-	_, h2 := cloudSkill(t, 2, "v2")
-	setup := func(t *testing.T) (string, string) {
-		root := t.TempDir()
-		writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v2"))
-		writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "v1"))
-		lock := `{"schema":1,"skills":{"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata",` +
-			`"server":"https://cloud.test","skill_id":"acct-1","version":2,"hash":"` + h2 + `"}}}` + "\n"
-		writeRel(t, root, ".framework/skills.lock.json", lock)
-		return root, lock
-	}
-
-	// v2 in .claude, .agents put back to v1, the setup naming v1
-	root, lock := setup(t)
-	for _, dry := range []bool{true, false} {
-		res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v1}, Variant: "stata", DryRun: dry})
-		if err != nil || res.Skills[0].Status != StatusDiverged || res.Counts[StatusCurrent] != 0 ||
-			res.Skills[0].Hint != `fw skills copy --from claude --to agents --skill "x"` {
-			t.Fatalf("dry run %v: %+v %v", dry, res, err)
-		}
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock || !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v2") ||
-		!strings.Contains(readRel(t, root, ".agents/skills/x/SKILL.md"), "v1") {
-		t.Error("a diverged pull wrote")
-	}
-
-	// A missing copy: the hint copies from the copy that exists
-	root, lock = setup(t)
-	check(t, os.RemoveAll(filepath.Join(root, ".agents", "skills", "x")))
-	res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v1}, Variant: "stata"})
-	if err != nil || res.Skills[0].Status != StatusDiverged || !strings.Contains(res.Skills[0].Hint, `fw skills copy --from claude --to agents --skill "x"`) {
-		t.Fatalf("missing: %+v %v", res, err)
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock || entriesIn(t, root, ".agents/skills") != nil {
-		t.Error("a pull with a missing copy wrote")
-	}
-}
-
-// Pull never moves a lock entry to an older version
-func TestPullNeverDowngradesTheLock(t *testing.T) {
-	root := t.TempDir()
-	v1, _ := cloudSkill(t, 1, "v1")
-	_, h2 := cloudSkill(t, 2, "v2")
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
-	lock := `{"schema":1,"skills":{"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x"],"variant":"stata",` +
-		`"server":"https://cloud.test","skill_id":"acct-1","version":2,"hash":"` + h2 + `"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{v1}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock {
-		t.Errorf("the lock moved to v1:\n%s", readRel(t, root, ".framework/skills.lock.json"))
-	}
-}
-
-// Rule Q: a new assistant folder next to your own copy gets the copy hint,
-// not the packaged copy, and the lock keeps the skill's Cloud identity
-func TestPullDoesNotFillANewFolderOverYourCopy(t *testing.T) {
-	dirs := []string{".claude/skills", ".agents/skills"}
-	shipped := Wanted{Name: "framework-stata", Package: true, Files: BundleFromText(skillMD("framework-stata", "shipped"), nil)}
-	shippedHash, _ := Hash(shipped.Files)
-	mine := BundleFromText(skillMD("framework-stata", "mine"), nil)
-	mineHash, _ := Hash(mine)
-	overwrite := map[string]bool{"own skill": true}
-	for name, entry := range map[string]string{
-		// Pushed as your own skill
-		"own skill": `"skill_id":"own-1","version":1,"server":"https://cloud.test","hash":"` + mineHash + `","origin":{"skill_id":"framework:framework-stata","hash":"` + shippedHash + `"}`,
-		// Still the built-in, but edited
-		"edited": `"origin":{"skill_id":"framework:framework-stata","hash":"` + shippedHash + `"},"hash":"` + shippedHash + `"`,
-	} {
-		root := t.TempDir()
-		writeRel(t, root, ".claude/skills/framework-stata/SKILL.md", skillMD("framework-stata", "mine"))
-		check(t, os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0755))
-		lock := `{"schema":1,"skills":{"package:framework-stata":{"paths":[".claude/skills/framework-stata"],"variant":"stata",` + entry + `}}}` + "\n"
-		writeRel(t, root, ".framework/skills.lock.json", lock)
-		res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{shipped}, Variant: "stata", Overwrite: overwrite[name]})
-		if err != nil || res.Skills[0].Status != StatusEdited ||
-			!strings.Contains(res.Skills[0].Hint, `fw skills copy --from claude --to agents --skill "framework-stata"`) {
-			t.Fatalf("%s: %+v %v", name, res, err)
-		}
-		if entriesIn(t, root, ".agents/skills") != nil {
-			t.Errorf("%s: the packaged copy went into .agents", name)
-		}
-		if name == "own skill" && readRel(t, root, ".framework/skills.lock.json") != lock {
-			t.Errorf("%s: the lock changed:\n%s", name, readRel(t, root, ".framework/skills.lock.json"))
-		}
-	}
-
-	// With --overwrite an edited built-in is replaced, so the new folder gets
-	// the shipped copy too
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/framework-stata/SKILL.md", skillMD("framework-stata", "mine"))
-	check(t, os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0755))
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"package:framework-stata":{"paths":[".claude/skills/framework-stata"],"variant":"stata",`+
-		`"origin":{"skill_id":"framework:framework-stata","hash":"`+shippedHash+`"},"hash":"`+shippedHash+`"}}}`+"\n")
-	res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{shipped}, Variant: "stata", Overwrite: true})
-	if err != nil || res.Skills[0].Hint != "" || !strings.Contains(readRel(t, root, ".agents/skills/framework-stata/SKILL.md"), "shipped") ||
-		!strings.Contains(readRel(t, root, ".claude/skills/framework-stata/SKILL.md"), "shipped") {
-		t.Errorf("overwrite: %+v %v", res, err)
-	}
-
-	// An unedited built-in fills the new folder as before
-	root = t.TempDir()
-	if _, err := Pull(PullOptions{Root: root, Dirs: dirs[:1], Skills: []Wanted{shipped}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	check(t, os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0755))
-	res, err = Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{shipped}, Variant: "stata"})
-	if err != nil || res.Skills[0].Status != StatusAdded || res.Skills[0].Hint != "" ||
-		!strings.Contains(readRel(t, root, ".agents/skills/framework-stata/SKILL.md"), "shipped") {
-		t.Errorf("unedited: %+v %v", res, err)
-	}
-}
-
-// Rule P in push: a missing tracked copy is a change, so push reports it;
-// a copy fw can't read is listed rather than failing every skill
-func TestLocalChangesMissingAndUnreadableCopies(t *testing.T) {
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "x"))
-	files, err := Scan(filepath.Join(root, ".claude", "skills", "x"))
-	check(t, err)
-	h, _ := Hash(files)
-	writeRel(t, root, ".claude/skills/y/SKILL.md", skillMD("y", "y"))
-	writeRel(t, root, ".claude/skills/y/my notes.md", "a name sync refuses\n")
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{`+
-		`"kx":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata","hash":"`+h+`"},`+
-		`"ky":{"paths":[".claude/skills/y"],"variant":"stata","hash":"`+h+`"}}}`+"\n")
-	changes, _, err := LocalChanges(root, nil)
-	if err != nil || len(changes) != 2 || changes[0].Path != ".claude/skills/x" || changes[1].Path != ".claude/skills/y" {
-		t.Errorf("%+v %v", changes, err)
-	}
+// pullSkills pulls a setup that names these skills.
+func pullSkills(root string, dirs []string, skills ...Source) (PullResult, error) {
+	return Pull(PullOptions{Root: root, Dirs: dirs, Offer: Offer{Source: "cloud", Skills: skills}})
 }
 
 // A --from-dir in .framework is refused too
@@ -943,391 +606,23 @@ func TestCopyRefusesASourceInFramework(t *testing.T) {
 }
 
 // lockEntries reads the lock's entries.
-func lockEntries(t *testing.T, root string) map[string]*Entry {
+// lockPaths lists the copies the lock tracks for an entry, sorted.
+func lockPaths(t *testing.T, root, key string) []string {
 	t.Helper()
-	state, err := load(root)
+	lock, err := ReadLock(root)
 	check(t, err)
-	return state.Skills
-}
-
-// Item 1, as revised in round 12 to match main: --overwrite resets an
-// edited copy of your own Cloud skill to that same skill's version, after
-// a backup; without it the edit is kept. A new folder gets the copy hint
-func TestPullOwnCloudSkillAtTheSameVersion(t *testing.T) {
-	dirs := []string{".claude/skills", ".agents/skills"}
-	w, h1 := cloudSkill(t, 1, "v1")
-	w.Sync.ID = "own-1"
-	for _, overwrite := range []bool{false, true} {
-		root := t.TempDir()
-		writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "edited"))
-		check(t, os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0755))
-		writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"account:https://cloud.test:own-1:stata":{"paths":[".claude/skills/x"],"variant":"stata",`+
-			`"server":"https://cloud.test","skill_id":"own-1","version":1,"hash":"`+h1+`"}}}`+"\n")
-		res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{w}, Variant: "stata", Overwrite: overwrite})
-		if err != nil || !strings.Contains(res.Skills[0].Hint, `fw skills copy --from claude --to agents --skill "x"`) || entriesIn(t, root, ".agents/skills") != nil {
-			t.Fatalf("overwrite %v: %+v %v", overwrite, res, err)
-		}
-		want := "edited"
-		if overwrite {
-			want = "v1"
-			if len(res.Backups) != 1 || !strings.Contains(readRel(t, root, res.Backups[0]+"/SKILL.md"), "edited") {
-				t.Errorf("no backup of the edit: %v", res.Backups)
-			}
-		}
-		if !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), want) {
-			t.Errorf("overwrite %v: .claude isn't %s", overwrite, want)
-		}
-		if e := lockEntries(t, root)["account:https://cloud.test:own-1:stata"]; e == nil || e.ID != "own-1" {
-			t.Errorf("overwrite %v: identity: %+v", overwrite, e)
-		}
+	if e := lock.Skills[key]; e != nil {
+		return e.paths()
 	}
-}
-
-// Item 2 and S4: a package-fallback pull leaves a Cloud-tracked skill alone,
-// reports it unavailable, and keeps skill_id, version, and server
-func TestFallbackPullLeavesCloudSkillsAlone(t *testing.T) {
-	shipped := Wanted{Name: "framework-stata", Package: true, Files: BundleFromText(skillMD("framework-stata", "shipped"), nil)}
-	for _, body := range []string{"shipped", "cloud v4"} {
-		root := t.TempDir()
-		writeRel(t, root, ".claude/skills/framework-stata/SKILL.md", skillMD("framework-stata", body))
-		files, _ := Scan(filepath.Join(root, ".claude", "skills", "framework-stata"))
-		h, _ := Hash(files)
-		lock := `{"schema":1,"skills":{"account:https://cloud.test:framework:framework-stata:stata":{"paths":[".claude/skills/framework-stata"],` +
-			`"variant":"stata","server":"https://cloud.test","skill_id":"framework:framework-stata","version":4,"hash":"` + h + `"}}}` + "\n"
-		writeRel(t, root, ".framework/skills.lock.json", lock)
-		res, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{shipped}, Variant: "stata", Fallback: true, Overwrite: true})
-		if err != nil || res.Skills[0].Status != StatusUnavailable || res.Skills[0].Reason != "Framework Cloud wasn't reached, so framework-stata was left as it is." {
-			t.Fatalf("%s: %+v %v", body, res, err)
-		}
-		if readRel(t, root, ".framework/skills.lock.json") != lock || !strings.Contains(readRel(t, root, ".claude/skills/framework-stata/SKILL.md"), body) {
-			t.Errorf("%s: the fallback pull wrote", body)
-		}
-	}
-}
-
-// S3: the identity guards hold for an inline skill and a packaged one in a
-// Cloud pull too
-func TestPullKeepsIdentityWhateverTheSource(t *testing.T) {
-	_, h2 := cloudSkill(t, 2, "v2")
-	for name, w := range map[string]Wanted{
-		"inline":  {Name: "x", Files: BundleFromText(skillMD("x", "inline"), nil)},
-		"package": {Name: "x", Package: true, Files: BundleFromText(skillMD("x", "packaged"), nil)},
-	} {
-		root := t.TempDir()
-		writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v2"))
-		lock := `{"schema":1,"skills":{"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x"],"variant":"stata",` +
-			`"server":"https://cloud.test","skill_id":"acct-1","version":2,"hash":"` + h2 + `"}}}` + "\n"
-		writeRel(t, root, ".framework/skills.lock.json", lock)
-		if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{w}, Variant: "stata", Overwrite: true}); err != nil {
-			t.Fatal(err)
-		}
-		if readRel(t, root, ".framework/skills.lock.json") != lock || !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v2") {
-			t.Errorf("%s: the Cloud skill was replaced", name)
-		}
-	}
-}
-
-// S2: a new folder joins the skill's one lock entry, whatever its key
-func TestPullKeepsOneEntryPerSkill(t *testing.T) {
-	root := t.TempDir()
-	shipped := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "shipped"), nil)}
-	h, _ := Hash(shipped.Files)
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "shipped"))
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"older-key":{"paths":[".claude/skills/x"],"variant":"stata",`+
-		`"origin":{"skill_id":"framework:x","hash":"`+h+`"},"hash":"`+h+`"}}}`+"\n")
-	check(t, os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0755))
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills", ".agents/skills"}, Skills: []Wanted{shipped}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	entries := lockEntries(t, root)
-	if len(entries) != 1 || entries["older-key"] == nil || strings.Join(entries["older-key"].Paths, ",") != ".claude/skills/x,.agents/skills/x" {
-		t.Errorf("entries: %v", entries)
-	}
-}
-
-// Item 3 and S5: with every tracked copy gone, push lists the skill as
-// missing and pull puts it back as restored, in one folder or two
-func TestAllCopiesGone(t *testing.T) {
-	shipped := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "shipped"), nil)}
-	h, _ := Hash(shipped.Files)
-	for _, dirs := range [][]string{{".claude/skills"}, {".claude/skills", ".agents/skills"}} {
-		root := t.TempDir()
-		paths := `"` + strings.Join(func() []string {
-			var p []string
-			for _, d := range dirs {
-				p = append(p, d+"/x")
-			}
-			return p
-		}(), `","`) + `"`
-		for _, d := range dirs {
-			check(t, os.MkdirAll(filepath.Join(root, filepath.FromSlash(d)), 0755))
-		}
-		writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"package:x":{"paths":[`+paths+`],"variant":"stata",`+
-			`"origin":{"skill_id":"framework:x","hash":"`+h+`"},"hash":"`+h+`"}}}`+"\n")
-		changes, _, err := LocalChanges(root, dirs)
-		if err != nil || len(changes) != 1 || !changes[0].Missing {
-			t.Errorf("%v push: %+v %v", dirs, changes, err)
-		}
-		for _, dry := range []bool{true, false} {
-			res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{shipped}, Variant: "stata", DryRun: dry})
-			if err != nil || res.Skills[0].Status != StatusRestored || res.Counts[StatusAdded] != 0 {
-				t.Errorf("%v pull (dry run %v): %+v %v", dirs, dry, res, err)
-			}
-		}
-		for _, d := range dirs {
-			if !strings.Contains(readRel(t, root, d+"/x/SKILL.md"), "shipped") {
-				t.Errorf("%s was not restored", d)
-			}
-		}
-	}
-}
-
-// Item 4: a fallback pull reports a diverged tracked skill the package
-// skills don't include, with its hint, instead of leaving it out
-func TestFallbackPullReportsDivergedSkills(t *testing.T) {
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/analysis/SKILL.md", skillMD("analysis", "a"))
-	writeRel(t, root, ".agents/skills/analysis/SKILL.md", skillMD("analysis", "b"))
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"account:https://cloud.test:own-2:stata":{"paths":[".claude/skills/analysis",".agents/skills/analysis"],`+
-		`"variant":"stata","server":"https://cloud.test","skill_id":"own-2","version":1,"hash":"zz"}}}`+"\n")
-	shipped := Wanted{Name: "framework-stata", Package: true, Files: BundleFromText(skillMD("framework-stata", "s"), nil)}
-	res, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills", ".agents/skills"}, Skills: []Wanted{shipped}, Variant: "stata", Fallback: true, DryRun: true})
-	if err != nil || len(res.Skills) != 2 || res.Skills[1].Name != "analysis" || res.Skills[1].Status != StatusDiverged ||
-		res.Skills[1].Hint != `fw skills copy --from claude --to agents --skill "analysis"` || res.Counts[StatusRemoved] != 0 {
-		t.Errorf("%+v %v", res, err)
-	}
-}
-
-// Rule J: copying a tracked skill to a custom folder records it in the
-// skill's entry, and pull then moves both copies from v1 to v2
-func TestCustomFolderCopyMovesWithItsSkill(t *testing.T) {
-	root := t.TempDir()
-	v1 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v1"), nil)}
-	v2 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v2"), nil)}
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{v1}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	lock := readRel(t, root, ".framework/skills.lock.json")
-	if _, err := Copy(CopyOptions{Root: root, From: ".claude/skills", To: []string{"vendor/skills"}, DryRun: true}); err != nil {
-		t.Fatal(err)
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock {
-		t.Error("a dry run changed the lock")
-	}
-	if _, err := Copy(CopyOptions{Root: root, From: ".claude/skills", To: []string{"vendor/skills"}}); err != nil {
-		t.Fatal(err)
-	}
-	entries := lockEntries(t, root)
-	if len(entries) != 1 || strings.Join(entries["package:x"].Paths, ",") != ".claude/skills/x,vendor/skills/x" {
-		t.Fatalf("entries: %v", entries)
-	}
-	res, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{v2}, Variant: "stata"})
-	if err != nil || res.Skills[0].Status != StatusUpdated {
-		t.Fatalf("%+v %v", res, err)
-	}
-	for _, p := range []string{".claude/skills/x", "vendor/skills/x"} {
-		if !strings.Contains(readRel(t, root, p+"/SKILL.md"), "v2") {
-			t.Errorf("%s is not at v2", p)
-		}
-	}
-}
-
-// Rule J: an untracked copy is never joined by its bytes, and an untracked
-// source's copy leaves the lock alone
-func TestNoJoinByNameOrBytes(t *testing.T) {
-	root := t.TempDir()
-	v1 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v1"), nil)}
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{v1}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	// An identical copy made by hand
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "v1"))
-	res, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills", ".agents/skills"}, Skills: []Wanted{v1}, Variant: "stata"})
-	// The loose copy gets its own untracked row; the tracked one is current
-	if err != nil || len(res.Skills) != 2 || res.Skills[0].Status != StatusCurrent || res.Skills[1].Status != StatusUntracked ||
-		!strings.HasPrefix(res.Skills[1].Reason, ".agents/skills/x isn't tracked, so pull left it alone.") {
-		t.Fatalf("%+v %v", res, err)
-	}
-	if paths := lockEntries(t, root)["package:x"].Paths; strings.Join(paths, ",") != ".claude/skills/x" {
-		t.Errorf("joined by bytes: %v", paths)
-	}
-	// An untracked source
-	writeRel(t, root, "loose/y/SKILL.md", skillMD("y", "y"))
-	lock := readRel(t, root, ".framework/skills.lock.json")
-	if _, err := Copy(CopyOptions{Root: root, From: "loose", To: []string{"other"}}); err != nil {
-		t.Fatal(err)
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock {
-		t.Error("copying an untracked skill changed the lock")
-	}
-}
-
-// Rule J: a standalone skill with the same name keeps its own identity:
-// copy won't write over it, and pull leaves it and its entry alone
-func TestStandaloneSkillWithTheSameName(t *testing.T) {
-	root := t.TempDir()
-	w, h1 := cloudSkill(t, 1, "v1")
-	w.Sync.ID = "own-1"
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, "vendor/skills/x/SKILL.md", skillMD("x", "someone else's"))
-	lock := `{"schema":1,"skills":{` +
-		`"account:https://cloud.test:own-1:stata":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"own-1","version":1,"hash":"` + h1 + `"},` +
-		`"account:https://cloud.test:own-2:stata":{"paths":["vendor/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"own-2","version":3,"hash":"other"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	for _, dry := range []bool{true, false} {
-		if _, err := Copy(CopyOptions{Root: root, From: ".claude/skills", To: []string{"vendor/skills"}, DryRun: dry}); err == nil ||
-			!strings.Contains(err.Error(), "vendor/skills/x is recorded as a different skill") {
-			t.Errorf("copy (dry run %v): %v", dry, err)
-		}
-	}
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills", "vendor/skills"}, Skills: []Wanted{w}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock || !strings.Contains(readRel(t, root, "vendor/skills/x/SKILL.md"), "someone else's") {
-		t.Error("the standalone skill, or its entry, changed")
-	}
-}
-
-// Rule J: a renamed copy gets an explanation, never a command that would
-// copy the wrong folder
-func TestRenamedCopyGetsNoCommand(t *testing.T) {
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "a"))
-	writeRel(t, root, ".agents/skills/y/SKILL.md", skillMD("x", "b"))
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"k":{"paths":[".claude/skills/x",".agents/skills/y"],"variant":"stata"}}}`+"\n")
-	client := cloud.NewClient("http://127.0.0.1:1", "token")
-	opts := Options{Root: root, Path: ".claude/skills/x", Direction: "status", Variant: "stata"}
-	if _, err := Sync(context.Background(), client, opts); err == nil || strings.Contains(err.Error(), "fw skills copy --") ||
-		!strings.Contains(err.Error(), "by hand: fw skills copy can't") {
-		t.Errorf("differ: %v", err)
-	}
-	check(t, os.RemoveAll(filepath.Join(root, ".agents", "skills", "y")))
-	if _, err := Sync(context.Background(), client, opts); err == nil || strings.Contains(err.Error(), "fw skills copy --") ||
-		!strings.Contains(err.Error(), "Copy its files back by hand") {
-		t.Errorf("missing: %v", err)
-	}
-}
-
-// R round 8, 1: two independent same-named skills, one per folder, are
-// judged per entry: never diverged, and no hint copies one over the other
-func TestSameNamedSkillsAreJudgedPerEntry(t *testing.T) {
-	root := t.TempDir()
-	w, h1 := cloudSkill(t, 1, "mine")
-	w.Sync.ID = "own-1"
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "mine"))
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "theirs"))
-	files, _ := Scan(filepath.Join(root, ".agents", "skills", "x"))
-	h2, _ := Hash(files)
-	lock := `{"schema":1,"skills":{` +
-		`"account:https://cloud.test:own-1:stata":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"own-1","version":1,"hash":"` + h1 + `"},` +
-		`"account:https://cloud.test:own-2:stata":{"paths":[".agents/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"own-2","version":1,"hash":"` + h2 + `"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	dirs := []string{".claude/skills", ".agents/skills"}
-	for _, fallback := range []bool{false, true} {
-		res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{w}, Variant: "stata", Fallback: fallback})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, s := range res.Skills {
-			if s.Status == StatusDiverged || strings.Contains(s.Hint, "fw skills copy --") {
-				t.Errorf("fallback %v: %+v", fallback, s)
-			}
-		}
-	}
-	if changes, _, err := LocalChanges(root, dirs); err != nil || len(changes) != 0 {
-		t.Errorf("push: %+v %v", changes, err)
-	}
-	if _, err := Sync(context.Background(), cloud.NewClient("http://127.0.0.1:1", "t"), Options{Root: root, Path: ".claude/skills/x", Direction: "status", Variant: "stata"}); err != nil &&
-		strings.Contains(err.Error(), "diverged") {
-		t.Errorf("sync: %v", err)
-	}
-	if readRel(t, root, ".framework/skills.lock.json") != lock || !strings.Contains(readRel(t, root, ".agents/skills/x/SKILL.md"), "theirs") {
-		t.Error("one skill was written over the other, or the lock changed")
-	}
-}
-
-// R round 8, 2: fw has no read-time merge; entries for the same skill ID
-// in different variants (R and Python) stay separate through a pull
-func TestVariantsNeverMerge(t *testing.T) {
-	root := t.TempDir()
-	w, _ := cloudSkill(t, 1, "r")
-	w.Sync.Variant = "r"
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "r"))
-	writeRel(t, root, "py/skills/x/SKILL.md", skillMD("x", "python"))
-	lock := `{"schema":1,"skills":{` +
-		`"account:https://cloud.test:acct-1:python":{"paths":["py/skills/x"],"variant":"python","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"p"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	// Only .agents is configured, so the R skill's entry is looked up by
-	// identity: the Python entry doesn't match it
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".agents/skills"}, Skills: []Wanted{w}, Variant: "r"}); err != nil {
-		t.Fatal(err)
-	}
-	entries := lockEntries(t, root)
-	py := entries["account:https://cloud.test:acct-1:python"]
-	if py == nil || strings.Join(py.Paths, ",") != "py/skills/x" || py.Variant != "python" || !strings.Contains(readRel(t, root, "py/skills/x/SKILL.md"), "python") {
-		t.Errorf("the Python entry changed: %+v", entries)
-	}
-}
-
-// R round 8, 3: with no configured folder tracked (the project switched to
-// Codex only), pull still finds the entry by identity and moves every
-// tracked copy, custom folders included, to v3
-func TestPullMovesEveryTrackedCopyAfterSwitchingAssistants(t *testing.T) {
-	root := t.TempDir()
-	_, h2 := cloudSkill(t, 2, "v2")
-	w3, _ := cloudSkill(t, 3, "v3")
-	for _, p := range []string{".claude/skills/x", "vendor/skills/x"} {
-		writeRel(t, root, p+"/SKILL.md", skillMD("x", "v2"))
-	}
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"an-older-key":{"paths":[".claude/skills/x","vendor/skills/x"],`+
-		`"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":2,"hash":"`+h2+`"}}}`+"\n")
-	// .agents, the new folder, gets the copy hint (rule Q); the tracked
-	// copies move
-	res, err := Pull(PullOptions{Root: root, Dirs: []string{".agents/skills"}, Skills: []Wanted{w3}, Variant: "stata"})
-	if err != nil || len(res.Backups) != 2 || !strings.Contains(res.Skills[0].Hint, "--to agents") {
-		t.Fatalf("%+v %v", res, err)
-	}
-	for _, p := range []string{".claude/skills/x", "vendor/skills/x"} {
-		if !strings.Contains(readRel(t, root, p+"/SKILL.md"), "v3") {
-			t.Errorf("%s is not at v3", p)
-		}
-	}
-	if e := lockEntries(t, root)["an-older-key"]; e == nil || e.Version != 3 {
-		t.Errorf("lock: %+v", e)
-	}
-}
-
-// R round 8, 3: when one tracked copy can't move with the others, the
-// skill is diverged and nothing is written for it
-func TestPullMovesAllCopiesOrNone(t *testing.T) {
-	entry := &Entry{Paths: []string{".claude/skills/x", "vendor/skills/x"}}
-	steps := []pullStep{
-		{relative: ".claude/skills/x", status: StatusUpdated, record: true},
-		{relative: "vendor/skills/x", status: StatusEdited},
-		{relative: ".agents/skills/x", status: StatusAdded, record: true},
-	}
-	n := allOrNothing(t.TempDir(), entry, steps, note{})
-	if !strings.Contains(n.reason, "vendor/skills/x can't move") || n.hint != "" {
-		t.Errorf("note: %+v", n)
-	}
-	for _, st := range steps {
-		if st.status != StatusDiverged || st.record {
-			t.Errorf("%s: %s %v", st.relative, st.status, st.record)
-		}
-	}
-	// All moving together is left alone
-	steps = []pullStep{{relative: ".claude/skills/x", status: StatusUpdated}, {relative: "vendor/skills/x", status: StatusUpdated}}
-	if allOrNothing(t.TempDir(), entry, steps, note{}).reason != "" || steps[1].status != StatusUpdated {
-		t.Error("copies moving together were stopped")
-	}
+	return nil
 }
 
 // R round 8, 4: a case alias of the source folder finds the lock's entry
 // by filesystem identity, so the target still joins it
 func TestCopyFromACaseAliasJoinsTheEntry(t *testing.T) {
 	root := t.TempDir()
-	v1 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v1"), nil)}
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{v1}, Variant: "stata"}); err != nil {
+	v1 := PackageSource("x", "stata", BundleFromText(skillMD("x", "v1"), nil), nil)
+	if _, err := pullSkills(root, []string{".claude/skills"}, v1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".CLAUDE")); err != nil {
@@ -1336,14 +631,14 @@ func TestCopyFromACaseAliasJoinsTheEntry(t *testing.T) {
 	if _, err := Copy(CopyOptions{Root: root, From: ".Claude/skills", To: []string{".agents/skills"}}); err != nil {
 		t.Fatal(err)
 	}
-	if paths := lockEntries(t, root)["package:x"].Paths; strings.Join(paths, ",") != ".claude/skills/x,.agents/skills/x" {
+	if paths := lockPaths(t, root, "framework:x@stata"); strings.Join(paths, ",") != ".agents/skills/x,.claude/skills/x" {
 		t.Errorf("paths: %v", paths)
 	}
 	// Copying back to the alias of a recorded copy is that copy, not another skill
 	if _, err := Copy(CopyOptions{Root: root, From: ".agents/skills", To: []string{".CLAUDE/skills"}}); err != nil {
 		t.Errorf("back to an alias: %v", err)
 	}
-	if paths := lockEntries(t, root)["package:x"].Paths; len(paths) != 2 {
+	if paths := lockPaths(t, root, "framework:x@stata"); len(paths) != 2 {
 		t.Errorf("an alias was recorded twice: %v", paths)
 	}
 }
@@ -1363,8 +658,8 @@ func caseInsensitive(t *testing.T, root string) {
 func TestCaseAliasesAreOnePath(t *testing.T) {
 	root := t.TempDir()
 	caseInsensitive(t, root)
-	v1 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v1"), nil)}
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{v1}, Variant: "stata"}); err != nil {
+	v1 := PackageSource("x", "stata", BundleFromText(skillMD("x", "v1"), nil), nil)
+	if _, err := pullSkills(root, []string{".claude/skills"}, v1); err != nil {
 		t.Fatal(err)
 	}
 	check(t, os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0755))
@@ -1372,15 +667,15 @@ func TestCaseAliasesAreOnePath(t *testing.T) {
 	if err != nil || res.From != ".claude/skills" || strings.Join(res.To, ",") != ".agents/skills" || res.Skills[0].To != ".agents/skills/x" {
 		t.Fatalf("%+v %v", res, err)
 	}
-	if paths := lockEntries(t, root)["package:x"].Paths; strings.Join(paths, ",") != ".claude/skills/x,.agents/skills/x" {
+	if paths := lockPaths(t, root, "framework:x@stata"); strings.Join(paths, ",") != ".agents/skills/x,.claude/skills/x" {
 		t.Errorf("recorded: %v", paths)
 	}
 
 	// A lock that already has an alias spelling still matches the real folder
 	writeRel(t, root, ".framework/skills.lock.json", strings.Replace(readRel(t, root, ".framework/skills.lock.json"), ".agents/skills/x", ".AGENTS/skills/x", 1))
 	dirs := []string{".claude/skills", ".agents/skills"}
-	if _, untracked, err := LocalChanges(root, dirs); err != nil || len(untracked) != 0 {
-		t.Errorf("push calls it untracked: %v %v", untracked, err)
+	if pp, err := PlanPush(PushOptions{Root: root, Dirs: dirs}); err != nil || len(pp.Steps) != 0 {
+		t.Errorf("push calls it untracked: %+v %v", pp, err)
 	}
 	// Found, sync asks Cloud for the entry's skill (framework:x); an
 	// untracked path would ask for nothing and be pushed as a new skill
@@ -1388,7 +683,7 @@ func TestCaseAliasesAreOnePath(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "skills/sync/framework:x") {
 		t.Errorf("sync didn't find the entry: %v", err)
 	}
-	pulled, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v1}, Variant: "stata"})
+	pulled, err := pullSkills(root, dirs, v1)
 	if err != nil || pulled.Skills[0].Status != StatusCurrent || pulled.Skills[0].Hint != "" || len(pulled.Skills[0].Paths) != 2 {
 		t.Errorf("pull: %+v %v", pulled, err)
 	}
@@ -1419,85 +714,6 @@ func TestCopyRefusesADeletedPathOfAnotherEntry(t *testing.T) {
 	}
 	if entriesIn(t, root, "lab/skills") != nil || readRel(t, root, ".framework/skills.lock.json") != lock {
 		t.Error("a refused copy wrote")
-	}
-}
-
-// independentSkills is a setup skill acct-1 in .claude and an independent
-// same-named skill other-1 in .agents, with the project now on Codex only.
-func independentSkills(t *testing.T) (root string, w Wanted) {
-	t.Helper()
-	root = t.TempDir()
-	_, h1 := cloudSkill(t, 1, "v1")
-	w, _ = cloudSkill(t, 2, "v2")
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "other"))
-	files, _ := Scan(filepath.Join(root, ".agents", "skills", "x"))
-	ho, _ := Hash(files)
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{`+
-		`"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"`+h1+`"},`+
-		`"account:https://cloud.test:other-1:stata":{"paths":[".agents/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"other-1","version":1,"hash":"`+ho+`"}}}`+"\n")
-	return root, w
-}
-
-// statusOf finds an entry's row by one of its paths.
-func statusOf(res PullResult, p string) string {
-	for _, s := range res.Skills {
-		if contains(s.Paths, p) {
-			return s.Status
-		}
-	}
-	return ""
-}
-
-// Round 10, 3: after switching to Codex, pull finds the setup skill by its
-// identity and updates its copy in .claude; the independent same-named
-// skill in .agents is never planned, written, or judged for it
-func TestPullAfterSwitchingUsesTheSetupSkillsEntry(t *testing.T) {
-	codex := []string{".agents/skills"}
-
-	// Update the setup skill; the other keeps its copy and its entry
-	root, w := independentSkills(t)
-	other := lockEntries(t, root)["account:https://cloud.test:other-1:stata"]
-	res, err := Pull(PullOptions{Root: root, Dirs: codex, Skills: []Wanted{w}, Variant: "stata"})
-	if err != nil || statusOf(res, ".claude/skills/x") != StatusUpdated {
-		t.Fatalf("update: %+v %v", res, err)
-	}
-	entries := lockEntries(t, root)
-	if !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v2") || entries["account:https://cloud.test:acct-1:stata"].Version != 2 ||
-		!strings.Contains(readRel(t, root, ".agents/skills/x/SKILL.md"), "other") ||
-		strings.Join(entries["account:https://cloud.test:other-1:stata"].Paths, ",") != strings.Join(other.Paths, ",") ||
-		entries["account:https://cloud.test:other-1:stata"].Hash != other.Hash {
-		t.Errorf("update: %+v", entries)
-	}
-
-	// Delete the other's only copy: pull doesn't put the setup skill there,
-	// and push reports the other as missing, on its own
-	root, w = independentSkills(t)
-	check(t, os.RemoveAll(filepath.Join(root, ".agents", "skills", "x")))
-	// (The vacated path doesn't block the setup skill, round 12, but the
-	// copy hint holds it back, as for any new folder next to a Cloud skill)
-	res, err = Pull(PullOptions{Root: root, Dirs: codex, Skills: []Wanted{w}, Variant: "stata"})
-	if err != nil || !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v2") || entriesIn(t, root, ".agents/skills") != nil ||
-		statusOf(res, ".agents/skills/x") == "" {
-		t.Errorf("delete one: %+v %v", res, err)
-	}
-	changes, _, err := LocalChanges(root, codex)
-	if err != nil || len(changes) != 1 || !changes[0].Missing || changes[0].Key != "account:https://cloud.test:other-1:stata" {
-		t.Errorf("delete one, push: %+v %v", changes, err)
-	}
-
-	// Diverge the other (two copies that differ): it's reported diverged,
-	// and the setup skill still updates
-	root, w = independentSkills(t)
-	writeRel(t, root, "vendor/skills/x/SKILL.md", skillMD("x", "other, edited"))
-	writeRel(t, root, ".framework/skills.lock.json", strings.Replace(readRel(t, root, ".framework/skills.lock.json"),
-		`"paths":[".agents/skills/x"]`, `"paths":[".agents/skills/x","vendor/skills/x"]`, 1))
-	res, err = Pull(PullOptions{Root: root, Dirs: codex, Skills: []Wanted{w}, Variant: "stata"})
-	if err != nil || statusOf(res, ".claude/skills/x") != StatusUpdated || statusOf(res, ".agents/skills/x") != StatusDiverged {
-		t.Errorf("diverge one: %+v %v", res, err)
-	}
-	if !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v2") || !strings.Contains(readRel(t, root, ".agents/skills/x/SKILL.md"), "other") {
-		t.Error("diverge one: wrong copy written")
 	}
 }
 
@@ -1542,81 +758,6 @@ func TestSyncRefusesASymlinkedSkill(t *testing.T) {
 	}
 }
 
-// Python (b) and R (b): an entry whose tracked folder is gone (deleted,
-// replaced by a file, or renamed) doesn't abort the pull. The entry gets
-// its own missing row, an untracked copy its own row with an adopt hint,
-// neither says current, and nothing is written
-func TestPullWithATrackedFolderGone(t *testing.T) {
-	w, h1 := cloudSkill(t, 1, "v1")
-	lock := `{"schema":1,"skills":{"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"` + h1 + `"}}}` + "\n"
-	for _, mode := range []string{"deleted", "file", "skills file", "renamed"} {
-		root := t.TempDir()
-		writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
-		writeRel(t, root, ".framework/skills.lock.json", lock)
-		switch mode {
-		case "deleted":
-			check(t, os.RemoveAll(filepath.Join(root, ".claude")))
-		case "file":
-			check(t, os.RemoveAll(filepath.Join(root, ".claude")))
-			writeRel(t, root, ".claude", "a file")
-		case "skills file":
-			check(t, os.RemoveAll(filepath.Join(root, ".claude", "skills")))
-			writeRel(t, root, ".claude/skills", "a file")
-		case "renamed":
-			check(t, os.Rename(filepath.Join(root, ".claude"), filepath.Join(root, ".agents")))
-		}
-		for _, dry := range []bool{true, false} {
-			res, err := Pull(PullOptions{Root: root, Dirs: []string{".agents/skills"}, Skills: []Wanted{w}, Variant: "stata", DryRun: dry})
-			if err != nil {
-				t.Fatalf("%s: %v", mode, err)
-			}
-			if res.Skills[0].Status != StatusMissing || strings.Join(res.Skills[0].Paths, ",") != ".claude/skills/x" ||
-				!strings.Contains(res.Skills[0].Reason, "Every tracked copy is gone: .claude/skills/x no longer exists.") || res.Counts[StatusCurrent] != 0 {
-				t.Errorf("%s: %+v", mode, res.Skills)
-			}
-			if mode == "renamed" && (len(res.Skills) != 2 || res.Skills[1].Status != StatusUntracked ||
-				!strings.Contains(res.Skills[1].Hint, `fw skills sync ".agents/skills/x" --id "acct-1"`)) {
-				t.Errorf("renamed: %+v", res.Skills)
-			}
-		}
-		if readRel(t, root, ".framework/skills.lock.json") != lock || (mode != "renamed" && entriesIn(t, root, ".agents/skills") != nil) {
-			t.Errorf("%s: pull wrote", mode)
-		}
-	}
-}
-
-// R (b): the adopt hint does what it says: sync --id moves the entry whose
-// folders are gone to the copy, and the next pull is current
-func TestAdoptHintMovesTheEntry(t *testing.T) {
-	root := t.TempDir()
-	w, h1 := cloudSkill(t, 1, "v1")
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"`+h1+`"}}}`+"\n")
-	head := Snapshot{ID: "acct-1", Version: 1, Hash: h1, Bundle: w.Files, Variant: "stata"}
-	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) { check(t, json.NewEncoder(rw).Encode(head)) }))
-	defer server.Close()
-	writeRel(t, root, ".framework/skills.lock.json", strings.ReplaceAll(readRel(t, root, ".framework/skills.lock.json"), "https://cloud.test", server.URL))
-	w.Sync.Server = server.URL
-	r, err := Sync(context.Background(), cloud.NewClient(server.URL, "t"), Options{Root: root, Path: ".agents/skills/x", ID: "acct-1", Variant: "stata"})
-	if err != nil || r.Action != "unchanged" {
-		t.Fatalf("%+v %v", r, err)
-	}
-	entries := lockEntries(t, root)
-	if len(entries) != 1 || entries[".agents/skills/x"] == nil || strings.Join(entries[".agents/skills/x"].Paths, ",") != ".agents/skills/x" {
-		t.Fatalf("entries, re-keyed with the new path: %+v", entries)
-	}
-	res, err := Pull(PullOptions{Root: root, Dirs: []string{".agents/skills"}, Skills: []Wanted{w}, Variant: "stata"})
-	if err != nil || res.Skills[0].Status != StatusCurrent || len(res.Skills) != 1 {
-		t.Errorf("%+v %v", res, err)
-	}
-	// An ID whose entry still has a copy isn't adopted elsewhere
-	writeRel(t, root, "vendor/skills/x/SKILL.md", skillMD("x", "v1"))
-	if _, err := Sync(context.Background(), cloud.NewClient(server.URL, "t"), Options{Root: root, Path: "vendor/skills/x", ID: "acct-1", Variant: "stata", DryRun: true}); err == nil ||
-		!strings.Contains(err.Error(), "already tracked at .agents/skills/x") {
-		t.Errorf("second adopt: %v", err)
-	}
-}
-
 // Python (d): copy reads and checks the lock before writing any file
 func TestCopyChecksTheLockFirst(t *testing.T) {
 	root := t.TempDir()
@@ -1631,34 +772,13 @@ func TestCopyChecksTheLockFirst(t *testing.T) {
 	}
 }
 
-// CLI 1: the setup names a different Cloud skill (acct-2) under the name
-// the lock tracks as acct-1: the file is kept, with an explicit status and
-// the reason, never current with no paths
-func TestPullKeepsADifferentCloudSkillsFolder(t *testing.T) {
-	root := t.TempDir()
-	_, h1 := cloudSkill(t, 1, "acct-1's")
-	w, _ := cloudSkill(t, 1, "acct-2's")
-	w.Sync.ID = "acct-2"
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "acct-1's"))
-	lock := `{"schema":1,"skills":{"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"` + h1 + `"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	res, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{w}, Variant: "stata", Overwrite: true})
-	if err != nil || res.Skills[0].Status != StatusKept || strings.Join(res.Skills[0].Paths, ",") != ".claude/skills/x" ||
-		!strings.HasPrefix(res.Skills[0].Reason, ".claude/skills/x belongs to a different skill (acct-1), so pull left it alone") {
-		t.Fatalf("%+v %v", res, err)
-	}
-	if !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "acct-1's") || readRel(t, root, ".framework/skills.lock.json") != lock {
-		t.Error("the file or the lock changed")
-	}
-}
-
 // CLI 3: copying onto a folder spelled differently on disk records the
 // disk's spelling, to the last part, and pull doesn't call it removed
 func TestCopyRecordsTheLastPartsDiskSpelling(t *testing.T) {
 	root := t.TempDir()
 	caseInsensitive(t, root)
-	v1 := Wanted{Name: "analysis", Package: true, Files: BundleFromText(skillMD("analysis", "v1"), nil)}
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{v1}, Variant: "stata"}); err != nil {
+	v1 := PackageSource("analysis", "stata", BundleFromText(skillMD("analysis", "v1"), nil), nil)
+	if _, err := pullSkills(root, []string{".claude/skills"}, v1); err != nil {
 		t.Fatal(err)
 	}
 	writeRel(t, root, ".agents/skills/ANALYSIS/SKILL.md", skillMD("analysis", "old"))
@@ -1666,10 +786,10 @@ func TestCopyRecordsTheLastPartsDiskSpelling(t *testing.T) {
 	if err != nil || res.Skills[0].To != ".agents/skills/ANALYSIS" {
 		t.Fatalf("%+v %v", res, err)
 	}
-	if paths := lockEntries(t, root)["package:analysis"].Paths; strings.Join(paths, ",") != ".claude/skills/analysis,.agents/skills/ANALYSIS" {
+	if paths := lockPaths(t, root, "framework:analysis@stata"); strings.Join(paths, ",") != ".agents/skills/ANALYSIS,.claude/skills/analysis" {
 		t.Errorf("recorded: %v", paths)
 	}
-	pulled, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills", ".agents/skills"}, Skills: []Wanted{v1}, Variant: "stata"})
+	pulled, err := pullSkills(root, []string{".claude/skills", ".agents/skills"}, v1)
 	if err != nil || pulled.Counts[StatusRemoved] != 0 || len(pulled.Skills) != 1 || pulled.Skills[0].Status != StatusCurrent {
 		t.Errorf("pull: %+v %v", pulled, err)
 	}
@@ -1700,91 +820,6 @@ func copyArgs(t *testing.T, root, command string) CopyOptions {
 	return o
 }
 
-// Round 12, 1: adopting re-keys the entry with its new path, so a skill
-// that later goes into the vacated path, by pull or by sync, gets its own
-// entry and both survive
-func TestAdoptedEntryKeepsItsOwnKey(t *testing.T) {
-	w1, h1 := cloudSkill(t, 1, "v1")
-	head := Snapshot{ID: "acct-1", Version: 1, Hash: h1, Bundle: w1.Files, Variant: "stata"}
-	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method == "POST" {
-			var body struct {
-				Bundle []File `json:"bundle"`
-			}
-			check(t, json.NewDecoder(r.Body).Decode(&body))
-			h, _ := Hash(body.Bundle)
-			check(t, json.NewEncoder(rw).Encode(Snapshot{ID: "new-1", Version: 1, Hash: h, Bundle: body.Bundle, Variant: "stata"}))
-			return
-		}
-		check(t, json.NewEncoder(rw).Encode(head))
-	}))
-	defer server.Close()
-	client := cloud.NewClient(server.URL, "t")
-	for _, then := range []string{"pull", "sync"} {
-		root := t.TempDir()
-		// An entry fw skills sync made, keyed by its path, now gone
-		writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "v1"))
-		check(t, os.MkdirAll(filepath.Join(root, ".claude", "skills"), 0755))
-		writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{".claude/skills/x":{"paths":[".claude/skills/x"],"variant":"stata",`+
-			`"server":"`+server.URL+`","skill_id":"acct-1","version":1,"hash":"`+h1+`"}}}`+"\n")
-		if _, err := Sync(context.Background(), client, Options{Root: root, Path: ".agents/skills/x", ID: "acct-1", Variant: "stata"}); err != nil {
-			t.Fatal(err)
-		}
-		switch then {
-		case "pull":
-			w2, _ := cloudSkill(t, 1, "acct-2's")
-			w2.Sync.ID, w2.Sync.Server = "acct-2", server.URL
-			if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{w2}, Variant: "stata"}); err != nil {
-				t.Fatal(err)
-			}
-		case "sync":
-			writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "a new skill"))
-			if _, err := Sync(context.Background(), client, Options{Root: root, Path: ".claude/skills/x", Variant: "stata"}); err != nil {
-				t.Fatal(err)
-			}
-		}
-		ids := map[string]string{}
-		for _, e := range lockEntries(t, root) {
-			ids[e.ID] = strings.Join(e.Paths, ",")
-		}
-		other := map[string]string{"pull": "acct-2", "sync": "new-1"}[then]
-		if len(ids) != 2 || ids["acct-1"] != ".agents/skills/x" || ids[other] != ".claude/skills/x" {
-			t.Errorf("%s: entries %v", then, ids)
-		}
-	}
-}
-
-// Round 12, 3, as P2 has it: a path an entry with another Cloud identity
-// records stays that skill's, copy or not. With acct-1's copy moved out
-// and not adopted, the setup's acct-2 isn't installed there, acct-1's
-// entry keeps its paths, and the hint puts acct-1 itself back
-func TestTheSetupsSkillTakesAVacatedPath(t *testing.T) {
-	_, h1 := cloudSkill(t, 1, "acct-1's")
-	w, _ := cloudSkill(t, 1, "acct-2's")
-	w.Sync.ID = "acct-2"
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "acct-1's"))
-	lock := `{"schema":1,"skills":{"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/x"],"variant":"stata",` +
-		`"server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"` + h1 + `"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	dirs := []string{".claude/skills"}
-	res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{w}, Variant: "stata"})
-	if err != nil || !strings.Contains(res.Skills[0].Reason, `move it to kept-skills/x, run fw skills sync "kept-skills/x" --id "acct-1" to keep its link to acct-1, then pull again`) ||
-		res.Skills[0].Hint != `fw skills sync "kept-skills/x" --id "acct-1"` {
-		t.Fatalf("%+v %v", res, err)
-	}
-	check(t, os.Rename(filepath.Join(root, ".claude", "skills", "x"), filepath.Join(root, "moved-x")))
-	for _, dry := range []bool{true, false} {
-		res, err = Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{w}, Variant: "stata", DryRun: dry})
-		if err != nil || res.Skills[0].Status == StatusAdded || res.Skills[0].Hint != `fw skills sync ".claude/skills/x" --resolve remote` {
-			t.Fatalf("dry run %v: %+v %v", dry, res, err)
-		}
-	}
-	if entriesIn(t, root, ".claude/skills") != nil || readRel(t, root, ".framework/skills.lock.json") != lock {
-		t.Error("the setup's skill took acct-1's path")
-	}
-}
-
 // Round 12, 5b: when a file blocks a copy's folder, the message says what
 // is in the way before giving the command, and the command then works
 func TestMissingCopyBlockedByAFile(t *testing.T) {
@@ -1796,7 +831,7 @@ func TestMissingCopyBlockedByAFile(t *testing.T) {
 	opts := Options{Root: root, Path: ".claude/skills/x", Direction: "status", Variant: "stata"}
 	_, err := Sync(context.Background(), client, opts)
 	var se *SkillError
-	if !errors.As(err, &se) || !strings.Contains(err.Error(), "vendor/skills is a file where vendor/skills/x's folder should be: move it aside first. Copy it back: fw skills copy") {
+	if !errors.As(err, &se) || !strings.Contains(err.Error(), "vendor/skills is a file where vendor/skills/x's folder should be: move it aside first. Copy it there: fw skills copy") {
 		t.Fatalf("%v", err)
 	}
 	command := se.Hint
@@ -1806,114 +841,5 @@ func TestMissingCopyBlockedByAFile(t *testing.T) {
 	}
 	if _, err = Sync(context.Background(), client, opts); err != nil {
 		t.Errorf("after the copy: %v", err)
-	}
-}
-
-// P1: a map key that looks canonical isn't trusted: only the entry's own
-// metadata (server, skill_id, variant; or a built-in's origin) matches it
-func TestStaleKeysDontMatch(t *testing.T) {
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/y/SKILL.md", skillMD("y", "y"))
-	writeRel(t, root, ".claude/skills/z/SKILL.md", skillMD("z", "z"))
-	lock := `{"schema":1,"skills":{` +
-		`"package:x":{"paths":[".claude/skills/y"],"variant":"stata","origin":{"skill_id":"framework:y","hash":"y"},"hash":"y"},` +
-		`"account:https://cloud.test:acct-1:stata":{"paths":[".claude/skills/z"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-9","version":1,"hash":"z"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	pkg := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "packaged x"), nil)}
-	cl, _ := cloudSkill(t, 1, "cloud x")
-	cl.Name = "w"
-	cl.Files = BundleFromText(skillMD("w", "cloud w"), nil)
-	cl.Sync.Hash, _ = Hash(cl.Files)
-	if _, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills"}, Skills: []Wanted{pkg, cl}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(readRel(t, root, ".claude/skills/y/SKILL.md"), "y") || !strings.Contains(readRel(t, root, ".claude/skills/z/SKILL.md"), "z") {
-		t.Error("a stale-keyed entry's copy was written")
-	}
-	entries := lockEntries(t, root)
-	if strings.Join(entries["package:x"].Paths, ",") != ".claude/skills/y" || entries["account:https://cloud.test:acct-1:stata"].ID != "acct-9" {
-		t.Errorf("a stale-keyed entry changed: %+v", entries)
-	}
-	if !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "packaged x") || !strings.Contains(readRel(t, root, ".claude/skills/w/SKILL.md"), "cloud w") {
-		t.Error("the setup's skills weren't installed in their own folders")
-	}
-}
-
-// P2: both copies of a personal skill are gone and the setup names a
-// different ID: pull never takes the paths from it. The setup's skill
-// isn't installed there, the entry keeps its paths, and it's reported
-// missing with what puts it back
-func TestPullNeverTakesAPathFromAnotherCloudSkill(t *testing.T) {
-	root := t.TempDir()
-	w, _ := cloudSkill(t, 1, "acct-2's")
-	w.Sync.ID = "acct-2"
-	for _, d := range []string{".claude/skills", ".agents/skills"} {
-		check(t, os.MkdirAll(filepath.Join(root, filepath.FromSlash(d)), 0755))
-	}
-	lock := `{"schema":1,"skills":{"account:https://cloud.test:own-1:stata":{"paths":[".claude/skills/x",".agents/skills/x"],"variant":"stata",` +
-		`"server":"https://cloud.test","skill_id":"own-1","version":1,"hash":"h"}}}` + "\n"
-	writeRel(t, root, ".framework/skills.lock.json", lock)
-	for _, dry := range []bool{true, false} {
-		res, err := Pull(PullOptions{Root: root, Dirs: []string{".claude/skills", ".agents/skills"}, Skills: []Wanted{w}, Variant: "stata", DryRun: dry})
-		if err != nil || len(res.Skills) != 2 || res.Skills[0].Status == StatusAdded || res.Skills[1].Status != StatusMissing ||
-			!strings.Contains(res.Skills[0].Reason, "belongs to a different skill (own-1)") || !strings.Contains(res.Skills[1].Hint, "--resolve remote") {
-			t.Fatalf("dry run %v: %+v %v", dry, res, err)
-		}
-	}
-	if entriesIn(t, root, ".claude/skills") != nil || entriesIn(t, root, ".agents/skills") != nil || readRel(t, root, ".framework/skills.lock.json") != lock {
-		t.Error("pull took own-1's paths")
-	}
-}
-
-// P3: legacy entries that are one skill split in two are merged on read,
-// so its copies are judged together: an edit in one half makes the skill
-// diverged, and matching halves move together into one entry
-func TestSplitEntriesMergeOnRead(t *testing.T) {
-	w2, _ := cloudSkill(t, 2, "v2")
-	_, h1 := cloudSkill(t, 1, "v1")
-	split := `{"schema":1,"skills":{` +
-		`"a":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"` + h1 + `"},` +
-		`"b":{"paths":[".agents/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"` + h1 + `"}}}` + "\n"
-	dirs := []string{".claude/skills", ".agents/skills"}
-	root := t.TempDir()
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "edited"))
-	writeRel(t, root, ".framework/skills.lock.json", split)
-	res, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{w2}, Variant: "stata"})
-	if err != nil || res.Skills[0].Status != StatusDiverged || !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v1") {
-		t.Errorf("one half edited: %+v %v", res, err)
-	}
-	if changes, _, err := LocalChanges(root, dirs); err != nil || len(changes) != 1 {
-		t.Errorf("push: %+v %v", changes, err)
-	}
-
-	root = t.TempDir()
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, ".framework/skills.lock.json", split)
-	if _, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{w2}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	entries := lockEntries(t, root)
-	if len(entries) != 1 || len(entries["a"].Paths) != 2 || entries["a"].Version != 2 ||
-		!strings.Contains(readRel(t, root, ".agents/skills/x/SKILL.md"), "v2") || !strings.Contains(readRel(t, root, ".claude/skills/x/SKILL.md"), "v2") {
-		t.Errorf("halves in step: %+v", entries)
-	}
-
-	// A built-in split the same way merges by name, origin, and variant
-	root = t.TempDir()
-	v1 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v1"), nil)}
-	v2 := Wanted{Name: "x", Package: true, Files: BundleFromText(skillMD("x", "v2"), nil)}
-	hp, _ := Hash(v1.Files)
-	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, ".agents/skills/x/SKILL.md", skillMD("x", "v1"))
-	writeRel(t, root, ".framework/skills.lock.json", `{"schema":1,"skills":{`+
-		`"p1":{"paths":[".claude/skills/x"],"variant":"stata","origin":{"skill_id":"framework:x","hash":"`+hp+`"},"hash":"`+hp+`"},`+
-		`"p2":{"paths":[".agents/skills/x"],"variant":"stata","origin":{"skill_id":"framework:x","hash":"`+hp+`"},"hash":"`+hp+`"}}}`+"\n")
-	if _, err := Pull(PullOptions{Root: root, Dirs: dirs, Skills: []Wanted{v2}, Variant: "stata"}); err != nil {
-		t.Fatal(err)
-	}
-	if entries := lockEntries(t, root); len(entries) != 1 || len(entries["p1"].Paths) != 2 || !strings.Contains(readRel(t, root, ".agents/skills/x/SKILL.md"), "v2") {
-		t.Errorf("built-in: %+v", entries)
 	}
 }

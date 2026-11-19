@@ -89,7 +89,7 @@ func newSkillSyncCmd(a *app) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&server, "url", "", "Framework Cloud server")
 	cmd.Flags().StringVar(&opts.Direction, "direction", "auto", "auto, push, pull, or status")
-	cmd.Flags().StringVar(&opts.ID, "id", "", "the skill's ID on Framework Cloud, to adopt it or pull it the first time")
+	cmd.Flags().StringVar(&opts.ID, "id", "", "the skill's ID on Framework Cloud, to pull it the first time")
 	cmd.Flags().StringVar(&opts.Variant, "variant", "", "r, python, or stata (default: the project's language)")
 	cmd.Flags().StringVar(&opts.Resolve, "resolve", "", "settle a conflict: local or remote; replaced files go to .framework/skills-backups/")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "report what would change without writing files or new versions")

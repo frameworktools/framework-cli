@@ -89,7 +89,7 @@ func TestPullStata(t *testing.T) {
 	c.layerVer = 2
 	d.entries[1].Path = "inputs/raw/survey_v2.csv"
 	out, _, err = h.run(t, "", "pull", "--yes")
-	if err != nil || !strings.Contains(out, "Edited: analysis — .claude/skills/analysis has local edits, which were kept. --overwrite replaces them with the Cloud version. Run: fw pull --overwrite") ||
+	if err != nil || !strings.Contains(out, "Edited: analysis — .claude/skills/analysis has local edits, which were kept. To replace them with the setup's version: fw pull --overwrite") ||
 		!strings.Contains(out, "inputs.raw.survey (path inputs/raw/survey.csv -> inputs/raw/survey_v2.csv) — kept; fw pull --overwrite uses Cloud's") ||
 		readFile(t, analysis) != "mine\n" || !strings.Contains(readFile(t, settings), "path: inputs/raw/survey.csv\n") {
 		t.Fatalf("kept: %v\n%s", err, out)
@@ -199,7 +199,7 @@ func TestPushStata(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, ".claude", "skills", "analysis", "SKILL.md"), skillText("analysis", "Mine again"))
 	c.publish(skillText("analysis", "Theirs"))
 	out, _, err = h.run(t, "", "push", "--yes")
-	if err == nil || !strings.Contains(out, "  Pull first: analysis changed on Cloud since this project pulled it. fw push --force replaces it.") ||
+	if err == nil || !strings.Contains(out, "  Refused: analysis — Pull first: analysis changed on Framework Cloud since this project pulled it. Run fw pull, or replace it with fw push --force") ||
 		!strings.Contains(err.Error(), "Not pushed: Skills (Not pushed: analysis changed on Cloud since this project pulled it; fw push --force replaces it).") {
 		t.Fatalf("skill conflict: %v\n%s", err, out)
 	}

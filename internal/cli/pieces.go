@@ -100,8 +100,8 @@ func newPiecesCmd(a *app, kind pieceKind) *cobra.Command {
 	var sets bool
 	cmd := &cobra.Command{Use: kind.use, Short: kind.short}
 	if kind.use == "skills" {
-		cmd.Short = "List skills for AI assistants, and pull, push, and copy a project's skills"
-		cmd.AddCommand(newSkillSyncCmd(a), newSkillsPullCmd(a), newSkillsPushCmd(a), newSkillsCopyCmd(a))
+		cmd.Short = "List skills for AI assistants, and pull, push, copy, and move a project's skills"
+		cmd.AddCommand(newSkillSyncCmd(a), newSkillsPullCmd(a), newSkillsPushCmd(a), newSkillsCopyCmd(a), newSkillsMoveCmd(a))
 	}
 	cmd.PersistentFlags().StringVar(&urlFlag, "url", "", "Framework Cloud server")
 	list := &cobra.Command{

@@ -512,3 +512,27 @@ func TestScaffoldSettingsAndMasterDo(t *testing.T) {
 		t.Fatal(master)
 	}
 }
+
+// Every skill fw ships is in skill-history.json at its current text, so a
+// copy of it counts as unedited. Run go run ./tools/skillhistory after
+// changing one.
+func TestSkillHistoryIsCurrent(t *testing.T) {
+	entries, err := skillFiles.ReadDir("skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		src := PackageSource(e.Name())
+		if src.Bundle == nil || src.Hash == "" {
+			t.Errorf("%s: not shipped", e.Name())
+			continue
+		}
+		found := false
+		for _, h := range KnownHashes(e.Name()) {
+			found = found || h == src.Hash
+		}
+		if !found {
+			t.Errorf("%s: its current hash %s isn't in skill-history.json; run go run ./tools/skillhistory", e.Name(), src.Hash)
+		}
+	}
+}

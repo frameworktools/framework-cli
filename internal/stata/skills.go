@@ -1,12 +1,38 @@
 package stata
 
 import (
+	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"io/fs"
 	"sort"
 
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 )
+
+// skillHistory is the bundle hash of every version of each skill fw ships,
+// written by tools/skillhistory.
+//
+//go:embed skill-history.json
+var skillHistory []byte
+
+// KnownHashes lists the bundle hash of every version fw has shipped of a
+// Stata skill: a copy holding one is an unedited older version.
+func KnownHashes(name string) []string {
+	var h struct {
+		Skills map[string]map[string][]string `json:"skills"`
+	}
+	if json.Unmarshal(skillHistory, &h) != nil {
+		return nil
+	}
+	return h.Skills[name]["stata"]
+}
+
+// PackageSource is a skill fw ships for Stata projects, as the planner's
+// source: nil files when fw doesn't ship it.
+func PackageSource(name string) skillsync.Source {
+	return skillsync.PackageSource(name, "stata", ShippedSkill(name), KnownHashes(name))
+}
 
 // AssistantSkillsDir is the skills folder an assistant reads, or "".
 func AssistantSkillsDir(name string) string {
@@ -50,31 +76,36 @@ func PackageSkills(kind string, sensitive bool) []string {
 	return names
 }
 
-// WantedSkills turns a resolved Stata spec's skills into what a skills pull
-// installs, in name order.
-func WantedSkills(v View) []skillsync.Wanted {
+// SetupSkills turns a resolved Stata spec's skills into the planner's
+// sources, in name order: a package skill fw ships, a Cloud skill at the
+// version the setup names, or inline setup text. server is the project's
+// Framework Cloud server, for a sync block that names none.
+func SetupSkills(v View, server string) []skillsync.Source {
 	names := make([]string, 0, len(v.Skills))
 	for name := range v.Skills {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	out := make([]skillsync.Wanted, 0, len(names))
+	out := make([]skillsync.Source, 0, len(names))
 	for _, name := range names {
 		entry := v.Skills[name]
-		w := skillsync.Wanted{Name: name}
+		files := entry.Bundle
+		if len(files) == 0 {
+			files = skillsync.BundleFromText(entry.Content, entry.Files)
+		}
 		switch {
 		case entry.Package:
-			w.Package, w.Files = true, ShippedSkill(name)
-		case len(entry.Bundle) > 0:
-			w.Files = entry.Bundle
+			out = append(out, PackageSource(name))
+		case entry.Sync != nil:
+			variant := entry.Sync.Variant
+			if variant == "" {
+				variant = "stata"
+			}
+			out = append(out, skillsync.CloudSource(name, skillsync.SyncSource{ID: entry.Sync.ID, Version: entry.Sync.Version,
+				Hash: entry.Sync.Hash, Variant: variant, Server: entry.Sync.Server}, files, server))
 		default:
-			w.Files = skillsync.BundleFromText(entry.Content, entry.Files)
+			out = append(out, skillsync.InlineSource(name, "stata", files))
 		}
-		if entry.Sync != nil {
-			w.Sync = &skillsync.Source{ID: entry.Sync.ID, Version: entry.Sync.Version, Hash: entry.Sync.Hash, Variant: entry.Sync.Variant, Server: entry.Sync.Server}
-			w.Known = []string{entry.Sync.Hash}
-		}
-		out = append(out, w)
 	}
 	return out
 }

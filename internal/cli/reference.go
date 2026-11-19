@@ -31,7 +31,7 @@ var refCategories = []refCategory{
 // refCategoryOf assigns each command to a category. A test fails when a
 // command is missing.
 var refCategoryOf = map[string]string{
-	"skills sync": "cloud", "skills pull": "cloud", "skills push": "cloud", "skills copy": "projects", "pull": "cloud", "push": "cloud",
+	"skills sync": "cloud", "skills pull": "cloud", "skills push": "cloud", "skills copy": "projects", "skills move": "projects", "pull": "cloud", "push": "cloud",
 	"data pull": "cloud", "data push": "cloud",
 	"login": "account", "logout": "account", "status": "account",
 	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud", "snippet publish": "cloud",
@@ -55,6 +55,7 @@ var refSince = map[string]string{
 	"project upgrade": "0.4.7",
 	"snippet publish": "0.7.0",
 	"skills copy":     "0.7.2",
+	"skills move":     "0.8.0",
 }
 
 // refEnv names the environment variable that sets a flag.
@@ -72,9 +73,10 @@ var refSeeAlso = map[string][]string{
 	"tools list":        {"blueprints list", "new"},
 	"package-sets list": {"blueprints list", "new"},
 	"skills list":       {"blueprints list", "new"},
-	"skills pull":       {"skills push", "skills sync", "skills copy", "guide:agents"},
-	"skills push":       {"skills pull", "skills sync", "skills copy", "guide:agents"},
-	"skills copy":       {"skills push", "skills sync", "guide:agents"},
+	"skills pull":       {"skills push", "skills sync", "skills copy", "skills move", "guide:agents"},
+	"skills push":       {"skills pull", "skills sync", "skills copy", "skills move", "guide:agents"},
+	"skills copy":       {"skills push", "skills sync", "skills move", "guide:agents"},
+	"skills move":       {"skills copy", "skills pull", "skills push", "guide:agents"},
 	"pull":              {"push", "skills pull", "data pull", "guide:agents"},
 	"push":              {"pull", "skills push", "data push", "guide:agents"},
 	"data pull":         {"data push", "pull"},
@@ -118,14 +120,17 @@ var refReturns = map[string]string{
 		"With `--to github`, `url`, `commit` (null when nothing changed), `pushed`, and `pages_enabled` (null when the project is not linked, or fw could not reach Framework Cloud).",
 	"skills pull": "With `--json`, for Stata projects, `{\"source\", \"dry_run\", \"skills\", \"counts\", \"message\", \"notes\", \"backups\"}`. `source` is `cloud`, or `package` when Framework Cloud gave no list. " +
 		"Each skill has `name`, `status`, and `paths`. Statuses: added (installed where nothing was), restored (a deleted tracked copy put back), updated (moved to a newer version), current, " +
-		"edited (local edits kept), replaced (local edits backed up and overwritten, with --overwrite), diverged (tracked copies differ or one is missing; nothing written), " +
-		"missing (every tracked copy is gone and pull can't restore it), removed (no longer in the setup), unavailable (Framework Cloud wasn't reached; left alone), " +
-		"failed (the entry couldn't be read), kept (left alone because it belongs to a different skill), and untracked (a copy not in the lock; left alone). " +
-		"Every row that isn't added, restored, updated, or current has `reason`, one plain sentence, and `hint`, the exact command that fixes it, when there is one. `counts` has a number for each status. R and Python projects print their package's own summary.",
+		"edited (local edits kept), replaced (local edits backed up and overwritten, with --overwrite), diverged (tracked copies differ, or one is missing beside an edited one; nothing written), " +
+		"missing (a tracked copy's folder is gone, or every copy is and pull can't restore it), removed (no longer in the setup), unavailable (Framework Cloud wasn't reached, or fw doesn't ship it; left alone), " +
+		"failed (a copy couldn't be read as a skill), kept (left alone because another skill, or another variant, tracks the folder), and untracked (a copy not in the lock; left alone). " +
+		"Every row that isn't added, restored, updated, or current has `reason`, one plain sentence, and `hint`, the exact command that fixes it, when there is one. " +
+		"`reason_code`, `hint_key`, and `hint_args` are the machine forms R and Python share, or null. `counts` has a number for each status. R and Python projects print their package's own summary.",
 	"skills copy": "With `--json`, `{\"from\", \"to\", \"dry_run\", \"skills\", \"counts\", \"backups\", \"message\"}`. `from` and `to` are project-relative folders. " +
 		"Each skill has `name`, `status` (copied, current, or missing), `from`, `to`, and `backup`, where the replaced copy went, or null. A missing skill is in a target but not the source, and is kept; its `from` is null.",
-	"skills push": "With `--json`, `{\"dry_run\", \"skills\", \"counts\", \"message\"}`. Each skill has `name`, `path`, and `status`: pushed (in a dry run, would be pushed), refused (Framework Cloud has moved on: pull first), " +
-		"missing (every copy gone), untracked, cancelled (you answered no), or failed. Rows that aren't pushed have `reason`, one plain sentence, and `hint`, the exact command, when there is one; a pushed skill also has `skill_id` and `version`.",
+	"skills push": "With `--json`, `{\"dry_run\", \"skills\", \"counts\", \"message\"}`. Each skill has `name`, `paths`, and `status`: pushed (in a dry run, would be pushed), refused (Framework Cloud has moved on, or the skill has no version to push against: pull first, or --force), " +
+		"missing (a copy's folder is gone, or every copy), untracked, cancelled (you answered no), or failed (copies differ, or one couldn't be read or sent). Rows that aren't pushed have `reason`, one plain sentence, and `hint`, the exact command, when there is one, with `reason_code`, `hint_key`, and `hint_args`; a pushed skill also has `skill_id` and `version`.",
+	"skills move": "With `--json`, `{\"dry_run\", \"skills\", \"message\"}`. Each copy has `name`, `status` (moved), `from` (null for a changed identity), `to`, `reason_code` (path_moved, lock_moved when the folder was already moved, or retargeted), and `skill`, the lock entry it now tracks. " +
+		"A refused move fails with `reason` move_untracked, move_target_owned, move_target_exists, move_nothing, or move_identity_exists, and changes nothing.",
 	"pull": "With `--json`, for Stata projects, `{\"packages\", \"skills\", \"data_registry\", \"applied\", \"failed\", \"dry_run\", \"message\"}`. `packages` is `{\"revision\", \"managed\": false}` because Framework Cloud does not manage Stata package installation directly. " +
 		"`skills` matches `fw skills pull --json`, and `data_registry` matches `fw data pull --json` (or `null` when unread). " +
 		"`applied` lists the sections applied (`skills`, `data_registry`), and `failed` maps each failed section to its error message. R and Python projects print their package's summary.",

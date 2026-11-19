@@ -114,6 +114,11 @@ func report(w io.Writer, a *app, err error) {
 		if exit != nil {
 			e.Reason, e.Found, e.Hint, e.Problems = exit.reason, exit.found, exit.hint, exit.problems
 		}
+		// Skill sync errors carry the code R and Python share
+		var coded interface{ ReasonCode() string }
+		if e.Reason == "" && errors.As(err, &coded) {
+			e.Reason = coded.ReasonCode()
+		}
 		data, _ := json.Marshal(e)
 		fmt.Fprintln(w, string(data))
 		return
