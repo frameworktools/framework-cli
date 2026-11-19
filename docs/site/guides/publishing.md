@@ -59,6 +59,26 @@ fw publish outputs/notebooks/results.html --slug results --readable
 > [!NOTE]
 > Hosted accounts on `framework.pub` include free publishing with 1 GB of artifact storage per account. Self-hosted servers use your own configured storage backend.
 
+## Code snippets
+
+`fw snippet publish` publishes one cell of an executed Jupyter notebook as a `code_snippet` artifact. The snippet holds the cell's code and the text outputs saved with it. Blog posts and reports embed it beside the results it produced. `fw` does not run the notebook, so run it and save it first.
+
+```sh
+fw snippet publish notebooks/analysis.ipynb --cell fit-ols
+fw snippet publish notebooks/analysis.ipynb --cell fit-ols --folded --link notebook=https://example.org/analysis
+```
+
+`--cell` names the cell by a tag, a Quarto `#| label:` line, or the label on its `%%fw_snippet` line. Quarto option lines and the `%%fw_snippet` line are left out of the code. Outputs keep their order. Standard output becomes output, standard error becomes a message, results and displays send their `text/plain` form, and errors send their traceback. An output that carries an image is left out whole.
+
+- `--folded` and `--unfolded` set the fold state of output blocks. Without them, Framework Cloud folds outputs longer than 12 lines.
+- `--no-output` publishes the code only.
+- `--link notebook=URL` links the full notebook. `--link model=SLUG` links a model artifact in the project, or an `https` URL.
+- `--repository URL` names the repository. Without it, `fw` uses `publish.repository` in `settings.yml` and otherwise sends none.
+
+The snippet records the notebook's path in its git repository and the commit checked out. The slug defaults to the label. Publishing an unchanged snippet keeps its newest version, and `fw` prints `Unchanged, still version N`.
+
+`fw publish code_snippet.json --kind code_snippet` publishes a snippet document written by another client.
+
 ## GitHub Pages
 
 Projects backed by a GitHub repository can publish static artifacts directly to GitHub Pages. Enable Pages on the project's **GitHub & Pages** tab on Framework Cloud to add the deployment workflow that publishes `published/` whenever changes land on the default branch.

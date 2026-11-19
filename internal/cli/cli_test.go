@@ -221,6 +221,11 @@ func fakeCloud(t *testing.T) *httptest.Server {
 				lastUpload["field"], lastUpload["name"], lastUpload["data"] = field, hdr.Filename, string(data)
 			}
 		}
+		if fakeUnchanged {
+			// A code snippet that matches its newest version adds none.
+			_, _ = w.Write([]byte(`{"slug":"analysis","version":2,"unchanged":true,"url":"https://x/d/abc","private_url":"https://x/d/abc","readable_url":null,"version_url":"https://x/d/abc/v2","raw_url":"https://x/d/abc/raw","notice":null}`))
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"slug":"analysis","version":2,"url":"https://x/d/abc","private_url":"https://x/d/abc","readable_url":null,"version_url":"https://x/d/abc/v2","raw_url":"https://x/d/abc/raw","notice":null}`))
 	})
@@ -245,6 +250,9 @@ func fakeCloud(t *testing.T) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// fakeUnchanged makes the fake cloud answer a publish as unchanged.
+var fakeUnchanged bool
 
 // lastUpload and lastSpec record what the fake cloud last received.
 var (

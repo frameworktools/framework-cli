@@ -125,6 +125,9 @@ type Document struct {
 	VersionURL         string  `json:"version_url"`
 	RawURL             string  `json:"raw_url"`
 	Notice             *string `json:"notice"`
+	// Unchanged is true when the upload matched the newest version, so the
+	// server kept that version and added none. Only code snippets do this.
+	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 // Collection is a project collection available to this project token.

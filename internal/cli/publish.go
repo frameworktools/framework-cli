@@ -24,7 +24,7 @@ import (
 )
 
 // artifactKinds are the kinds Framework Cloud accepts. file comes last.
-var artifactKinds = []string{"html", "image", "chart", "table", "data", "model", "test", "text", "pdf", "file"}
+var artifactKinds = []string{"html", "image", "chart", "table", "data", "model", "test", "text", "pdf", "code_snippet", "file"}
 
 // maxUpload is the server's limit for one document.
 const maxUpload = 50 << 20
@@ -293,9 +293,14 @@ func sizeText(n int) string {
 	return fmt.Sprintf("%d bytes", n)
 }
 
+// publishFlags are fw publish's flags. fw snippet publish shares them.
+type publishFlags struct {
+	urlFlag, slug, title, entrypoint, to, description, kind, password, visibility, collection string
+	readable, includePrivate, yes, shareUnlisted                                              bool
+}
+
 func newPublishCmd(a *app) *cobra.Command {
-	var urlFlag, slug, title, entrypoint, to, description, kind, password, visibility, collection string
-	var readable, includePrivate, yes, shareUnlisted bool
+	var f publishFlags
 	cmd := &cobra.Command{
 		Use:   "publish PATH",
 		Short: "Publish an artifact to a configured destination",
@@ -319,209 +324,224 @@ func newPublishCmd(a *app) *cobra.Command {
 			"  fw publish outputs/notebooks/results.html --to github --slug results",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if shareUnlisted && collection == "" {
-				return usageError("--share-unlisted requires --collection")
-			}
-			if kind != "" && !slices.Contains(artifactKinds, kind) {
-				return usageError("--kind takes " + strings.Join(artifactKinds[:len(artifactKinds)-1], ", ") + ", or file")
-			}
 			path := args[0]
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(a.cwd, path)
 			}
-			root, err := a.requireProject()
-			if err != nil {
-				return err
-			}
-			destination, err := resolvePublish(root, to)
-			if err != nil {
-				return err
-			}
-			opts := staticPublishOptions{path: path, slug: slug, title: title, description: description, kind: kind, entrypoint: entrypoint, urlFlag: urlFlag, visibility: visibility, password: password, includePrivate: includePrivate, yes: yes}
-			if destination.Driver != "cloud" {
-				for _, name := range []string{"collection", "share-unlisted", "readable"} {
-					if cmd.Flags().Changed(name) {
-						return usageError("--" + name + " requires Framework Cloud")
-					}
-				}
-				if destination.Driver == "github" {
-					if destination.Expiry != "" {
-						return usageError("GitHub Pages does not support expiry")
-					}
-					if destination.Password != "" || cmd.Flags().Changed("password") || password != "" {
-						return usageError("GitHub Pages does not support passwords")
-					}
-					vis := visibility
-					if vis == "" {
-						vis = destination.Visibility
-					}
-					if vis != "" && vis != "public" {
-						return usageError("private GitHub Pages access has not been confirmed; publishing stopped")
-					}
-					return a.publishToGitHub(cmd, pagesOptions{path: path, slug: slug, urlFlag: urlFlag, includePrivate: includePrivate, yes: yes, artifact: &opts})
-				}
-				return a.publishStatic(cmd, destination, opts)
-			}
-			if visibility == "" {
-				visibility = destination.Visibility
-			}
-			if password == "" && !cmd.Flags().Changed("password") {
-				password, err = resolveEnvOption(destination.Password)
-				if err != nil {
-					return err
-				}
-			}
-			if destination.Expiry != "" {
-				return usageError("artifact expiry is not supported by this command")
-			}
-			client, root, err := a.projectClient(urlFlag)
-			if err != nil {
-				return err
-			}
-			var selected *cloud.Collection
-			if collection != "" {
-				rows, err := client.Collections(cmd.Context())
-				if err != nil {
-					return explainProject(err)
-				}
-				for _, row := range rows {
-					if row.Slug == collection || strconv.Itoa(row.ID) == collection {
-						if selected != nil {
-							return usageError("collection is ambiguous in this project")
-						}
-						matched := row
-						selected = &matched
-					}
-				}
-				if selected == nil {
-					return usageError("collection was not found in this project")
-				}
-				// As on the server: an explicit --visibility wins, and
-				// --readable alone switches between public and unlisted.
-				known, public := visibility != "", visibility == "public"
-				if visibility == "" && cmd.Flags().Changed("readable") {
-					known, public = true, readable
-				}
-				// Ask before uploading: the server would take the upload, then
-				// refuse to attach a non-public artifact.
-				if selected.Visibility == "public" && !public {
-					return usageError("public collections require public artifacts; pass --visibility public")
-				}
-				if selected.Visibility == "unlisted" && known && !public && !shareUnlisted {
-					return usageError("pass --share-unlisted to share an unlisted artifact with collection readers")
-				}
-			}
-			upload, files, err := planUpload(path, entrypoint)
-			if err != nil {
-				return err
-			}
-			if len(upload.Data) > maxUpload {
-				return fmt.Errorf("%s is %s, larger than the server's 50 MB limit", upload.Name, sizeText(len(upload.Data)))
-			}
-			upload.Slug, upload.Title = slug, title
-			if upload.Slug == "" {
-				base := filepath.Base(filepath.Clean(path))
-				if info, e := os.Stat(path); e == nil && !info.IsDir() {
-					base = strings.TrimSuffix(base, filepath.Ext(base))
-				}
-				upload.Slug = pub.Slug(base)
-			}
-			if upload.Slug == "" || pub.Slug(upload.Slug) != upload.Slug {
-				return usageError("--slug must use lowercase letters, digits, and single hyphens")
-			}
-
-			// Every destination builds the same offline bundle. Cloud keeps its
-			// existing multipart wire format for older-server compatibility.
-			opts.slug = upload.Slug
-			commonBundle, buildErr := buildStatic(opts)
-			if buildErr != nil {
-				return buildErr
-			}
-			defer os.RemoveAll(commonBundle.Dir)
-			upload.PasswordSet, upload.DescriptionSet = cmd.Flags().Changed("password"), cmd.Flags().Changed("description")
-			upload.Description, upload.Kind = description, kind
-			upload.Password, upload.Visibility = password, visibility
-			if cmd.Flags().Changed("readable") {
-				upload.Readable = &readable
-			}
-
-			errOut := cmd.ErrOrStderr()
-			what := filepath.Base(path)
-			if upload.Bundle {
-				what = fmt.Sprintf("%s (%d files, opening at %s)", what, len(files), upload.Entrypoint)
-			}
-			fmt.Fprintf(errOut, "Publishing %s, %s, to this project on %s.\n", what, sizeText(len(upload.Data)), cloud.Host(client.URL))
-			asked, err := a.checkPrivate(cmd, root, files, includePrivate, yes)
-			if err != nil {
-				return err
-			}
-			if !asked {
-				if err := a.confirm(cmd, yes, "Upload it?"); err != nil {
-					return err
-				}
-			}
-
-			doc, err := client.Publish(cmd.Context(), upload)
-			if cloud.StatusOf(err) == http.StatusPaymentRequired {
-				return &exitError{code: exitFailure, err: cloud.ErrPaymentRequired(cloud.Host(client.URL))}
-			}
-			if err != nil {
-				return explainProject(err)
-			}
-			if selected != nil {
-				attached := false
-				doc.CollectionID, doc.CollectionAttached = selected.ID, &attached
-				var attachErr error
-				if doc.ID == 0 {
-					attachErr = errors.New("the server did not return an artifact ID")
-				} else {
-					attachErr = client.AttachCollection(cmd.Context(), selected.ID, doc.ID, shareUnlisted)
-				}
-				if attachErr != nil {
-					doc.CollectionWarning = fmt.Sprintf("Artifact published at %s, but collection attachment failed: %v. Attach it from the project Artifacts page; publishing again creates another version.", doc.URL, attachErr)
-					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: "+doc.CollectionWarning)
-				} else {
-					attached = true
-					fmt.Fprintln(cmd.ErrOrStderr(), "Added to collection: "+selected.Title)
-				}
-			}
-			out := cmd.OutOrStdout()
-			if a.jsonOut {
-				return writeJSON(out, doc)
-			}
-			fmt.Fprintf(out, "Published %s, version %d.\n", doc.Slug, doc.Version)
-			fmt.Fprintf(out, "Link: %s\n", doc.URL)
-			if doc.ReadableURL == nil && doc.PrivateURL != "" && doc.PrivateURL != doc.URL {
-				fmt.Fprintf(out, "Private link: %s\n", doc.PrivateURL)
-			}
-			if doc.VersionURL != "" {
-				fmt.Fprintf(out, "This version: %s\n", doc.VersionURL)
-			}
-			if doc.Notice != nil && *doc.Notice != "" {
-				fmt.Fprintf(out, "Note: %s\n", *doc.Notice)
-			}
-			return nil
+			return a.publishPath(cmd, path, f)
 		},
 	}
-	cmd.Flags().StringVar(&slug, "slug", "", "the document's name in the project (default: from the file name)")
-	cmd.Flags().StringVar(&to, "to", "", "named publishing destination (default: publish.default, then cloud)")
-	cmd.Flags().StringVar(&title, "title", "", "the document's title")
-	cmd.Flags().StringVar(&collection, "collection", "", "existing project collection ID or slug")
-	cmd.Flags().BoolVar(&shareUnlisted, "share-unlisted", false, "allow collection readers to access this unlisted artifact")
-	cmd.Flags().StringVar(&description, "description", "", "the artifact description")
-	cmd.Flags().StringVar(&kind, "kind", "", "artifact kind: "+strings.Join(artifactKinds[:len(artifactKinds)-1], ", ")+", or file (default detected)")
-	cmd.Flags().StringVar(&password, "password", "", "password required to view the artifact")
-	cmd.Flags().StringVar(&visibility, "visibility", "", "artifact visibility (Cloud: public, unlisted, or private)")
-	cmd.Flags().BoolVar(&readable, "readable", false, "give the document a readable address; --readable=false removes it")
-	cmd.Flags().StringVar(&entrypoint, "entrypoint", "", "with a folder: the HTML file to open (default index.html)")
-	cmd.Flags().BoolVar(&includePrivate, "include-private", false, "upload files whose path contains \"private\" without asking")
+	cmd.Flags().StringVar(&f.slug, "slug", "", "the document's name in the project (default: from the file name)")
+	cmd.Flags().StringVar(&f.to, "to", "", "named publishing destination (default: publish.default, then cloud)")
+	cmd.Flags().StringVar(&f.title, "title", "", "the document's title")
+	cmd.Flags().StringVar(&f.collection, "collection", "", "existing project collection ID or slug")
+	cmd.Flags().BoolVar(&f.shareUnlisted, "share-unlisted", false, "allow collection readers to access this unlisted artifact")
+	cmd.Flags().StringVar(&f.description, "description", "", "the artifact description")
+	cmd.Flags().StringVar(&f.kind, "kind", "", "artifact kind: "+strings.Join(artifactKinds[:len(artifactKinds)-1], ", ")+", or file (default detected)")
+	cmd.Flags().StringVar(&f.password, "password", "", "password required to view the artifact")
+	cmd.Flags().StringVar(&f.visibility, "visibility", "", "artifact visibility (Cloud: public, unlisted, or private)")
+	cmd.Flags().BoolVar(&f.readable, "readable", false, "give the document a readable address; --readable=false removes it")
+	cmd.Flags().StringVar(&f.entrypoint, "entrypoint", "", "with a folder: the HTML file to open (default index.html)")
+	cmd.Flags().BoolVar(&f.includePrivate, "include-private", false, "upload files whose path contains \"private\" without asking")
 	// 0.2.0 called it --allow-private.
-	cmd.Flags().BoolVar(&includePrivate, "allow-private", false, "")
+	cmd.Flags().BoolVar(&f.includePrivate, "allow-private", false, "")
 	_ = cmd.Flags().MarkHidden("allow-private")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "upload without asking")
-	cmd.Flags().StringVar(&urlFlag, "url", "", "Framework Cloud server (default: the project's FW_CLOUD_URL)")
+	cmd.Flags().BoolVarP(&f.yes, "yes", "y", false, "upload without asking")
+	cmd.Flags().StringVar(&f.urlFlag, "url", "", "Framework Cloud server (default: the project's FW_CLOUD_URL)")
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
+}
+
+// publishPath publishes the file or folder at path with fw publish's flags.
+// It reads the flags' changed state from cmd, so a command that calls it
+// names its flags as fw publish does.
+func (a *app) publishPath(cmd *cobra.Command, path string, f publishFlags) error {
+	urlFlag, slug, title, entrypoint, to := f.urlFlag, f.slug, f.title, f.entrypoint, f.to
+	description, kind, password, visibility, collection := f.description, f.kind, f.password, f.visibility, f.collection
+	readable, includePrivate, yes, shareUnlisted := f.readable, f.includePrivate, f.yes, f.shareUnlisted
+	if shareUnlisted && collection == "" {
+		return usageError("--share-unlisted requires --collection")
+	}
+	if kind != "" && !slices.Contains(artifactKinds, kind) {
+		return usageError("--kind takes " + strings.Join(artifactKinds[:len(artifactKinds)-1], ", ") + ", or file")
+	}
+	root, err := a.requireProject()
+	if err != nil {
+		return err
+	}
+	destination, err := resolvePublish(root, to)
+	if err != nil {
+		return err
+	}
+	opts := staticPublishOptions{path: path, slug: slug, title: title, description: description, kind: kind, entrypoint: entrypoint, urlFlag: urlFlag, visibility: visibility, password: password, includePrivate: includePrivate, yes: yes}
+	if destination.Driver != "cloud" {
+		for _, name := range []string{"collection", "share-unlisted", "readable"} {
+			if cmd.Flags().Changed(name) {
+				return usageError("--" + name + " requires Framework Cloud")
+			}
+		}
+		if destination.Driver == "github" {
+			if destination.Expiry != "" {
+				return usageError("GitHub Pages does not support expiry")
+			}
+			if destination.Password != "" || cmd.Flags().Changed("password") || password != "" {
+				return usageError("GitHub Pages does not support passwords")
+			}
+			vis := visibility
+			if vis == "" {
+				vis = destination.Visibility
+			}
+			if vis != "" && vis != "public" {
+				return usageError("private GitHub Pages access has not been confirmed; publishing stopped")
+			}
+			return a.publishToGitHub(cmd, pagesOptions{path: path, slug: slug, urlFlag: urlFlag, includePrivate: includePrivate, yes: yes, artifact: &opts})
+		}
+		return a.publishStatic(cmd, destination, opts)
+	}
+	if visibility == "" {
+		visibility = destination.Visibility
+	}
+	if password == "" && !cmd.Flags().Changed("password") {
+		password, err = resolveEnvOption(destination.Password)
+		if err != nil {
+			return err
+		}
+	}
+	if destination.Expiry != "" {
+		return usageError("artifact expiry is not supported by this command")
+	}
+	client, root, err := a.projectClient(urlFlag)
+	if err != nil {
+		return err
+	}
+	var selected *cloud.Collection
+	if collection != "" {
+		rows, err := client.Collections(cmd.Context())
+		if err != nil {
+			return explainProject(err)
+		}
+		for _, row := range rows {
+			if row.Slug == collection || strconv.Itoa(row.ID) == collection {
+				if selected != nil {
+					return usageError("collection is ambiguous in this project")
+				}
+				matched := row
+				selected = &matched
+			}
+		}
+		if selected == nil {
+			return usageError("collection was not found in this project")
+		}
+		// As on the server: an explicit --visibility wins, and
+		// --readable alone switches between public and unlisted.
+		known, public := visibility != "", visibility == "public"
+		if visibility == "" && cmd.Flags().Changed("readable") {
+			known, public = true, readable
+		}
+		// Ask before uploading: the server would take the upload, then
+		// refuse to attach a non-public artifact.
+		if selected.Visibility == "public" && !public {
+			return usageError("public collections require public artifacts; pass --visibility public")
+		}
+		if selected.Visibility == "unlisted" && known && !public && !shareUnlisted {
+			return usageError("pass --share-unlisted to share an unlisted artifact with collection readers")
+		}
+	}
+	upload, files, err := planUpload(path, entrypoint)
+	if err != nil {
+		return err
+	}
+	if len(upload.Data) > maxUpload {
+		return fmt.Errorf("%s is %s, larger than the server's 50 MB limit", upload.Name, sizeText(len(upload.Data)))
+	}
+	upload.Slug, upload.Title = slug, title
+	if upload.Slug == "" {
+		base := filepath.Base(filepath.Clean(path))
+		if info, e := os.Stat(path); e == nil && !info.IsDir() {
+			base = strings.TrimSuffix(base, filepath.Ext(base))
+		}
+		upload.Slug = pub.Slug(base)
+	}
+	if upload.Slug == "" || pub.Slug(upload.Slug) != upload.Slug {
+		return usageError("--slug must use lowercase letters, digits, and single hyphens")
+	}
+
+	// Every destination builds the same offline bundle. Cloud keeps its
+	// existing multipart wire format for older-server compatibility.
+	opts.slug = upload.Slug
+	commonBundle, buildErr := buildStatic(opts)
+	if buildErr != nil {
+		return buildErr
+	}
+	defer os.RemoveAll(commonBundle.Dir)
+	upload.PasswordSet, upload.DescriptionSet = cmd.Flags().Changed("password"), cmd.Flags().Changed("description")
+	upload.Description, upload.Kind = description, kind
+	upload.Password, upload.Visibility = password, visibility
+	if cmd.Flags().Changed("readable") {
+		upload.Readable = &readable
+	}
+
+	errOut := cmd.ErrOrStderr()
+	what := filepath.Base(path)
+	if upload.Bundle {
+		what = fmt.Sprintf("%s (%d files, opening at %s)", what, len(files), upload.Entrypoint)
+	}
+	fmt.Fprintf(errOut, "Publishing %s, %s, to this project on %s.\n", what, sizeText(len(upload.Data)), cloud.Host(client.URL))
+	asked, err := a.checkPrivate(cmd, root, files, includePrivate, yes)
+	if err != nil {
+		return err
+	}
+	if !asked {
+		if err := a.confirm(cmd, yes, "Upload it?"); err != nil {
+			return err
+		}
+	}
+
+	doc, err := client.Publish(cmd.Context(), upload)
+	if cloud.StatusOf(err) == http.StatusPaymentRequired {
+		return &exitError{code: exitFailure, err: cloud.ErrPaymentRequired(cloud.Host(client.URL))}
+	}
+	if err != nil {
+		return explainProject(err)
+	}
+	if selected != nil {
+		attached := false
+		doc.CollectionID, doc.CollectionAttached = selected.ID, &attached
+		var attachErr error
+		if doc.ID == 0 {
+			attachErr = errors.New("the server did not return an artifact ID")
+		} else {
+			attachErr = client.AttachCollection(cmd.Context(), selected.ID, doc.ID, shareUnlisted)
+		}
+		if attachErr != nil {
+			doc.CollectionWarning = fmt.Sprintf("Artifact published at %s, but collection attachment failed: %v. Attach it from the project Artifacts page; publishing again creates another version.", doc.URL, attachErr)
+			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: "+doc.CollectionWarning)
+		} else {
+			attached = true
+			fmt.Fprintln(cmd.ErrOrStderr(), "Added to collection: "+selected.Title)
+		}
+	}
+	out := cmd.OutOrStdout()
+	if a.jsonOut {
+		return writeJSON(out, doc)
+	}
+	if doc.Unchanged {
+		// A code snippet that matches its newest version adds none.
+		fmt.Fprintf(out, "Unchanged, still version %d: %s\n", doc.Version, doc.URL)
+	} else {
+		fmt.Fprintf(out, "Published %s, version %d.\n", doc.Slug, doc.Version)
+		fmt.Fprintf(out, "Link: %s\n", doc.URL)
+	}
+	if doc.ReadableURL == nil && doc.PrivateURL != "" && doc.PrivateURL != doc.URL {
+		fmt.Fprintf(out, "Private link: %s\n", doc.PrivateURL)
+	}
+	if doc.VersionURL != "" && !doc.Unchanged {
+		fmt.Fprintf(out, "This version: %s\n", doc.VersionURL)
+	}
+	if doc.Notice != nil && *doc.Notice != "" {
+		fmt.Fprintf(out, "Note: %s\n", *doc.Notice)
+	}
+	return nil
 }
 
 // explainProject adds hints to errors from project-token calls.

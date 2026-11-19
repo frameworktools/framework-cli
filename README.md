@@ -35,6 +35,7 @@ fw data pull | push                 sync the project data catalog
 fw skills pull | push               sync project skills
 fw skills sync PATH                 sync one skill directory
 fw publish PATH [--to github]       publish an artifact or rendered report
+fw snippet publish NB --cell LABEL  publish a notebook cell as a code snippet
 fw config path | sync               inspect or copy configuration directories
 fw doctor                           report detected runtimes, paths, and server
 ```
