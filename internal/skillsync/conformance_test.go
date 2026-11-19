@@ -280,8 +280,8 @@ func runScenario(t *testing.T, l *labels, sc scenario) {
 				return r, ok, nil
 			}})
 		if err == nil {
-			if pp.Pending() && !o.DryRun {
-				if o.Confirm != nil && !*o.Confirm {
+			if pp.Acts() && !o.DryRun {
+				if pp.Pending() && o.Confirm != nil && !*o.Confirm {
 					pp.Cancel()
 				} else {
 					err = pp.Apply(scenarioServer, func(req PushRequest) (Snapshot, error) {

@@ -105,7 +105,7 @@ fw skills pull
 
 Summary output follows `Skills: 2 added, 3 updated, 5 up to date, 1 locally edited (kept)`.
 
-`fw skills push` uploads locally edited skills to Framework Cloud as new versions of your personal skills (edited built-in skills fork into personal copies). If a skill changed on Framework Cloud since the last pull, `fw` exits `1` with `Pull first` unless `--force` is passed (preserving earlier Cloud versions in history). A skill with no version to push against, as after `fw skills move` changed its identity, is refused until `--force`. Untracked skill directories are listed with `fw skills sync PATH`, or with `fw skills move` when a tracked copy of the same name is gone. Push statuses are pushed (in a dry run, would be pushed), refused, missing, untracked, cancelled, and failed. Run `--dry-run` first and confirm with the user before passing `--yes`.
+`fw skills push` uploads locally edited skills to Framework Cloud as new versions of your personal skills (edited built-in skills fork into personal copies). If a skill changed on Framework Cloud since the last pull, `fw` exits `1` with `Pull first` unless `--force` is passed (preserving earlier Cloud versions in history). A skill with no version to push against, as after `fw skills move` changed its identity, is refused until `--force`. Untracked skill directories are listed with `fw skills sync PATH`, or with `fw skills move` when a tracked copy of the same name is gone. Push statuses are pushed (in a dry run, would be pushed), current (Cloud already has the bytes; only the lock changes), refused, missing, untracked, cancelled, and failed. Run `--dry-run` first and confirm with the user before passing `--yes`.
 
 ```sh
 fw skills push --dry-run

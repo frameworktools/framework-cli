@@ -757,7 +757,7 @@ func (a *app) planSkillsPart(ctx context.Context, root, server string, force boo
 	}
 	part.pending = pp.Pending()
 	part.apply = func() error {
-		if client != nil && part.pending {
+		if client != nil && pp.Acts() {
 			token := a.projectTokenFor(root, client.URL)
 			if err := pp.Apply(client.URL, skillSender(ctx, client, token)); err != nil {
 				return err

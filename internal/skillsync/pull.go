@@ -17,6 +17,9 @@ type SyncSource struct {
 	Hash    string `json:"hash"`
 	Variant string `json:"variant"`
 	Server  string `json:"server"`
+	// KnownHashes is every version's hash of the skill for this variant,
+	// when Cloud sends it: an unedited older copy is one of them.
+	KnownHashes []string `json:"known_hashes,omitempty"`
 }
 
 // PackageSource is a built-in the language package ships: framework:<name>,
@@ -50,7 +53,7 @@ func CloudSource(name string, sync SyncSource, files []File, server string, know
 		h, _ = Hash(files)
 	}
 	return Source{Name: name, Identity: id, Channel: ChannelCloud, Version: sync.Version, Server: server, Hash: h,
-		Known: sortedUnique(known, []string{sync.Hash, h}), Bundle: files}
+		Known: sortedUnique(known, sync.KnownHashes, []string{sync.Hash, h}), Bundle: files}
 }
 
 // InlineSource is setup text with no Cloud identity: inline:<name>.

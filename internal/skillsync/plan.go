@@ -474,15 +474,18 @@ func (p *planner) pull() {
 				continue // planned as one of the entry's copies
 			}
 			if owner != "" {
+				accounted = append(accounted, x)
+				if p.in.Disk.Look(x).Absent {
+					continue // the owner's entry plans it (restored or missing)
+				}
 				reason := ReasonOtherIdentity
-				if lock.Skills[owner].Identity.SkillID == s.Identity.SkillID {
+				if o := lock.Skills[owner].Identity; o.SkillID == s.Identity.SkillID && o.Variant != s.Identity.Variant {
 					reason = ReasonOtherVariant
 				}
 				id := s.Identity
 				p.step(Step{Path: x, Entry: owner, Name: s.Name, Action: ActionNone, Status: StatusKept, Reason: reason,
 					Hint: &Hint{Key: HintRetarget, Path: x, Identity: &id}})
 				p.kept = append(p.kept, x)
-				accounted = append(accounted, x)
 				continue
 			}
 			extra = append(extra, x)
@@ -875,8 +878,9 @@ func (p *planner) push() {
 		}
 		switch {
 		case hasRemote && r.Hash == local:
-			// Cloud already has it: adopt
-			all(ActionRecord, StatusPushed, "", nil, false)
+			// Cloud already has it: nothing is sent, and the entry adopts
+			// Cloud's head
+			all(ActionRecord, StatusCurrent, "", nil, false)
 			f := e.clone()
 			for x := range f.Copies {
 				f.Copies[x] = Record{Hash: local}

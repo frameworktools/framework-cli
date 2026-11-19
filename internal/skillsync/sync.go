@@ -36,6 +36,9 @@ type Snapshot struct {
 	Bundle  []File `json:"bundle"`
 	Variant string `json:"variant"`
 	System  bool   `json:"system"`
+	// KnownHashes is every version's hash of the skill for this variant,
+	// when Cloud sends it.
+	KnownHashes []string `json:"known_hashes,omitempty"`
 }
 type Pending struct {
 	RequestID string `json:"request_id"`

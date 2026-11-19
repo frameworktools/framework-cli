@@ -13,6 +13,8 @@
   - After a folder rename, pull and push name `fw skills move` instead of `fw skills sync --id`. `fw skills sync --id` no longer moves an entry.
   - A copy tracked as another skill, or another variant, is kept with the `fw skills move --id` command that switches it.
 - New: `fw skills move FROM [TO]` moves tracked copies to another folder, or records a move made by hand, and `--id`, `--builtin`, and `--variant` switch which skill a copy tracks.
+- `fw skills push` sends nothing for a skill whose edited bytes Cloud already has: the row is `current`, and the lock records Cloud's version.
+- Cloud skills' known hashes include the setup's `sync.known_hashes` and a snapshot's `known_hashes`, when Cloud sends them.
 - `--json` rows add `reason_code`, `hint_key`, and `hint_args`. `fw skills push --json` rows list `paths` instead of `path`.
 - Built-in Stata skills ship `internal/stata/skill-history.json`, the hash of every version fw has shipped, so an older unedited copy is recognized.
 - R projects need framework 2.1.0 or later for skill commands: fw checks for `skills_copy()` and `skills_move()`.

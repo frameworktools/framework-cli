@@ -112,6 +112,17 @@ func (pp *PushPlan) Pending() bool {
 	return false
 }
 
+// Acts reports whether applying the plan changes anything: a push, or a
+// lock record when Cloud already has the bytes.
+func (pp *PushPlan) Acts() bool {
+	for _, s := range pp.Steps {
+		if s.Action == ActionPush || s.Action == ActionRecord {
+			return true
+		}
+	}
+	return false
+}
+
 // Cancel turns every push into cancelled: the person answered no.
 func (pp *PushPlan) Cancel() {
 	for i := range pp.Steps {
@@ -175,7 +186,7 @@ func (pp *PushPlan) Apply(server string, send PushSender) error {
 	}
 	before := lock.clone()
 	for _, s := range pp.Steps {
-		if s.Action == ActionRecord && s.Status == StatusPushed {
+		if s.Action == ActionRecord && s.Status == StatusCurrent {
 			if f, ok := pp.plan.LockAfter.Skills[s.Entry]; ok {
 				lock.Skills[s.Entry] = f.clone()
 			}

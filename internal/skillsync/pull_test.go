@@ -168,3 +168,22 @@ func TestPushReusesAPendingRequest(t *testing.T) {
 		t.Errorf("lock: %+v", e)
 	}
 }
+
+// A setup's sync.known_hashes are known hashes of the Cloud skill: a copy
+// installed before the lock that holds one is an unedited older version
+func TestCloudKnownHashesRecognizeAnOlderCopy(t *testing.T) {
+	root := t.TempDir()
+	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "v1"))
+	old, _ := Hash(BundleFromText(skillMD("x", "v1"), nil))
+	files := BundleFromText(skillMD("x", "v2"), nil)
+	h, _ := Hash(files)
+	src := CloudSource("x", SyncSource{ID: "acct-1", Version: 2, Hash: h, Variant: "stata", KnownHashes: []string{old, h}}, files, "https://cloud.test")
+	res, err := pullSkills(root, []string{".claude/skills"}, src)
+	if err != nil || len(res.Rows) != 1 || res.Rows[0].Status != StatusUpdated {
+		t.Fatalf("%+v %v", res.Rows, err)
+	}
+	lock, _ := ReadLock(root)
+	if e := lock.Skills["https://cloud.test/acct-1@stata"]; e == nil || len(e.Known) != 2 {
+		t.Errorf("lock: %+v", e)
+	}
+}

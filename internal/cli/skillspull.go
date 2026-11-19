@@ -260,7 +260,7 @@ func (a *app) restoreMissing(ctx context.Context, root string) (map[string]skill
 			continue
 		}
 		restore[m.Key] = skillsync.CloudSource("", skillsync.SyncSource{ID: m.ID, Version: snap.Version, Hash: snap.Hash,
-			Variant: m.Variant, Server: server}, snap.Bundle, server)
+			Variant: m.Variant, Server: server, KnownHashes: snap.KnownHashes}, snap.Bundle, server)
 	}
 	return restore, nil
 }
@@ -359,7 +359,7 @@ func (a *app) latestSkill(ctx context.Context, s *skillsync.Source, notes *[]str
 		return
 	}
 	if snap.Version > s.Version {
-		known := append(append([]string{}, s.Known...), snap.Hash)
+		known := append(append(append([]string{}, s.Known...), snap.KnownHashes...), snap.Hash)
 		*s = skillsync.CloudSource(s.Name, skillsync.SyncSource{ID: s.Identity.SkillID, Version: snap.Version, Hash: snap.Hash,
 			Variant: s.Identity.Variant, Server: s.Server}, snap.Bundle, s.Server, known...)
 	}
@@ -599,9 +599,14 @@ func (a *app) pushSkills(cmd *cobra.Command, client *cloud.Client, root string, 
 		} else if err := pp.Apply(client.URL, skillSender(ctx, client, a.projectTokenFor(root, client.URL))); err != nil {
 			return err
 		}
+	} else if pp.Acts() && !dryRun {
+		// Only the lock changes: Cloud already has the bytes
+		if err := pp.Apply(client.URL, skillSender(ctx, client, a.projectTokenFor(root, client.URL))); err != nil {
+			return err
+		}
 	}
 	rows := pp.Rows()
-	counts := map[string]int{"pushed": 0, "refused": 0, "missing": 0, "untracked": 0, "cancelled": 0, "failed": 0}
+	counts := map[string]int{"pushed": 0, "current": 0, "refused": 0, "missing": 0, "untracked": 0, "cancelled": 0, "failed": 0}
 	for _, it := range rows {
 		counts[it.Status]++
 	}
@@ -631,7 +636,7 @@ func pushSummary(counts map[string]int, dryRun bool) string {
 	if dryRun {
 		pushed = "to push"
 	}
-	labels := []struct{ key, label string }{{"pushed", pushed}, {"refused", "refused"}, {"failed", "failed"},
+	labels := []struct{ key, label string }{{"pushed", pushed}, {"current", "already on Framework Cloud"}, {"refused", "refused"}, {"failed", "failed"},
 		{"missing", "missing"}, {"cancelled", "cancelled"}, {"untracked", "not tracked"}}
 	for _, l := range labels {
 		if n := counts[l.key]; n > 0 {

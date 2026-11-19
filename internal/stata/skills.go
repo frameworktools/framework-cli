@@ -102,7 +102,7 @@ func SetupSkills(v View, server string) []skillsync.Source {
 				variant = "stata"
 			}
 			out = append(out, skillsync.CloudSource(name, skillsync.SyncSource{ID: entry.Sync.ID, Version: entry.Sync.Version,
-				Hash: entry.Sync.Hash, Variant: variant, Server: entry.Sync.Server}, files, server))
+				Hash: entry.Sync.Hash, Variant: variant, Server: entry.Sync.Server, KnownHashes: entry.Sync.KnownHashes}, files, server))
 		default:
 			out = append(out, skillsync.InlineSource(name, "stata", files))
 		}

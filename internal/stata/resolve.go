@@ -129,11 +129,12 @@ type View struct {
 		Files   map[string]string `json:"files"`
 		Bundle  []skillsync.File  `json:"bundle"`
 		Sync    *struct {
-			ID      string `json:"skill_id"`
-			Version int    `json:"version"`
-			Hash    string `json:"hash"`
-			Variant string `json:"variant"`
-			Server  string `json:"server"`
+			ID          string   `json:"skill_id"`
+			Version     int      `json:"version"`
+			Hash        string   `json:"hash"`
+			Variant     string   `json:"variant"`
+			Server      string   `json:"server"`
+			KnownHashes []string `json:"known_hashes"`
 		} `json:"sync"`
 	} `json:"skills"`
 
