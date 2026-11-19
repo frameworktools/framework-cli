@@ -282,10 +282,15 @@ func TestAllAdvice(t *testing.T) {
 }
 
 // fakeR answers fw's R probes for a framework package that is installed or
-// not, has the functions fw calls (pull_*, push_*) or not, and has the new
-// skill sync (skills_copy) or not. R's 2.0.14 has the functions without
-// skills_copy.
+// not, has the functions fw calls (pull_*, push_*) or not, and has skills
+// lock v2 (skills_copy and skills_move) or not. R's 2.0.14 has the functions
+// without skills_copy; 2.0.15 to 2.0.x have skills_copy without
+// skills_move.
 func fakeR(installed, functions, newSync bool) func(Command) bool {
+	return fakeRWith(installed, functions, newSync, newSync)
+}
+
+func fakeRWith(installed, functions, copies, moves bool) func(Command) bool {
 	return func(c Command) bool {
 		expr := c.Args[len(c.Args)-1]
 		switch {
@@ -293,18 +298,24 @@ func fakeR(installed, functions, newSync bool) func(Command) bool {
 			return false
 		case (strings.Contains(expr, `c("pull_`) || strings.Contains(expr, `c("push_`)) && !functions:
 			return false
-		case strings.Contains(expr, `"skills_copy"`) && !newSync:
+		case strings.Contains(expr, `"skills_copy"`) && !copies:
+			return false
+		case strings.Contains(expr, `"skills_move"`) && !moves:
 			return false
 		}
 		return true
 	}
 }
 
-// R skill delegation needs the new skill sync, found by its skills_copy(),
-// not by version (2.0.14 still has the old pull); data-only commands don't
+// R skill delegation needs skills lock v2, found by its skills_copy() and
+// skills_move(), not by version (2.0.14 still has the old pull, and 2.0.15
+// can't read a v2 lock); data-only commands don't
 func TestRSkillDelegationNeedsTheNewSkillSync(t *testing.T) {
-	if !strings.Contains(rSkillSync, `"skills_copy"`) {
-		t.Fatalf("the gate isn't skills_copy: %s", rSkillSync)
+	if !strings.Contains(rSkillSync, `"skills_copy"`) || !strings.Contains(rSkillSync, `"skills_move"`) {
+		t.Fatalf("the gate isn't skills_copy and skills_move: %s", rSkillSync)
+	}
+	if MinRFramework != "2.1.0" {
+		t.Errorf("MinRFramework is %s, want 2.1.0, the release with skills lock v2", MinRFramework)
 	}
 	p := Project{Root: t.TempDir(), Language: "r", Runner: []string{"Rscript"}}
 	skills := map[string]func(Finder) error{
@@ -325,9 +336,14 @@ func TestRSkillDelegationNeedsTheNewSkillSync(t *testing.T) {
 		f.Probe = fakeR(true, true, false)
 		err := call(f)
 		var old *OldRSkillsError
-		if !errors.As(err, &old) || !strings.Contains(err.Error(), "skills_copy()") || !strings.Contains(err.Error(), MinRFramework) ||
+		if !errors.As(err, &old) || !strings.Contains(err.Error(), "skills_move()") || !strings.Contains(err.Error(), MinRFramework) ||
 			!strings.Contains(err.Error(), `pak::pak("frameworktools/framework")`) || !strings.Contains(err.Error(), "then run "+again+" again") {
 			t.Errorf("%s, old skill sync: %v", again, err)
+		}
+		// 2.0.15: skills_copy, but no skills_move and no v2 lock
+		f.Probe = fakeRWith(true, true, true, false)
+		if err := call(f); !errors.As(err, &old) {
+			t.Errorf("%s, skills_copy without skills_move: %v", again, err)
 		}
 
 		f.Probe = fakeR(false, false, false)

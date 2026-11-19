@@ -103,17 +103,18 @@ type Request struct {
 // CRLF text files as LF, as fw's do, and whose skills match fw's.
 const MinPython = "0.1.0.dev27"
 
-// MinRFramework is the first framework R package release with the new
-// skill sync, which plans every assistant folder against the lock before
-// writing, reports diverged copies, and keeps a skill's Cloud identity, as
-// fw's own pull does. It is only named in messages: fw checks what the
-// installed package can do, through its skills_copy(), since 2.0.14 still
-// has the old pull, which goes one folder at a time.
-const MinRFramework = "2.0.15"
+// MinRFramework is the first framework R package release with skills lock
+// v2: per-copy records, one planner for every skill command, and
+// skills_move(), as fw's own skill commands have. It is only named in
+// messages: fw checks what the installed package can do, through its
+// skills_copy() and skills_move(), since an older package can't read a v2
+// lock as fw writes it, or still has the pull that goes one folder at a
+// time.
+const MinRFramework = "2.1.0"
 
 // rSkillSync is an R condition that is true when the installed framework
-// package has the old skill sync: no skills_copy().
-var rSkillSync = rHas("skills_copy")
+// package has an older skill sync: no skills_copy() or no skills_move().
+var rSkillSync = rHas("skills_copy", "skills_move")
 
 // rInstalled quits with status 3 when the framework R package is missing.
 const rInstalled = `if (!requireNamespace("framework", quietly = TRUE)) quit(status = 3)`
@@ -127,8 +128,8 @@ type OldRSkillsError struct{ Msg, Reason string }
 func (e *OldRSkillsError) Error() string { return e.Msg }
 
 func oldRSkills(again string) error {
-	reason := "the framework R package in this project's environment has the old skill sync, which pulls one assistant folder " +
-		"at a time and can leave copies of a skill out of step. fw needs a release with skills_copy() (framework " + MinRFramework + " or later). " +
+	reason := "the framework R package in this project's environment has an older skill sync, which can't read the skills lock as fw " +
+		"writes it, or pulls one assistant folder at a time. fw needs a release with skills_copy() and skills_move() (framework " + MinRFramework + " or later). " +
 		"Update it with pak::pak(\"frameworktools/framework\") (or renv::update(\"framework\") in an renv project)"
 	return &OldRSkillsError{Reason: reason, Msg: reason + ", then run " + again + " again. Nothing was changed."}
 }
