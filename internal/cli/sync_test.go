@@ -134,7 +134,7 @@ func TestPullStataUnavailable(t *testing.T) {
 	h := newHarness(t, nil)
 	dir := stataSkillsProject(t, h.app.home, c.server.URL, false)
 	h.app.cwd = dir
-	if _, _, err := h.run(t, "", "pull", "--dry-run"); err == nil || !strings.Contains(err.Error(), "no FW_PROJECT_TOKEN") {
+	if _, _, err := h.run(t, "", "pull", "--dry-run"); err == nil || err.Error() != notLinked("nothing was changed") {
 		t.Fatalf("no token: %v", err)
 	}
 	writeTestFile(t, filepath.Join(dir, ".env"), "FW_CLOUD_URL="+c.server.URL+"\nFW_PROJECT_TOKEN=proj-tok\n")
@@ -228,7 +228,7 @@ func TestPushStataNotSignedIn(t *testing.T) {
 }
 
 func TestPullPushRunLanguagePackage(t *testing.T) {
-	h := newHarness(t, nil)
+	h := newHarness(t, map[string]string{"FW_PROJECT_TOKEN": "proj-tok"})
 	f := &fakeEngines{}
 	f.install(h, "Rscript", "uv")
 	r := filepath.Join(h.app.home, "r")
@@ -278,7 +278,7 @@ func TestPullPushRunLanguagePackage(t *testing.T) {
 }
 
 func TestPullMissingPackageFunction(t *testing.T) {
-	h := newHarness(t, nil)
+	h := newHarness(t, map[string]string{"FW_PROJECT_TOKEN": "proj-tok"})
 	f := &fakeEngines{}
 	f.install(h, "Rscript")
 	h.app.engines.Probe = func(engine.Command) bool { return false }

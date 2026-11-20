@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
-	"github.com/frameworktools/framework-cli/internal/project"
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"github.com/frameworktools/framework-cli/internal/spec"
 	"github.com/frameworktools/framework-cli/internal/stata"
@@ -132,6 +131,11 @@ func newSkillsPullCmd(a *app) *cobra.Command {
 				if code != 0 {
 					return &exitError{code: code, err: fmt.Errorf("pull_skills() exited with status %d; its last message names the problem", code)}
 				}
+				// The package fell back to its own skills without saying
+				// how to link the project
+				if a.projectToken(root) == "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), notLinked(""))
+				}
 				return nil
 			}
 			return a.pullStataSkills(cmd, root, overwrite, dryRun)
@@ -190,7 +194,11 @@ func (a *app) stataSkills(ctx context.Context, root string, overwrite, dryRun bo
 		// Offline: the package skills, which never replace a skill last
 		// updated from Cloud; Cloud's own skills are reported unavailable
 		out.Source, offer.Source = "package", "package"
-		out.Notes = append([]string{fmt.Sprintf("Framework Cloud not reached (%s); using the package skills for this project type.", reason)}, out.Notes...)
+		note := fmt.Sprintf("Framework Cloud not reached (%s); using the package skills for this project type.", reason)
+		if reason == reasonNotLinked {
+			note = notLinked("fw uses the package skills for this project type")
+		}
+		out.Notes = append([]string{note}, out.Notes...)
 		names := stata.PackageSkills(local.Type, local.Security.Sensitive)
 		if len(names) == 0 {
 			out.Notes = append(out.Notes, "fw ships no package skills for a "+local.Type+" Stata project, so there is nothing to install.")
@@ -286,17 +294,17 @@ func orderedSkills(root, dir string, sources []skillsync.Source) ([]string, erro
 	return names, nil
 }
 
+// reasonNotLinked is cloudSkills' reason when the project has no token.
+const reasonNotLinked = "not linked"
+
 // cloudSkills reads the project's skills from its layers on Framework Cloud.
 // A non-empty reason means Cloud gave no list, and the caller falls back to
 // the package skills.
 // The setup's assistants are copied into assistants.
 func (a *app) cloudSkills(ctx context.Context, root string, notes *[]string, assistants map[string]bool) ([]skillsync.Source, string, error) {
-	token := a.getenv("FW_PROJECT_TOKEN")
+	token := a.projectToken(root)
 	if token == "" {
-		token = project.EnvValue(root, "FW_PROJECT_TOKEN")
-	}
-	if token == "" {
-		return nil, "this project has no FW_PROJECT_TOKEN in .env", nil
+		return nil, reasonNotLinked, nil
 	}
 	server, err := a.server("", cloud.ProjectScope)
 	if err != nil {

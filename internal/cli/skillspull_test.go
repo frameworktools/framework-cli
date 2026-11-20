@@ -268,7 +268,8 @@ func TestSkillsPullOffline(t *testing.T) {
 	dir := stataSkillsProject(t, h.app.home, c.server.URL, false)
 	h.app.cwd = dir
 	out, _, err := h.run(t, "", "skills", "pull")
-	if err != nil || !strings.HasPrefix(out, "Framework Cloud not reached (this project has no FW_PROJECT_TOKEN in .env); using the package skills for this project type.\nSkills: 1 added") {
+	if err != nil || !strings.HasPrefix(out, notLinked("fw uses the package skills for this project type")+"\nSkills: 1 added") ||
+		!strings.Contains(out, "fw project link --from SLUG. fw projects list shows the slugs.") {
 		t.Fatalf("no token: %v\n%s", err, out)
 	}
 

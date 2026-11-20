@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/frameworktools/framework-cli/internal/cloud"
-	"github.com/frameworktools/framework-cli/internal/project"
 	pub "github.com/frameworktools/framework-cli/internal/publish"
 )
 
@@ -36,9 +35,9 @@ func (a *app) projectClient(flag string) (*cloud.Client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	token := project.EnvValue(root, "FW_PROJECT_TOKEN")
+	token := a.projectToken(root)
 	if token == "" {
-		return nil, "", &errNotLoggedIn{"this project has no FW_PROJECT_TOKEN in .env. Run fw project link --create to create it on Framework Cloud, or fw project link --from SLUG to link it to a project there"}
+		return nil, "", &errNotLoggedIn{notLinked("nothing was published") + createHint}
 	}
 	server, err := a.server(flag, cloud.ProjectScope)
 	if err != nil {

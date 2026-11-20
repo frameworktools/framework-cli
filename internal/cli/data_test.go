@@ -184,7 +184,7 @@ func TestDataStataUnavailable(t *testing.T) {
 	h.app.cwd = dir
 	before := readFile(t, filepath.Join(dir, "settings.yml"))
 	writeTestFile(t, filepath.Join(dir, ".env"), "FW_CLOUD_URL="+c.url+"\n")
-	if _, _, err := h.run(t, "", "data", "pull", "--yes"); err == nil || !strings.Contains(err.Error(), "no FW_PROJECT_TOKEN") {
+	if _, _, err := h.run(t, "", "data", "pull", "--yes"); err == nil || err.Error() != notLinked("nothing was changed") {
 		t.Fatalf("no token: %v", err)
 	}
 	writeTestFile(t, filepath.Join(dir, ".env"), "FW_CLOUD_URL="+c.url+"\nFW_PROJECT_TOKEN=wrong\n")
@@ -206,7 +206,7 @@ func TestDataStataUnavailable(t *testing.T) {
 }
 
 func TestDataRunsLanguagePackage(t *testing.T) {
-	h := newHarness(t, nil)
+	h := newHarness(t, map[string]string{"FW_PROJECT_TOKEN": "proj-tok"})
 	f := &fakeEngines{}
 	f.install(h, "Rscript", "uv")
 	r := filepath.Join(h.app.home, "r")

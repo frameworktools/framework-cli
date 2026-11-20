@@ -204,7 +204,9 @@ func newProjectStatusCmd(a *app) *cobra.Command {
 				res.Runner = []string{}
 			}
 			code := exitOK
-			if token := project.EnvValue(root, "FW_PROJECT_TOKEN"); token != "" {
+			if token := a.projectToken(root); token == "" {
+				res.Cloud.Problem = notLinked("")
+			} else {
 				res.Cloud.Linked = true
 				server, serr := a.server("", cloud.ProjectScope)
 				if serr != nil {
@@ -254,7 +256,7 @@ func newProjectStatusCmd(a *app) *cobra.Command {
 			c := res.Cloud
 			switch {
 			case !c.Linked:
-				fmt.Fprintln(w, "Cloud\tnot linked (run fw project link)")
+				fmt.Fprintf(w, "Cloud\t%s\n", c.Problem)
 			case c.Server == "":
 				fmt.Fprintf(w, "Cloud\t%s\n", c.Problem)
 			case !c.OK:
@@ -284,7 +286,8 @@ func newProjectBootstrapCmd(a *app) *cobra.Command {
 			"Stata projects need no package bootstrap: fw creates the private folders\n" +
 			"their settings name that git doesn't keep, and settings.do creates the\n" +
 			"rest when Stata runs it. When the runtime or its bootstrap is missing,\n" +
-			"fw says so and exits 1.",
+			"fw says so and exits 1. A fresh clone has no project token, since git\n" +
+			"ignores .env; fw then says how to link it to Framework Cloud.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, err := a.requireProject()
@@ -307,6 +310,7 @@ func newProjectBootstrapCmd(a *app) *cobra.Command {
 					}
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), unavailable.Msg)
+				a.linkNote(cmd, root, printOnly)
 				return nil
 			}
 			if err != nil {
@@ -320,6 +324,7 @@ func newProjectBootstrapCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			a.linkNote(cmd, root, false)
 			if code != 0 {
 				return &exitError{code: code, err: fmt.Errorf("bootstrap exited with status %d; its last message names the problem", code)}
 			}
@@ -328,4 +333,13 @@ func newProjectBootstrapCmd(a *app) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&printOnly, "print", false, "print the command instead of running it")
 	return cmd
+}
+
+// linkNote ends fw project bootstrap in a project with no project token,
+// as a fresh clone has, by saying how to link it. Bootstrap itself never
+// needs the cloud, so it still succeeds.
+func (a *app) linkNote(cmd *cobra.Command, root string, printOnly bool) {
+	if !printOnly && a.projectToken(root) == "" {
+		fmt.Fprintln(cmd.OutOrStdout(), "Note: "+notLinked(""))
+	}
 }

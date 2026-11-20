@@ -178,19 +178,6 @@ func newDataPushCmd(a *app) *cobra.Command {
 	return cmd
 }
 
-// dataClient is the project's server with its project token, or an error
-// that changes nothing.
-func (a *app) dataClient(root string) (*cloud.Client, error) {
-	client, reason, err := a.setupClient(root)
-	if err != nil {
-		return nil, err
-	}
-	if reason != "" {
-		return nil, fmt.Errorf("data registry not read: Framework Cloud not reached (%s); nothing was changed", reason)
-	}
-	return client, nil
-}
-
 // dataError explains a failed registry request.
 func dataError(client *cloud.Client, err error) error {
 	host := cloud.Host(client.URL)
@@ -345,7 +332,7 @@ func (a *app) pullStataData(cmd *cobra.Command, root string, overwrite, yes, dry
 	if a.jsonOut {
 		w = cmd.ErrOrStderr()
 	}
-	client, err := a.dataClient(root)
+	client, err := a.setupClient(root)
 	if err != nil {
 		return err
 	}
@@ -516,7 +503,7 @@ func (a *app) pushStataData(cmd *cobra.Command, root string, remove, force, yes,
 	if a.jsonOut {
 		w = cmd.ErrOrStderr()
 	}
-	client, err := a.dataClient(root)
+	client, err := a.setupClient(root)
 	if err != nil {
 		return err
 	}

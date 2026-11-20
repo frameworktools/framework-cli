@@ -502,7 +502,7 @@ func TestSyncOutputConsistency(t *testing.T) {
 // data commands run, fw pull and fw push do only their data part and
 // refuse packages and skills, and the skill commands refuse
 func TestROldSkillSync(t *testing.T) {
-	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok"})
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok", "FW_PROJECT_TOKEN": "proj-tok"})
 	f := &fakeEngines{}
 	f.install(h, "Rscript")
 	h.app.engines.Probe = func(c engine.Command) bool { return !strings.Contains(strings.Join(c.Args, " "), `"skills_copy"`) }

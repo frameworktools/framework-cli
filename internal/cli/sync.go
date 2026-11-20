@@ -14,7 +14,6 @@ import (
 	"github.com/frameworktools/framework-cli/internal/catalog"
 	"github.com/frameworktools/framework-cli/internal/cloud"
 	"github.com/frameworktools/framework-cli/internal/engine"
-	"github.com/frameworktools/framework-cli/internal/project"
 	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"github.com/spf13/cobra"
 )
@@ -185,8 +184,14 @@ func (a *app) rDataOnly(cmd *cobra.Command, root string, old *engine.OldRSkillsE
 // handOffSetup runs a language package's sync function, such as pull_all()
 // or push_all(). Run by fw, the package has no terminal to ask from, so at
 // a terminal fw runs it once as a dry run to list the changes, asks, and
-// then runs it with confirm = TRUE.
+// then runs it with confirm = TRUE. Without a project token it runs
+// nothing.
 func (a *app) handOffSetup(cmd *cobra.Command, root, what, question string, yes, dryRun bool, build func(engine.SetupMode) (engine.Command, error)) error {
+	// The package stops without a project token too, but without saying
+	// how to link the project
+	if a.projectToken(root) == "" {
+		return errNotLinked{}
+	}
 	run := func(mode engine.SetupMode) error {
 		command, err := build(mode)
 		if err != nil {
@@ -223,28 +228,25 @@ func (a *app) handOffSetup(cmd *cobra.Command, root, what, question string, yes,
 	return run(engine.SetupConfirmed)
 }
 
-// setupClient is the project's server with its project token. A
-// non-empty reason says why there is none.
-func (a *app) setupClient(root string) (*cloud.Client, string, error) {
-	token := a.getenv("FW_PROJECT_TOKEN")
+// setupClient is the project's server with its project token, or
+// errNotLinked when it has none.
+func (a *app) setupClient(root string) (*cloud.Client, error) {
+	token := a.projectToken(root)
 	if token == "" {
-		token = project.EnvValue(root, "FW_PROJECT_TOKEN")
-	}
-	if token == "" {
-		return nil, "this project has no FW_PROJECT_TOKEN in .env", nil
+		return nil, errNotLinked{}
 	}
 	server, err := a.server("", cloud.ProjectScope)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return cloud.NewClient(server.URL, token), "", nil
+	return cloud.NewClient(server.URL, token), nil
 }
 
 // projectTokenFor is the project's token when the project is on the server
 // at url, so a skill push can name the project; otherwise empty.
 func (a *app) projectTokenFor(root, url string) string {
-	client, _, err := a.setupClient(root)
-	if err != nil || client == nil || strings.TrimRight(client.URL, "/") != strings.TrimRight(url, "/") {
+	client, err := a.setupClient(root)
+	if err != nil || strings.TrimRight(client.URL, "/") != strings.TrimRight(url, "/") {
 		return ""
 	}
 	return client.Token
@@ -445,12 +447,9 @@ func (a *app) pullStata(cmd *cobra.Command, root string, overwrite, yes, dryRun 
 	if a.jsonOut {
 		w = cmd.ErrOrStderr()
 	}
-	client, reason, err := a.setupClient(root)
+	client, err := a.setupClient(root)
 	if err != nil {
 		return err
-	}
-	if reason != "" {
-		return fmt.Errorf("project not read: Framework Cloud not reached (%s); nothing was changed", reason)
 	}
 	setup, err := fetchSetup(ctx, client)
 	if err != nil {
@@ -616,7 +615,7 @@ func (a *app) pushStata(cmd *cobra.Command, root, server string, remove, force, 
 	if a.jsonOut {
 		w = cmd.ErrOrStderr()
 	}
-	client, err := a.dataClient(root)
+	client, err := a.setupClient(root)
 	if err != nil {
 		return err
 	}

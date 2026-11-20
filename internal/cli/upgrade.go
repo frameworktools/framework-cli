@@ -12,7 +12,6 @@ import (
 
 	"github.com/frameworktools/framework-cli/internal/adopt"
 	"github.com/frameworktools/framework-cli/internal/engine"
-	"github.com/frameworktools/framework-cli/internal/project"
 	"github.com/frameworktools/framework-cli/internal/stata"
 )
 
@@ -162,8 +161,8 @@ func (a *app) upgradeStata(cmd *cobra.Command, root string, o engine.UpgradeOpti
 		fmt.Fprintf(out, "The files as they were are in %s.\n", backup)
 	}
 	fmt.Fprintln(out, "Next: review the changes (git diff), then commit them.")
-	if project.EnvValue(root, "FW_PROJECT_TOKEN") == "" {
-		fmt.Fprintln(out, "To create the project on Framework Cloud, run: fw project link --create")
+	if a.projectToken(root) == "" {
+		fmt.Fprintln(out, notLinked("")+createHint)
 	}
 	return nil
 }
