@@ -342,6 +342,13 @@ type copyState struct {
 
 func (p *planner) step(s Step) { p.steps = append(p.steps, s) }
 
+// pushRows is allRows for push, whose steps take their own copy's name.
+func (p *planner) pushRows(key string, cs []copyState, status, reason string, h *Hint) {
+	for _, c := range cs {
+		p.step(Step{Path: c.path, Entry: key, Name: path.Base(c.path), Action: ActionNone, Status: status, Reason: reason, Hint: h})
+	}
+}
+
 // allRows gives each copy a none step with one status.
 func (p *planner) allRows(key, name string, cs []copyState, status, reason string, h *Hint) {
 	for _, c := range cs {
@@ -899,9 +906,8 @@ func (p *planner) push() {
 		if len(cs) == 0 {
 			continue
 		}
-		name := path.Base(cs[0].path)
 		if len(filter(cs, "unreadable")) > 0 {
-			p.allRows(key, name, cs, StatusFailed, ReasonUnreadable, nil)
+			p.pushRows(key, cs, StatusFailed, ReasonUnreadable, nil)
 			continue
 		}
 		present := filter(cs, "clean", "edited")
@@ -913,7 +919,7 @@ func (p *planner) push() {
 					h = &Hint{Key: HintMove, From: m[0].from, To: []string{m[0].to}}
 				}
 			}
-			p.allRows(key, name, cs, StatusMissing, reason, h)
+			p.pushRows(key, cs, StatusMissing, reason, h)
 			continue
 		}
 		edited := filter(present, "edited")
@@ -931,16 +937,13 @@ func (p *planner) push() {
 				reason = ReasonCopiesDiffer
 			}
 			h := copyHint(append(append([]copyState{}, present...), absent...), src)
-			if reason == ReasonCopyAbsent {
-				// An absent copy moved by hand: record the move instead
-				for _, c := range absent {
-					if m := twinsWhere(twins, func(t twin) bool { return t.key == key && t.from == c.path }); uniqueTwin(twins, m) {
-						h = &Hint{Key: HintMove, From: m[0].from, To: []string{m[0].to}}
-						break
-					}
+			if reason == ReasonCopyAbsent && len(absent) == 1 {
+				// The absent copy moved by hand: record the move instead
+				if m := twinsWhere(twins, func(t twin) bool { return t.key == key && t.from == absent[0].path }); uniqueTwin(twins, m) {
+					h = &Hint{Key: HintMove, From: m[0].from, To: []string{m[0].to}}
 				}
 			}
-			p.allRows(key, name, cs, StatusFailed, reason, h)
+			p.pushRows(key, cs, StatusFailed, reason, h)
 			continue
 		}
 		local := present[0].hash
@@ -948,7 +951,7 @@ func (p *planner) push() {
 		forced := false
 		all := func(action, status, reason string, h *Hint, fork bool) {
 			for _, c := range cs {
-				st := Step{Path: c.path, Entry: key, Name: name, Action: action, Status: status, Reason: reason, Hint: h, Hash: local, Fork: fork, forced: forced}
+				st := Step{Path: c.path, Entry: key, Name: path.Base(c.path), Action: action, Status: status, Reason: reason, Hint: h, Hash: local, Fork: fork, forced: forced}
 				if hasRemote {
 					st.remote = &r
 				}
@@ -1052,13 +1055,13 @@ func twinsWhere(all []twin, keep func(twin) bool) []twin {
 	return out
 }
 
-// uniqueTwin reports whether m is one pair that is both its entry's only
+// uniqueTwin reports whether m is one pair that is both its copy's only
 // match and its folder's only match.
 func uniqueTwin(all, m []twin) bool {
 	if len(m) != 1 {
 		return false
 	}
-	return len(twinsWhere(all, func(t twin) bool { return t.key == m[0].key })) == 1 &&
+	return len(twinsWhere(all, func(t twin) bool { return t.key == m[0].key && t.from == m[0].from })) == 1 &&
 		len(twinsWhere(all, func(t twin) bool { return t.to == m[0].to })) == 1
 }
 
