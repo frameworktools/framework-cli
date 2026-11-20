@@ -12,6 +12,9 @@
   - A skill whose copies are all gone is restored from Framework Cloud at its newest version when you are signed in.
   - After a folder rename, pull and push name `fw skills move` instead of `fw skills sync --id`. `fw skills sync --id` no longer moves an entry.
   - A copy tracked as another skill, or another variant, is kept with the `fw skills move --id` command that switches it.
+- Rare states stop before writing anything, with an error code: `lock_migrate_conflict` (two v1 entries for one skill at different versions), `paths_alias` (two setup names that are one folder on a case-insensitive volume), `copy_source_missing`, `copy_source_unreadable`, `copy_target_unreadable`, and `move_target_owned` (a move onto any path the lock tracks).
+- A push of a skill whose first push stopped before Framework Cloud replied is refused with `first_push_pending` until `--force`.
+- A rollback never deletes a copy it wrote. It moves the copy to `.framework/skills-backups/` and names it in the error.
 - New: `fw skills move FROM [TO]` moves tracked copies to another folder, or records a move made by hand, and `--id`, `--builtin`, and `--variant` switch which skill a copy tracks.
 - `fw skills push` sends nothing for a skill whose edited bytes Cloud already has: the row is `current`, and the lock records Cloud's version.
 - Cloud skills' known hashes include the setup's `sync.known_hashes` and a snapshot's `known_hashes`, when Cloud sends them.

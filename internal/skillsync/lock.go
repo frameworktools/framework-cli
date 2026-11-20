@@ -259,7 +259,7 @@ func parseLock(data []byte) (Lock, error) {
 		if err := json.Unmarshal(data, &v1); err != nil || v1.Skills == nil {
 			return Lock{}, fmt.Errorf("unsupported skill lock file")
 		}
-		return migrate(v1), nil
+		return migrate(v1)
 	}
 	var lock Lock
 	if err := json.Unmarshal(data, &lock); err != nil || lock.Skills == nil {
@@ -268,11 +268,13 @@ func parseLock(data []byte) (Lock, error) {
 	return normalize(lock), nil
 }
 
-// migrate maps a schema 1 lock to schema 2. It is pure, and never rejects a
-// v1 lock.
-func migrate(v1 v1Lock) Lock {
-	mergeV1(&v1)
+// migrate maps a schema 1 lock to schema 2, each v1 entry on its own, with
+// each path's own hash as its record. It is pure. v1 entries that map to
+// one key merge when their bases agree and at most one has a pending push;
+// otherwise it stops with lock_migrate_conflict.
+func migrate(v1 v1Lock) (Lock, error) {
 	lock := newLock()
+	from := map[string]string{} // v2 key -> the v1 key it came from
 	for _, k := range sortedKeys(v1.Skills) {
 		e := v1.Skills[k]
 		variant := e.Variant
@@ -316,9 +318,13 @@ func migrate(v1 v1Lock) Lock {
 		if n.Identity.Kind == KindLocal && first == "" {
 			key = "local:" + k
 		}
+		if have, ok := lock.Skills[key]; ok && (!sameBase(have.Base, n.Base) || (have.Pending != nil && n.Pending != nil)) {
+			return Lock{}, &PlanError{Code: "lock_migrate_conflict", Key: from[key], Path: k}
+		}
+		from[key] = k
 		addEntry(&lock, key, n)
 	}
-	return lock
+	return lock, nil
 }
 
 // normalize rebuilds a schema 2 lock's keys from its identities, merging
@@ -383,55 +389,6 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// mergeV1 joins v1 entries that are one skill split in two: the same
-// server, skill_id, and variant, or for a built-in without an ID the same
-// name, origin, and variant. The merged entry has every path, and the
-// newest version's record.
-func mergeV1(state *v1Lock) {
-	identity := func(e *v1Entry) string {
-		switch {
-		case e.ID != "":
-			return "id\x00" + e.Server + "\x00" + e.ID + "\x00" + e.Variant
-		case e.Origin != nil && len(e.Paths) > 0:
-			return "origin\x00" + baseName(e.Paths[0]) + "\x00" + e.Origin.ID + "\x00" + e.Variant
-		}
-		return ""
-	}
-	first := map[string]string{}
-	for _, k := range sortedKeys(state.Skills) {
-		e := state.Skills[k]
-		id := identity(e)
-		if id == "" {
-			continue
-		}
-		into, seen := first[id]
-		if !seen {
-			first[id] = k
-			continue
-		}
-		kept := state.Skills[into]
-		paths := kept.Paths
-		for _, p := range e.Paths {
-			if !contains(paths, p) {
-				paths = append(paths, p)
-			}
-		}
-		if e.Version > kept.Version {
-			kept = e
-			state.Skills[into] = e
-		}
-		kept.Paths = paths
-		delete(state.Skills, k)
-	}
-}
-
-func baseName(p string) string {
-	if i := strings.LastIndex(p, "/"); i >= 0 {
-		return p[i+1:]
-	}
-	return p
 }
 
 // loadLock reads the project's lock, migrated to schema 2. No file is an

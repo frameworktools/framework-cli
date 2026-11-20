@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -226,21 +227,64 @@ func rollbackProject(t *testing.T) string {
 	return root
 }
 
-// When an install fails, the copies made before it are put back
+// When an install fails, what the copies made before it replaced is put
+// back, and the copies themselves are moved aside, never deleted
 func TestCopyRollsBackAFailedBatch(t *testing.T) {
 	root := rollbackProject(t)
 	failOn(t, 3, nil)
 	res, err := Copy(CopyOptions{Root: root, From: "src", To: []string{"dst"}})
 	var ce *CopyError
 	if !errors.As(err, &ce) || len(ce.Replaced) != 0 ||
-		err.Error() != "copying src/c to dst/c failed: disk full. fw put back the 2 copies it had already made, so nothing changed" {
+		!strings.HasPrefix(err.Error(), "copying src/c to dst/c failed: disk full. fw put back what the 2 copies it had already made replaced. "+
+			"The copies it wrote were moved aside, not deleted: dst/b is in .framework/skills-backups/") {
 		t.Fatalf("%v", err)
 	}
 	if !strings.Contains(readRel(t, root, "dst/a/SKILL.md"), "old a") || strings.Join(entriesIn(t, root, "dst"), ",") != "a" {
 		t.Errorf("not rolled back: %v", entriesIn(t, root, "dst"))
 	}
-	if entriesIn(t, root, ".framework/skills-backups") != nil || len(res.Backups) != 0 {
-		t.Errorf("backups left: %v %v", entriesIn(t, root, ".framework/skills-backups"), res.Backups)
+	var aside []string
+	for _, b := range entriesIn(t, root, ".framework/skills-backups") {
+		aside = append(aside, readRel(t, root, ".framework/skills-backups/"+b+"/SKILL.md"))
+	}
+	sort.Strings(aside)
+	if len(aside) != 2 || !strings.Contains(aside[0], "new a") || !strings.Contains(aside[1], "new b") || len(res.Backups) != 0 {
+		t.Errorf("set aside: %v %v", aside, res.Backups)
+	}
+}
+
+// A rollback never deletes a copy it wrote: an edit made to it after the
+// write, before a later swap failed, is recoverable from the backups
+func TestRollbackKeepsAnEditToAWrittenCopy(t *testing.T) {
+	root := t.TempDir()
+	writeRel(t, root, "a/x/SKILL.md", skillMD("x", "old"))
+	writeRel(t, root, "b/x/SKILL.md", skillMD("x", "old"))
+	old, _ := Scan(filepath.Join(root, "a", "x"))
+	h, _ := Hash(old)
+	files := BundleFromText(skillMD("x", "new"), nil)
+	swaps := 0
+	rename = func(from, to string) error {
+		if strings.Contains(from, ".skill-stage-") {
+			swaps++
+			if swaps == 2 {
+				// The first copy was written; someone edits it, then the
+				// second swap fails
+				writeRel(t, root, "a/x/SKILL.md", skillMD("x", "edited after the write"))
+				return errors.New("disk full")
+			}
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { rename = os.Rename })
+	err := install(root, []string{"a/x", "b/x"}, files, h)
+	var kept *KeptError
+	if !errors.As(err, &kept) || kept.Target != "a/x" || !strings.Contains(err.Error(), "the copy written to a/x was moved to .framework/skills-backups/") {
+		t.Fatalf("%v", err)
+	}
+	if !strings.Contains(readRel(t, root, kept.Kept+"/SKILL.md"), "edited after the write") {
+		t.Error("the edit was lost")
+	}
+	if !strings.Contains(readRel(t, root, "a/x/SKILL.md"), "old") || !strings.Contains(readRel(t, root, "b/x/SKILL.md"), "old") {
+		t.Error("the old copies weren't put back")
 	}
 }
 

@@ -311,6 +311,37 @@ func (e *RestoreError) Error() string {
 
 func (e *RestoreError) Unwrap() error { return e.Err }
 
+// KeptError names a copy a rollback moved aside instead of deleting it.
+// Target and Kept are project-relative.
+type KeptError struct{ Target, Kept string }
+
+func (e *KeptError) Error() string {
+	return fmt.Sprintf("the copy written to %s was moved to %s", e.Target, e.Kept)
+}
+
+// setAside moves a folder fw wrote into .framework/skills-backups/, and
+// returns where, project-relative, or "" when nothing is there.
+func setAside(root, target string) (string, error) {
+	if _, err := os.Lstat(target); notThere(err) {
+		return "", nil
+	}
+	aside, err := safePath(root, ".framework/skills-backups/"+uuid())
+	if err != nil {
+		return "", err
+	}
+	if err = private(root); err != nil {
+		return "", err
+	}
+	if err = os.MkdirAll(filepath.Dir(aside), 0700); err != nil {
+		return "", err
+	}
+	if err = rename(target, aside); err != nil {
+		return "", err
+	}
+	rel, _ := filepath.Rel(root, aside)
+	return filepath.ToSlash(rel), nil
+}
+
 // dirModeBits are the mode bits a rebuilt folder keeps: its permissions,
 // and the setuid, setgid, and sticky bits.
 const dirModeBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
@@ -338,8 +369,27 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 		if err != nil {
 			for i := len(swaps) - 1; i >= 0; i-- {
 				s := swaps[i]
+				// A rollback never deletes a copy it wrote: the copy may hold an
+				// edit made after the write. It goes to the backups, named in
+				// the error
+				written := func() error {
+					kept, e := setAside(root, s.target)
+					if e == nil && kept != "" {
+						target, _ := filepath.Rel(root, s.target)
+						e = &KeptError{Target: filepath.ToSlash(target), Kept: kept}
+					}
+					return e
+				}
 				if _, e := os.Stat(s.backup); e == nil {
-					restore := os.RemoveAll(s.target)
+					var restore error
+					if _, e := os.Lstat(s.target); e == nil {
+						if restore = written(); restore != nil {
+							var kept *KeptError
+							if errors.As(restore, &kept) {
+								err, restore = errors.Join(err, restore), nil
+							}
+						}
+					}
 					if restore == nil {
 						restore = rename(s.backup, s.target)
 					}
@@ -351,7 +401,7 @@ func installInto(backups *[]string, root string, paths []string, files []File, e
 						continue
 					}
 				} else if _, e = os.Stat(s.stage); os.IsNotExist(e) && !s.existed {
-					err = errors.Join(err, os.RemoveAll(s.target))
+					err = errors.Join(err, written())
 				}
 				err = errors.Join(err, os.RemoveAll(s.stage))
 			}

@@ -270,7 +270,7 @@ func (pp *PushPlan) pushOne(lock *Lock, req PushRequest, server string, send Pus
 		return "Framework Cloud's answer failed verification"
 	}
 	pp.answers[req.Key] = snap
-	recordPush(lock, req.Key, snap, server)
+	recordPush(lock, req.Key, snap, server, func(p string) bool { return lookAt(pp.root, p).Hash == snap.Hash })
 	if err := saveLock(pp.root, *lock); err != nil {
 		return err.Error()
 	}
@@ -279,11 +279,15 @@ func (pp *PushPlan) pushOne(lock *Lock, req PushRequest, server string, send Pus
 
 // recordPush makes Cloud's answer the entry's base and every copy's record.
 // An entry that wasn't this Cloud skill becomes it, under a new key.
-func recordPush(lock *Lock, key string, snap Snapshot, server string) {
+// Only copies whose files are the pushed bytes take the new record; a copy
+// whose folder is gone keeps its own.
+func recordPush(lock *Lock, key string, snap Snapshot, server string, holds func(string) bool) {
 	e := lock.Skills[key]
 	f := e.clone()
 	for p := range f.Copies {
-		f.Copies[p] = Record{Hash: snap.Hash}
+		if holds(p) {
+			f.Copies[p] = Record{Hash: snap.Hash}
+		}
 	}
 	f.Base = &Base{Channel: ChannelCloud, Hash: snap.Hash, Version: snap.Version, Server: server}
 	f.Pending = nil

@@ -606,12 +606,14 @@ func Copy(o CopyOptions) (CopyResult, error) {
 				unknown = append(unknown, name)
 			}
 		}
-		switch len(unknown) {
-		case 0:
-		case 1:
-			return res, fmt.Errorf("no skill named %s in %s", unknown[0], from)
-		default:
-			return res, fmt.Errorf("no skills named %s in %s", strings.Join(unknown, ", "), from)
+		for _, name := range unknown {
+			// A folder without a valid SKILL.md isn't a skill to copy
+			if !lookAt(root, from+"/"+name).Absent {
+				return res, &PlanError{Code: "copy_source_unreadable", Path: from + "/" + name}
+			}
+		}
+		if len(unknown) > 0 {
+			return res, &PlanError{Code: "copy_source_missing", Path: from + "/" + unknown[0], Key: strings.Join(unknown, ", ")}
 		}
 	} else if len(links) > 0 {
 		return res, unsupported(from, links[0])
@@ -622,7 +624,7 @@ func Copy(o CopyOptions) (CopyResult, error) {
 	for _, name := range names {
 		files, err := Scan(filepath.Join(root, filepath.FromSlash(from), name))
 		if err != nil {
-			return res, fmt.Errorf("%s/%s: %w", from, name, err)
+			return res, &PlanError{Code: "copy_source_unreadable", Path: from + "/" + name, Key: err.Error()}
 		}
 		if _, err = Hash(files); err != nil {
 			return res, fmt.Errorf("%s/%s: %w", from, name, err)
@@ -655,10 +657,10 @@ func Copy(o CopyOptions) (CopyResult, error) {
 					return res, fmt.Errorf("look up %s/SKILL.md: %w", relative, err)
 				}
 				if !info.IsDir() || err != nil || !md.Mode().IsRegular() {
-					return res, fmt.Errorf("%s is not a skill (it has no SKILL.md); move it aside and copy again", relative)
+					return res, &PlanError{Code: "copy_target_unreadable", Path: relative}
 				}
 				if _, err := Scan(target); err != nil {
-					return res, fmt.Errorf("%s: %w", relative, err)
+					return res, &PlanError{Code: "copy_target_unreadable", Path: relative, Key: err.Error()}
 				}
 			}
 		}
@@ -771,10 +773,15 @@ func Copy(o CopyOptions) (CopyResult, error) {
 // failed: the copy whose install failed and lost its old copy.
 func rollback(root string, res *CopyResult, done []int, failed []CopyItem, cause error) error {
 	var stuck []CopyItem
+	var kept []string
 	for i := len(done) - 1; i >= 0; i-- {
 		it := res.Skills[done[i]]
 		target := filepath.Join(root, filepath.FromSlash(it.To))
-		err := os.RemoveAll(target)
+		// Never deleted: the copy may hold an edit made since
+		aside, err := setAside(root, target)
+		if aside != "" {
+			kept = append(kept, it.To+" is in "+aside)
+		}
 		if err == nil && it.Backup != "" {
 			err = os.Rename(filepath.Join(root, filepath.FromSlash(it.Backup)), target)
 		}
@@ -794,7 +801,10 @@ func rollback(root string, res *CopyResult, done []int, failed []CopyItem, cause
 		if len(done) == 1 {
 			copies = "copy"
 		}
-		cause = fmt.Errorf("%w. fw put back the %d %s it had already made, so nothing changed", cause, len(done), copies)
+		cause = fmt.Errorf("%w. fw put back what the %d %s it had already made replaced", cause, len(done), copies)
+	}
+	if len(kept) > 0 {
+		cause = fmt.Errorf("%w. The copies it wrote were moved aside, not deleted: %s", cause, strings.Join(kept, ", "))
 	}
 	return &CopyError{Err: cause, Replaced: stuck}
 }

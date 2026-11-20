@@ -177,6 +177,8 @@ func describe(root string, r Row, c Commands, push bool) (string, string) {
 		return with("Pull first: "+r.Name+" changed on Framework Cloud since this project pulled it. Run "+c.Pull+", or replace it with", "")
 	case ReasonNoBase:
 		return with(r.Name+" has no version on Framework Cloud to push against.", "To send it anyway: ")
+	case ReasonFirstPushPending:
+		return with("A first push of "+r.Name+" stopped before Framework Cloud replied, so it may already be there. Check your skills on Framework Cloud: if it is, run fw skills sync PATH --id ID.", "To send it as a new skill anyway: ")
 	case ReasonCancelled:
 		return "Not pushed: you answered no.", ""
 	case ReasonPathMoved, ReasonLockMoved, ReasonRetargeted:

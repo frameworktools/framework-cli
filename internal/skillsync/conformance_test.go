@@ -32,16 +32,17 @@ type scenario struct {
 	Description string `json:"description"`
 	Command     string `json:"command"`
 	Options     struct {
-		Overwrite bool   `json:"overwrite"`
-		DryRun    bool   `json:"dry_run"`
-		Offline   bool   `json:"offline"`
-		Confirm   *bool  `json:"confirm"`
-		Force     bool   `json:"force"`
-		From      string `json:"from"`
-		To        string `json:"to"`
-		SkillID   string `json:"skill_id"`
-		Variant   string `json:"variant"`
-		Builtin   string `json:"builtin"`
+		Overwrite bool     `json:"overwrite"`
+		DryRun    bool     `json:"dry_run"`
+		Offline   bool     `json:"offline"`
+		Confirm   *bool    `json:"confirm"`
+		Force     bool     `json:"force"`
+		From      string   `json:"from"`
+		Skills    []string `json:"skills"`
+		To        string   `json:"to"`
+		SkillID   string   `json:"skill_id"`
+		Variant   string   `json:"variant"`
+		Builtin   string   `json:"builtin"`
 	} `json:"options"`
 	Project struct {
 		Variant string   `json:"variant"`
@@ -256,7 +257,7 @@ func runScenario(t *testing.T, l *labels, sc scenario) {
 		}
 	case "copy":
 		var res CopyResult
-		res, err = Copy(CopyOptions{Root: root, From: assistantDir(o.From), To: []string{assistantDir(o.To)}, DryRun: o.DryRun})
+		res, err = Copy(CopyOptions{Root: root, From: assistantDir(o.From), To: []string{assistantDir(o.To)}, Skills: o.Skills, DryRun: o.DryRun})
 		steps, rows = res.Steps, buildRows(res.Steps, CommandCopy)
 		for _, it := range res.Skills {
 			if it.Backup != "" {

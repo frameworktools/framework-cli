@@ -187,3 +187,45 @@ func TestCloudKnownHashesRecognizeAnOlderCopy(t *testing.T) {
 		t.Errorf("lock: %+v", e)
 	}
 }
+
+// foldDisk is an empty project on a case-insensitive volume.
+type foldDisk struct{}
+
+func (foldDisk) Look(string) Look             { return Look{Absent: true} }
+func (foldDisk) FolderExists(string) bool     { return true }
+func (foldDisk) SkillFolders(string) []string { return nil }
+func (foldDisk) Same(a, b string) bool        { return strings.EqualFold(a, b) }
+
+// Two setup names that are one folder on a case-insensitive volume (macOS,
+// Windows) stop the pull with paths_alias, before anything is written
+func TestSetupNamesThatAliasStop(t *testing.T) {
+	_, err := Plan(PlanInput{Command: CommandPull, Disk: foldDisk{}, Lock: newLock(),
+		Offer:   Offer{Source: "cloud", Skills: []Source{pkg(t, "Demo", "a"), pkg(t, "demo", "b")}},
+		Options: PlanOptions{Dirs: []string{".claude/skills"}}})
+	var pe *PlanError
+	if !errors.As(err, &pe) || pe.ReasonCode() != "paths_alias" || !strings.Contains(err.Error(), ".claude/skills/Demo") {
+		t.Errorf("planner: %v", err)
+	}
+
+	root := t.TempDir()
+	caseInsensitive(t, root)
+	_, err = pullSkills(root, []string{".claude/skills"}, pkg(t, "Demo", "a"), pkg(t, "demo", "b"))
+	if !errors.As(err, &pe) || pe.ReasonCode() != "paths_alias" || entriesIn(t, root, ".claude") != nil {
+		t.Errorf("pull: %v", err)
+	}
+}
+
+// A second pull with nothing new leaves the lock's bytes as they are
+func TestLockBytesStableAcrossPulls(t *testing.T) {
+	root := t.TempDir()
+	dirs := []string{".agents/skills", ".claude/skills"}
+	srcs := []Source{pkg(t, "a", "v1"), pkg(t, "b", "v1")}
+	if _, err := pullSkills(root, dirs, srcs...); err != nil {
+		t.Fatal(err)
+	}
+	first := readRel(t, root, lockFile)
+	res, err := pullSkills(root, dirs, srcs...)
+	if err != nil || res.Saved || readRel(t, root, lockFile) != first {
+		t.Errorf("rewritten: saved %v %v\n%s", res.Saved, err, readRel(t, root, lockFile))
+	}
+}

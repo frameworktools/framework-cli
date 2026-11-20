@@ -55,6 +55,7 @@ const (
 	ReasonChangedDuringPull = "changed_during_pull"
 	ReasonCloudChanged      = "cloud_changed"
 	ReasonNoBase            = "no_base"
+	ReasonFirstPushPending  = "first_push_pending"
 	ReasonCancelled         = "cancelled"
 	ReasonPathMoved         = "path_moved"
 	ReasonLockMoved         = "lock_moved"
@@ -276,6 +277,25 @@ func (e *PlanError) Error() string {
 		return "the lock already tracks " + e.Key + "; move the copy into that entry's folder instead"
 	case "move_ambiguous":
 		return e.Path + " holds copies of more than one skill; name one skill's folder to change its identity"
+	case "paths_alias":
+		return "the setup names both " + e.Key + " and " + e.Path + ", which are one folder on this volume; rename one skill in the setup"
+	case "copy_source_missing":
+		if strings.Contains(e.Key, ", ") {
+			return "no skills named " + e.Key + " in " + path.Dir(e.Path)
+		}
+		return "no skill named " + path.Base(e.Path) + " in " + path.Dir(e.Path)
+	case "copy_source_unreadable":
+		if e.Key != "" {
+			return e.Path + ": " + e.Key
+		}
+		return e.Path + " is not a skill (it has no SKILL.md), so fw won't copy it"
+	case "copy_target_unreadable":
+		if e.Key != "" {
+			return e.Path + ": " + e.Key
+		}
+		return e.Path + " is not a skill (it has no SKILL.md); move it aside and copy again"
+	case "lock_migrate_conflict":
+		return lockFile + " tracks one skill twice at different versions (" + e.Key + " and " + e.Path + "). Delete the entry for the copy you don't keep, then run the command again"
 	case "copy_target_owned":
 		return e.Path + " is recorded as a different skill in " + lockFile + ", so fw won't copy over it; pick another folder"
 	}
@@ -290,7 +310,7 @@ func Plan(in PlanInput) (PlanResult, error) {
 	var err error
 	switch in.Command {
 	case CommandPull, CommandUpgrade:
-		p.pull()
+		err = p.pull()
 	case CommandCopy:
 		err = p.copy()
 	case CommandPush:
@@ -409,7 +429,8 @@ func isOlder(s *Source, e *LockEntry) bool {
 	}
 	switch {
 	case s.Channel == ChannelCloud && e.Base.Channel == ChannelCloud:
-		return s.Version < e.Base.Version
+		// Versions from different servers don't compare
+		return strings.TrimRight(s.Server, "/") == e.Base.Server && s.Version < e.Base.Version
 	case s.Channel == ChannelPackage && e.Base.Channel == ChannelPackage:
 		return !contains(s.Known, e.Base.Hash) && e.Base.Hash != s.Hash
 	}
@@ -459,9 +480,9 @@ func differ(present []copyState) bool {
 	return false
 }
 
-func (p *planner) pull() {
+func (p *planner) pull() error {
 	o, lock := p.in.Options, p.in.Lock
-	var accounted []string
+	var accounted, claimed []string
 	for i := range p.in.Offer.Skills {
 		s := &p.in.Offer.Skills[i]
 		key := s.Identity.Key("")
@@ -469,6 +490,13 @@ func (p *planner) pull() {
 		var extra []string
 		for _, d := range o.Dirs {
 			x := d + "/" + s.Name
+			// Two setup names that are one folder on this volume
+			for _, q := range claimed {
+				if q != x && p.same(q, x) {
+					return &PlanError{Code: "paths_alias", Path: x, Key: q}
+				}
+			}
+			claimed = append(claimed, x)
 			owner := p.ownerOf(lock, x)
 			if owner == key {
 				continue // planned as one of the entry's copies
@@ -479,12 +507,18 @@ func (p *planner) pull() {
 					continue // the owner's entry plans it (restored or missing)
 				}
 				reason := ReasonOtherIdentity
-				if o := lock.Skills[owner].Identity; o.SkillID == s.Identity.SkillID && o.Variant != s.Identity.Variant {
+				if o := lock.Skills[owner].Identity; o.Kind == s.Identity.Kind && o.SkillID == s.Identity.SkillID &&
+					o.Server == s.Identity.Server && o.Variant != s.Identity.Variant {
 					reason = ReasonOtherVariant
 				}
-				id := s.Identity
-				p.step(Step{Path: x, Entry: owner, Name: s.Name, Action: ActionNone, Status: StatusKept, Reason: reason,
-					Hint: &Hint{Key: HintRetarget, Path: x, Identity: &id}})
+				// fw skills move switches the owner's whole entry, and refuses
+				// an identity the lock already tracks: hint only when it works
+				var h *Hint
+				if len(lock.Skills[owner].Copies) == 1 && e == nil {
+					id := s.Identity
+					h = &Hint{Key: HintRetarget, Path: x, Identity: &id}
+				}
+				p.step(Step{Path: x, Entry: owner, Name: s.Name, Action: ActionNone, Status: StatusKept, Reason: reason, Hint: h})
 				p.kept = append(p.kept, x)
 				continue
 			}
@@ -519,6 +553,7 @@ func (p *planner) pull() {
 			}
 		}
 	}
+	return nil
 }
 
 func addedOrRestored(c copyState) string {
@@ -541,6 +576,7 @@ func (p *planner) entry(key string, e *LockEntry, s *Source, extra []string) {
 	for _, x := range extra {
 		cs = append(cs, p.untracked(x, e, s))
 	}
+	sort.SliceStable(cs, func(i, j int) bool { return cs[i].path < cs[j].path }) // byte order, always
 	name := s.Name
 	if len(filter(cs, "unreadable")) > 0 {
 		p.allRows(key, name, cs, StatusFailed, ReasonUnreadable, nil)
@@ -619,13 +655,32 @@ func (p *planner) entry(key string, e *LockEntry, s *Source, extra []string) {
 		p.finish(key, e, s)
 		return
 	}
+	// Unedited copies at different versions (a pull that wrote only some of
+	// them): update only to a source that knows every version they hold
+	if differ(present) {
+		all := true
+		for _, c := range present {
+			all = all && (c.hash == s.Hash || contains(s.Known, c.hash))
+		}
+		if older || !all {
+			p.allRows(key, name, both, StatusDiverged, ReasonCopiesDiffer, copyHint(both, ""))
+			return
+		}
+	}
 	if older {
+		// The copies all hold one version here; prefer the one at the base
+		var src *copyState
+		for i := range present {
+			if src == nil || (e.Base != nil && present[i].hash == e.Base.Hash && src.hash != e.Base.Hash) {
+				src = &present[i]
+			}
+		}
 		for _, c := range present {
 			p.step(Step{Path: c.path, Entry: key, Name: name, Action: ActionNone, Status: StatusCurrent, Reason: ReasonNewerInProject})
 		}
 		for _, c := range holes {
-			if len(present) > 0 {
-				p.step(Step{Path: c.path, Entry: key, Name: name, Action: ActionCopy, Status: addedOrRestored(c), From: present[0].path, Hash: present[0].hash})
+			if src != nil {
+				p.step(Step{Path: c.path, Entry: key, Name: name, Action: ActionCopy, Status: addedOrRestored(c), From: src.path, Hash: src.hash})
 			} else {
 				p.step(Step{Path: c.path, Entry: key, Name: name, Action: ActionNone, Status: StatusUnavailable, Reason: ReasonSetupOlder, Hint: &Hint{Key: HintLogin}})
 			}
@@ -768,6 +823,14 @@ func (p *planner) copy() error {
 	for _, t := range o.CopyTo {
 		for _, n := range o.CopyNames {
 			src, dst := o.CopyFrom+"/"+n, t+"/"+n
+			switch from, to := d.Look(src), d.Look(dst); {
+			case from.Absent:
+				return &PlanError{Code: "copy_source_missing", Path: src}
+			case from.Unreadable:
+				return &PlanError{Code: "copy_source_unreadable", Path: src}
+			case to.Unreadable:
+				return &PlanError{Code: "copy_target_unreadable", Path: dst}
+			}
 			e, owner := p.ownerOf(lock, src), p.ownerOf(lock, dst)
 			if owner != "" && e != "" && owner != e {
 				return &PlanError{Code: "copy_target_owned", Path: dst}
@@ -882,8 +945,8 @@ func (p *planner) push() {
 			// Cloud's head
 			all(ActionRecord, StatusCurrent, "", nil, false)
 			f := e.clone()
-			for x := range f.Copies {
-				f.Copies[x] = Record{Hash: local}
+			for _, c := range present { // only copies holding the bytes
+				f.Copies[c.path] = Record{Hash: local}
 			}
 			server := e.Identity.Server
 			if e.Base != nil && e.Base.Server != "" {
@@ -894,6 +957,9 @@ func (p *planner) push() {
 			p.after.Skills[key] = f
 		case e.Identity.Kind == KindBuiltin:
 			all(ActionPush, StatusPushed, "", nil, true) // becomes your own skill
+		case e.Base == nil && e.Pending != nil && !o.Force:
+			// A first push that stopped before Cloud replied may have reached it
+			all(ActionNone, StatusRefused, ReasonFirstPushPending, &Hint{Key: HintForce}, false)
 		case e.Base == nil && !o.Force:
 			all(ActionNone, StatusRefused, ReasonNoBase, &Hint{Key: HintForce}, false)
 		case e.Base == nil:
@@ -985,7 +1051,9 @@ func (p *planner) move() error {
 		if e == "" {
 			return &PlanError{Code: "move_untracked", Path: pr.src}
 		}
-		if owner := p.ownerOf(lock, pr.dst); owner != "" && owner != e {
+		// A destination with a record, even in the same entry, is never
+		// overwritten
+		if owner := p.ownerOf(lock, pr.dst); owner != "" && !p.same(pr.src, pr.dst) {
 			return &PlanError{Code: "move_target_owned", Path: pr.dst}
 		}
 		from, to := d.Look(pr.src), d.Look(pr.dst)
