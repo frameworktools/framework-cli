@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "8486e4d5fac0c2dc6bd2c5cc9e7569a4cdbc995a",
-  "commit": "8486e4d5fac0c2dc6bd2c5cc9e7569a4cdbc995a",
+  "ref": "2c805d9401e3134ae7b4949c365a99cb93a7caa0",
+  "commit": "2c805d9401e3134ae7b4949c365a99cb93a7caa0",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
@@ -133,7 +133,7 @@
     },
     "internal/spec/testdata/conformance/skills/README.md": {
       "source": "inst/conformance/skills/README.md",
-      "sha256": "4f827644cf956ff246cec4f578fbb6d02c09b6ae1a0a43083f3d7e9b3e7551a8"
+      "sha256": "6ae7bdea46cf9fa33f33bdd07ba4ab9c4651dc03355297cbbe78f462d629f359"
     },
     "internal/spec/testdata/conformance/skills/assistant-add-clean.json": {
       "source": "inst/conformance/skills/assistant-add-clean.json",
@@ -215,6 +215,10 @@
       "source": "inst/conformance/skills/copy-target-owned.json",
       "sha256": "e89caf3c91415f5773dfe956b1025b67297bebc4db398b1567e86b7e48749ec9"
     },
+    "internal/spec/testdata/conformance/skills/copy-target-unreadable.json": {
+      "source": "inst/conformance/skills/copy-target-unreadable.json",
+      "sha256": "632199c750a1e0663a6db22806176ea9313510014908dc1dc0c38474c9575de0"
+    },
     "internal/spec/testdata/conformance/skills/identity-inline-recorded.json": {
       "source": "inst/conformance/skills/identity-inline-recorded.json",
       "sha256": "f8beacfd67a39588adc4bd4a7b638b900ed74ea528adcd9f0d2cfe2d897476d1"
@@ -286,6 +290,14 @@
     "internal/spec/testdata/conformance/skills/move-on-disk.json": {
       "source": "inst/conformance/skills/move-on-disk.json",
       "sha256": "e46a4c6d197072fb22f8e644c81fbde4c41c6a345b811d8999159bcec9035c27"
+    },
+    "internal/spec/testdata/conformance/skills/move-retarget-lock-only.json": {
+      "source": "inst/conformance/skills/move-retarget-lock-only.json",
+      "sha256": "f94e5f63b0dcff3211751e0f1fc0733480f250a6ff03123d1278792f05985eb5"
+    },
+    "internal/spec/testdata/conformance/skills/move-retarget-on-disk.json": {
+      "source": "inst/conformance/skills/move-retarget-on-disk.json",
+      "sha256": "06b6dadee10701a0775d8b48e8da5ef92b35883dc5469c3428c79ea86e4bf0ab"
     },
     "internal/spec/testdata/conformance/skills/move-retarget-to-fork.json": {
       "source": "inst/conformance/skills/move-retarget-to-fork.json",
@@ -398,6 +410,10 @@
     "internal/spec/testdata/conformance/skills/push-gone-sibling.json": {
       "source": "inst/conformance/skills/push-gone-sibling.json",
       "sha256": "57e320d65ff67c82e5c73388c3f24475463e8ca2a938dd63e35c79a12b983a91"
+    },
+    "internal/spec/testdata/conformance/skills/push-moved-by-hand-parent-exists.json": {
+      "source": "inst/conformance/skills/push-moved-by-hand-parent-exists.json",
+      "sha256": "f120d821a0d907facc17095fcc8eb8ef026fcfa4df2b3d2af7825f1274913fcb"
     },
     "internal/spec/testdata/conformance/skills/push-no-base.json": {
       "source": "inst/conformance/skills/push-no-base.json",
