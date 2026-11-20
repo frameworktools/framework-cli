@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "7392ffee6760eda2547c5f94a18b6c997c3539b7",
-  "commit": "7392ffee6760eda2547c5f94a18b6c997c3539b7",
+  "ref": "8486e4d5fac0c2dc6bd2c5cc9e7569a4cdbc995a",
+  "commit": "8486e4d5fac0c2dc6bd2c5cc9e7569a4cdbc995a",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
@@ -133,7 +133,7 @@
     },
     "internal/spec/testdata/conformance/skills/README.md": {
       "source": "inst/conformance/skills/README.md",
-      "sha256": "39a8c014c38bf699aee9035a6f7f2f52a48d88ce824e91f5603687fdfbbe96a2"
+      "sha256": "4f827644cf956ff246cec4f578fbb6d02c09b6ae1a0a43083f3d7e9b3e7551a8"
     },
     "internal/spec/testdata/conformance/skills/assistant-add-clean.json": {
       "source": "inst/conformance/skills/assistant-add-clean.json",
@@ -151,13 +151,17 @@
       "source": "inst/conformance/skills/assistant-add-loose-copy.json",
       "sha256": "8134c85fb8e214da7fdcf184ff29a4fdfe930e352db4438217a32d3af666a712"
     },
+    "internal/spec/testdata/conformance/skills/assistant-add-setup-older-copies-differ.json": {
+      "source": "inst/conformance/skills/assistant-add-setup-older-copies-differ.json",
+      "sha256": "4c9a6ce5c7a8305388985cef905cdba02b8ad104b89537857ed9b1b551aca36d"
+    },
     "internal/spec/testdata/conformance/skills/assistant-add-setup-older.json": {
       "source": "inst/conformance/skills/assistant-add-setup-older.json",
       "sha256": "52e1ee71b39c6bae02dc5a3358ebfc5e72a4348f7ef4916caeec78c19abf3486"
     },
     "internal/spec/testdata/conformance/skills/assistant-switch-independent-copy.json": {
       "source": "inst/conformance/skills/assistant-switch-independent-copy.json",
-      "sha256": "0cf3409da0ce87b5d5a84f8aac847be7298778158279bd3ff1e39f3a1b0820b3"
+      "sha256": "fe91ff5372b5b09b34136c1c92521d65adcfa7ac03749f5f95d2fef26a5919e1"
     },
     "internal/spec/testdata/conformance/skills/copies-absent-beside-clean.json": {
       "source": "inst/conformance/skills/copies-absent-beside-clean.json",
@@ -191,9 +195,21 @@
       "source": "inst/conformance/skills/copies-folder-gone.json",
       "sha256": "bfc0cd3d4cd9eb07f9681872f81f67cfbd8db83bd90f092330c1c315c82a6741"
     },
+    "internal/spec/testdata/conformance/skills/copy-edited-target.json": {
+      "source": "inst/conformance/skills/copy-edited-target.json",
+      "sha256": "d75c805e4782bb305825c54acebdd7e54bf8b5eeb76207551f3719c867b0b3af"
+    },
     "internal/spec/testdata/conformance/skills/copy-edited-to-new-folder.json": {
       "source": "inst/conformance/skills/copy-edited-to-new-folder.json",
       "sha256": "2c84d5f3d323eedb32e602b3405c4948c4035d2c2c51a73a0341c2a50d72bbeb"
+    },
+    "internal/spec/testdata/conformance/skills/copy-source-missing.json": {
+      "source": "inst/conformance/skills/copy-source-missing.json",
+      "sha256": "dc5a40a365977a2b549036624f365365aa40793d0ddf61cd686a2ad290728669"
+    },
+    "internal/spec/testdata/conformance/skills/copy-source-unreadable.json": {
+      "source": "inst/conformance/skills/copy-source-unreadable.json",
+      "sha256": "88854f9850fcd21486119a8724e27a51d64fbe2051436ed78ca6dfc3f9336c88"
     },
     "internal/spec/testdata/conformance/skills/copy-target-owned.json": {
       "source": "inst/conformance/skills/copy-target-owned.json",
@@ -207,9 +223,17 @@
       "source": "inst/conformance/skills/identity-inline-vs-framework.json",
       "sha256": "3bdc6df936657bd31e229ab1b6baff38b911e69246ff282916ce6d94dabd9e88"
     },
+    "internal/spec/testdata/conformance/skills/identity-other-server-variant.json": {
+      "source": "inst/conformance/skills/identity-other-server-variant.json",
+      "sha256": "0276f8dd5d49a04fd4d8d64972b5e2f0e6aaeb3a578efeb39f06c4cdc22973f1"
+    },
     "internal/spec/testdata/conformance/skills/identity-variant-mismatch.json": {
       "source": "inst/conformance/skills/identity-variant-mismatch.json",
       "sha256": "66e9a16d572a6d5a0f2ef9f931306eaacb6401b2ac8f6f507da1e738d9e0ca72"
+    },
+    "internal/spec/testdata/conformance/skills/kept-owner-two-copies.json": {
+      "source": "inst/conformance/skills/kept-owner-two-copies.json",
+      "sha256": "23d85450bfff51cfdd273342bb7fa87b0f8889043a2ee1c6e3a10d430f54d1ee"
     },
     "internal/spec/testdata/conformance/skills/metadata-channel-switch.json": {
       "source": "inst/conformance/skills/metadata-channel-switch.json",
@@ -226,6 +250,18 @@
     "internal/spec/testdata/conformance/skills/migrate-v1-cloud-pending-push.json": {
       "source": "inst/conformance/skills/migrate-v1-cloud-pending-push.json",
       "sha256": "8810eb04093d98d31fe0ece407d5a7b50c90a99d6342b31293794b33598039ab"
+    },
+    "internal/spec/testdata/conformance/skills/migrate-v1-conflict-package-cloud.json": {
+      "source": "inst/conformance/skills/migrate-v1-conflict-package-cloud.json",
+      "sha256": "65e7f420887ffc4bbec65220f7eada9c0b11148b50570c225efa8d151d2d65b6"
+    },
+    "internal/spec/testdata/conformance/skills/migrate-v1-conflict-reversed.json": {
+      "source": "inst/conformance/skills/migrate-v1-conflict-reversed.json",
+      "sha256": "aafc1eed04092a079e58af74a274746928a2e4cf2da038a0cc493cdf710e523b"
+    },
+    "internal/spec/testdata/conformance/skills/migrate-v1-conflict-versions.json": {
+      "source": "inst/conformance/skills/migrate-v1-conflict-versions.json",
+      "sha256": "c6aada11c95e32004887c80d1b1c3a4e9cfcfce5fc49396c297070152970b273"
     },
     "internal/spec/testdata/conformance/skills/migrate-v1-framework-cloud.json": {
       "source": "inst/conformance/skills/migrate-v1-framework-cloud.json",
@@ -259,6 +295,10 @@
       "source": "inst/conformance/skills/move-target-exists.json",
       "sha256": "6df0008ac644e01728365b7f0b0a7eabfa8834ad89b928ea11a5a3b769b05c24"
     },
+    "internal/spec/testdata/conformance/skills/move-target-recorded.json": {
+      "source": "inst/conformance/skills/move-target-recorded.json",
+      "sha256": "b01d107e22e9bd4e7ce4f34421ad04d50332c87028faf5bb59c375116471acce"
+    },
     "internal/spec/testdata/conformance/skills/offline-builtin-tracked-on-cloud.json": {
       "source": "inst/conformance/skills/offline-builtin-tracked-on-cloud.json",
       "sha256": "46c668da1cbc6b0cf45a3d5cdbe43c186afd43816403df0802123fdb8dd0eb48"
@@ -279,6 +319,10 @@
       "source": "inst/conformance/skills/pull-after-retarget.json",
       "sha256": "438333479f7751fd8fe9ba3edc4da69e970d16296cdc73ff7b854d3baa2a2c1e"
     },
+    "internal/spec/testdata/conformance/skills/pull-builtin-other-server.json": {
+      "source": "inst/conformance/skills/pull-builtin-other-server.json",
+      "sha256": "ff5d662f907acc6a07ed4a303a9d6a23f8149e4623a31d2c53c1bc2c131210b3"
+    },
     "internal/spec/testdata/conformance/skills/pull-dry-run.json": {
       "source": "inst/conformance/skills/pull-dry-run.json",
       "sha256": "45b2f7054a009f28f21db7ff4a056e16551a10d96239ae00ce557328c1920447"
@@ -294,6 +338,18 @@
     "internal/spec/testdata/conformance/skills/pull-newer-in-project.json": {
       "source": "inst/conformance/skills/pull-newer-in-project.json",
       "sha256": "487bac86de5c4764af6db7614f8d531840a02ab5f2f83ac43de2a41d6554c56c"
+    },
+    "internal/spec/testdata/conformance/skills/pull-partial-write-then-older.json": {
+      "source": "inst/conformance/skills/pull-partial-write-then-older.json",
+      "sha256": "e8421b4184a9fc38de2f465dc31570e0cdbe91b5ddc0a818e5a40e5a059562dc"
+    },
+    "internal/spec/testdata/conformance/skills/pull-restored-sibling.json": {
+      "source": "inst/conformance/skills/pull-restored-sibling.json",
+      "sha256": "17090868a4e46e8f58ae33715423744736084366cde951585e2052522eb0f210"
+    },
+    "internal/spec/testdata/conformance/skills/pull-rewound-lock-revert.json": {
+      "source": "inst/conformance/skills/pull-rewound-lock-revert.json",
+      "sha256": "15068bf0130c354522143c4e48582264fd85101c242fc9e9ca29d4a4065704c2"
     },
     "internal/spec/testdata/conformance/skills/pull-unknown-before-lock.json": {
       "source": "inst/conformance/skills/pull-unknown-before-lock.json",
@@ -334,6 +390,14 @@
     "internal/spec/testdata/conformance/skills/push-edited.json": {
       "source": "inst/conformance/skills/push-edited.json",
       "sha256": "acc8ba36307a085a05fda01f907b8bc1cba933ec20bddb019fa8ec8d26022d00"
+    },
+    "internal/spec/testdata/conformance/skills/push-first-push-pending.json": {
+      "source": "inst/conformance/skills/push-first-push-pending.json",
+      "sha256": "68953ea1345d55026505076a20e7e5a45de8f038e2e1e0c26fc5786c5b260ca1"
+    },
+    "internal/spec/testdata/conformance/skills/push-gone-sibling.json": {
+      "source": "inst/conformance/skills/push-gone-sibling.json",
+      "sha256": "57e320d65ff67c82e5c73388c3f24475463e8ca2a938dd63e35c79a12b983a91"
     },
     "internal/spec/testdata/conformance/skills/push-no-base.json": {
       "source": "inst/conformance/skills/push-no-base.json",
