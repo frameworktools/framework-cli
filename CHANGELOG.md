@@ -11,7 +11,7 @@
   - Setup text (inline skills) is recorded in the lock.
   - A skill whose copies are all gone is restored from Framework Cloud at its newest version when you are signed in.
   - After a folder rename, pull and push name `fw skills move` instead of `fw skills sync --id`. `fw skills sync --id` no longer moves an entry.
-  - Push recognizes a tracked copy moved or renamed by hand, by its name or its recorded bytes, and names `fw skills move` on both rows. With more than one match it names no command. Only a folder with no match gets the `fw skills sync` hint.
+  - Push recognizes a tracked copy moved or renamed by hand, by its name or its recorded bytes, even when the skill's other copies are still there, and names `fw skills move` on both rows. With more than one match it names no command. Only a folder with no match gets the `fw skills sync` hint.
   - A copy tracked as another skill, or another variant, is kept with the `fw skills move --id` command that switches it.
 - Rare states stop before writing anything, with an error code: `lock_migrate_conflict` (two v1 entries for one skill at different versions), `paths_alias` (two setup names that are one folder on a case-insensitive volume), `copy_source_missing`, `copy_source_unreadable`, `copy_target_unreadable`, and `move_target_owned` (a move onto any path the lock tracks).
 - A push of a skill whose first push stopped before Framework Cloud replied is refused with `first_push_pending` until `--force`.

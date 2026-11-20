@@ -110,6 +110,9 @@ func describe(root string, r Row, c Commands, push bool) (string, string) {
 		}
 		return with(lead+": "+r.Hint.From+" has local edits.", "Copy it over the other copies: ")
 	case ReasonCopyAbsent:
+		if r.Hint != nil && r.Hint.Key == HintMove {
+			return with(r.Hint.From+" is missing, and the untracked "+r.Hint.To[0]+" holds it.", "If you moved it, record the move: ")
+		}
 		missing := r.Hint.To
 		is := "is"
 		if len(missing) > 1 {

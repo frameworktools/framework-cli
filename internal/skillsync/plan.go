@@ -930,7 +930,17 @@ func (p *planner) push() {
 			if differ(present) {
 				reason = ReasonCopiesDiffer
 			}
-			p.allRows(key, name, cs, StatusFailed, reason, copyHint(append(append([]copyState{}, present...), absent...), src))
+			h := copyHint(append(append([]copyState{}, present...), absent...), src)
+			if reason == ReasonCopyAbsent {
+				// An absent copy moved by hand: record the move instead
+				for _, c := range absent {
+					if m := twinsWhere(twins, func(t twin) bool { return t.key == key && t.from == c.path }); uniqueTwin(twins, m) {
+						h = &Hint{Key: HintMove, From: m[0].from, To: []string{m[0].to}}
+						break
+					}
+				}
+			}
+			p.allRows(key, name, cs, StatusFailed, reason, h)
 			continue
 		}
 		local := present[0].hash
@@ -999,7 +1009,7 @@ func (p *planner) push() {
 	}
 }
 
-// twin is a tracked copy of an entry with no copy left, and an untracked
+// twin is a tracked copy that is absent, of any entry, and an untracked
 // folder in a configured skills folder that may be it moved by hand: one
 // with the copy's name, or holding the copy's recorded bytes.
 type twin struct{ key, from, to string }
@@ -1018,14 +1028,10 @@ func (p *planner) twins() []twin {
 	var out []twin
 	for _, k := range p.in.Lock.keys() {
 		e := p.in.Lock.Skills[k]
-		left := false
 		for _, x := range e.paths() {
-			left = left || !p.in.Disk.Look(x).Absent
-		}
-		if left {
-			continue
-		}
-		for _, x := range e.paths() {
+			if !p.in.Disk.Look(x).Absent {
+				continue
+			}
 			for _, u := range untracked {
 				if path.Base(u) == path.Base(x) || (e.Copies[x].Hash != "" && p.in.Disk.Look(u).Hash == e.Copies[x].Hash) {
 					out = append(out, twin{k, x, u})

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -372,5 +373,36 @@ func TestMoveAndRetargetKnownHashes(t *testing.T) {
 	e := lock.Skills["https://cloud.test/uuid-fork@r"]
 	if e == nil || strings.Join(e.Known, ",") != h || e.Copies[".agents/skills/demo"].Hash != h || e.Base != nil {
 		t.Errorf("lock: %+v", e)
+	}
+}
+
+// One of an entry's two copies renamed by hand: the renamed folder gets the
+// move hint, never sync; with an edit, the entry's copy_absent failure
+// gives the same move instead of a copy
+func TestPushRenamedOneOfTwo(t *testing.T) {
+	root := t.TempDir()
+	writeRel(t, root, ".agents/skills/team-data/SKILL.md", skillMD("x", "m1"))
+	files, _ := Scan(filepath.Join(root, ".agents", "skills", "team-data"))
+	h, _ := Hash(files)
+	writeRel(t, root, ".agents/skills/team-data2/SKILL.md", skillMD("x", "m1"))
+	writeRel(t, root, lockFile, `{"schema":1,"skills":{"a":{"paths":[".agents/skills/team-data",".agents/skills/framework-data"],"variant":"r",`+
+		`"server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"`+h+`"}}}`)
+	move := &Hint{Key: HintMove, From: ".agents/skills/framework-data", To: []string{".agents/skills/team-data2"}}
+	plan := func() []Step {
+		pp, err := PlanPush(PushOptions{Root: root, Dirs: []string{".agents/skills"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pp.Steps
+	}
+	steps := plan()
+	if len(steps) != 1 || steps[0].Path != ".agents/skills/team-data2" || steps[0].Status != StatusUntracked || !reflect.DeepEqual(steps[0].Hint, move) {
+		t.Errorf("unedited: %+v", steps)
+	}
+	writeRel(t, root, ".agents/skills/team-data/SKILL.md", skillMD("x", "edited"))
+	for _, s := range plan() {
+		if !reflect.DeepEqual(s.Hint, move) || (s.Entry != "" && (s.Status != StatusFailed || s.Reason != ReasonCopyAbsent)) {
+			t.Errorf("edited: %s %s %s %+v", s.Path, s.Status, s.Reason, s.Hint)
+		}
 	}
 }
