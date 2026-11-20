@@ -1,7 +1,7 @@
 {
   "source": "framework (R package)",
-  "ref": "2c805d9401e3134ae7b4949c365a99cb93a7caa0",
-  "commit": "2c805d9401e3134ae7b4949c365a99cb93a7caa0",
+  "ref": "8c2efb9e36c505c2e7b98d5da2e541c4e571f40e",
+  "commit": "8c2efb9e36c505c2e7b98d5da2e541c4e571f40e",
   "files": {
     "internal/adopt/rules.json": {
       "source": "inst/adopt/rules.json",
@@ -422,6 +422,14 @@
     "internal/spec/testdata/conformance/skills/push-refused.json": {
       "source": "inst/conformance/skills/push-refused.json",
       "sha256": "524a9dc43ba4240559e13764ba6c25abd60a93c44b70a99b26920ab3a31b13ec"
+    },
+    "internal/spec/testdata/conformance/skills/push-renamed-ambiguous.json": {
+      "source": "inst/conformance/skills/push-renamed-ambiguous.json",
+      "sha256": "b6b0c2898d1a2bcac514168eb248eaf2dd678b888bf6595e579de10d49617952"
+    },
+    "internal/spec/testdata/conformance/skills/push-renamed-in-folder.json": {
+      "source": "inst/conformance/skills/push-renamed-in-folder.json",
+      "sha256": "8807320f5cbbcba02eb482963ba173befc5d477c0d7dad42739007fc47765464"
     },
     "internal/spec/testdata/conformance/skills/push-untracked.json": {
       "source": "inst/conformance/skills/push-untracked.json",

@@ -889,6 +889,7 @@ func recordAt(p *planner, e *LockEntry, x string) Record {
 // push plans fw skills push.
 func (p *planner) push() {
 	o, lock := p.in.Options, p.in.Lock
+	twins := p.twins()
 	for _, key := range lock.keys() {
 		e := lock.Skills[key]
 		var cs []copyState
@@ -906,8 +907,11 @@ func (p *planner) push() {
 		present := filter(cs, "clean", "edited")
 		if len(present) == 0 {
 			reason, h := ReasonAllGone, (*Hint)(nil)
-			if twin := p.untrackedTwin(e); twin != "" {
-				reason, h = ReasonFolderGone, &Hint{Key: HintMove, From: cs[0].path, To: []string{twin}}
+			if m := twinsWhere(twins, func(t twin) bool { return t.key == key }); len(m) > 0 {
+				reason = ReasonFolderGone
+				if uniqueTwin(twins, m) {
+					h = &Hint{Key: HintMove, From: m[0].from, To: []string{m[0].to}}
+				}
 			}
 			p.allRows(key, name, cs, StatusMissing, reason, h)
 			continue
@@ -982,40 +986,74 @@ func (p *planner) push() {
 			if p.ownerOf(lock, x) != "" {
 				continue
 			}
+			// Only a folder no gone copy matches is offered as a new skill
 			h := &Hint{Key: HintSync, Path: x}
-			if from := p.goneCopyNamed(n); from != "" {
-				h = &Hint{Key: HintMove, From: from, To: []string{x}}
+			if m := twinsWhere(twins, func(t twin) bool { return t.to == x }); len(m) > 0 {
+				h = nil
+				if uniqueTwin(twins, m) {
+					h = &Hint{Key: HintMove, From: m[0].from, To: []string{x}}
+				}
 			}
 			p.step(Step{Path: x, Name: n, Action: ActionNone, Status: StatusUntracked, Reason: ReasonUntracked, Hint: h})
 		}
 	}
 }
 
-// untrackedTwin is a folder in a configured skills folder, named as one of
-// e's copies, that no entry tracks, or "".
-func (p *planner) untrackedTwin(e *LockEntry) string {
-	for _, x := range e.paths() {
-		for _, d := range p.in.Options.Dirs {
-			twin := d + "/" + path.Base(x)
-			if l := p.in.Disk.Look(twin); !l.Absent && p.ownerOf(p.in.Lock, twin) == "" {
-				return twin
+// twin is a tracked copy of an entry with no copy left, and an untracked
+// folder in a configured skills folder that may be it moved by hand: one
+// with the copy's name, or holding the copy's recorded bytes.
+type twin struct{ key, from, to string }
+
+// twins lists every such pair, for push's twin rule.
+func (p *planner) twins() []twin {
+	var untracked []string
+	for _, d := range p.in.Options.Dirs {
+		for _, n := range p.in.Disk.SkillFolders(d) {
+			x := d + "/" + n
+			if l := p.in.Disk.Look(x); !l.Absent && !l.Unreadable && p.ownerOf(p.in.Lock, x) == "" {
+				untracked = append(untracked, x)
 			}
 		}
 	}
-	return ""
+	var out []twin
+	for _, k := range p.in.Lock.keys() {
+		e := p.in.Lock.Skills[k]
+		left := false
+		for _, x := range e.paths() {
+			left = left || !p.in.Disk.Look(x).Absent
+		}
+		if left {
+			continue
+		}
+		for _, x := range e.paths() {
+			for _, u := range untracked {
+				if path.Base(u) == path.Base(x) || (e.Copies[x].Hash != "" && p.in.Disk.Look(u).Hash == e.Copies[x].Hash) {
+					out = append(out, twin{k, x, u})
+				}
+			}
+		}
+	}
+	return out
 }
 
-// goneCopyNamed is a tracked copy named name that is absent, whether or not
-// its folder is still there, or "".
-func (p *planner) goneCopyNamed(name string) string {
-	for _, k := range p.in.Lock.keys() {
-		for _, x := range p.in.Lock.Skills[k].paths() {
-			if path.Base(x) == name && p.in.Disk.Look(x).Absent {
-				return x
-			}
+func twinsWhere(all []twin, keep func(twin) bool) []twin {
+	var out []twin
+	for _, t := range all {
+		if keep(t) {
+			out = append(out, t)
 		}
 	}
-	return ""
+	return out
+}
+
+// uniqueTwin reports whether m is one pair that is both its entry's only
+// match and its folder's only match.
+func uniqueTwin(all, m []twin) bool {
+	if len(m) != 1 {
+		return false
+	}
+	return len(twinsWhere(all, func(t twin) bool { return t.key == m[0].key })) == 1 &&
+		len(twinsWhere(all, func(t twin) bool { return t.to == m[0].to })) == 1
 }
 
 // move plans fw skills move.

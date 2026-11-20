@@ -132,7 +132,10 @@ func describe(root string, r Row, c Commands, push bool) (string, string) {
 		return r.Name + " was last updated from Framework Cloud, so the package copy didn't replace it.", ""
 	case ReasonUntracked:
 		if r.Hint != nil && r.Hint.Key == HintMove {
-			return with(first+" isn't tracked, and "+r.Hint.From+", its tracked copy, is gone.", "If you moved it, record the move: ")
+			return with(first+" isn't tracked, and "+r.Hint.From+", a tracked copy with its name or bytes, is gone.", "If you moved it, record the move: ")
+		}
+		if push && r.Hint == nil {
+			return first + " isn't tracked. It may be a tracked copy moved by hand, but more than one folder or gone copy matches. If you moved one here, record the move with fw skills move FROM TO.", ""
 		}
 		if push {
 			return with(first+" isn't tracked, so push left it alone.", "To push it as a new skill: ")
@@ -149,6 +152,9 @@ func describe(root string, r Row, c Commands, push bool) (string, string) {
 			gone = []string{r.Hint.From}
 		}
 		lead := fmt.Sprintf("The folder of %s is gone, so %s didn't recreate it.", listPaths(gone), verb)
+		if r.Hint == nil && push {
+			return lead + " More than one untracked folder could be it. Record the move with fw skills move FROM TO.", ""
+		}
 		return with(lead, "If you moved it, record the move: ")
 	case ReasonAllGone:
 		return with("Every tracked copy is gone.", "Sign in so pull can restore it from Framework Cloud: ")
