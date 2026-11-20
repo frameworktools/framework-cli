@@ -78,6 +78,11 @@ func newSkillsMoveCmd(a *app) *cobra.Command {
 				}
 				o.Server = srv.URL
 			}
+			if !dryRun {
+				if err := a.engines.CheckSkillsLock(a.engines.Detect(root), "fw skills move"); err != nil {
+					return err
+				}
+			}
 			res, err := skillsync.Move(o)
 			if err != nil {
 				return err

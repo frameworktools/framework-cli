@@ -371,3 +371,45 @@ func TestRSkillDelegationNeedsTheNewSkillSync(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// Commands that write the v2 skills lock check the language package can
+// read it: R through CheckRSkills, framework-py by its skills_move()
+func TestCheckSkillsLock(t *testing.T) {
+	f := finder(nil, true, nil)
+	r := Project{Root: t.TempDir(), Language: "r", Runner: []string{"Rscript"}}
+	f.Probe = fakeRWith(true, true, true, false)
+	var old *OldRSkillsError
+	if err := f.CheckSkillsLock(r, "fw skills copy"); !errors.As(err, &old) || !strings.Contains(err.Error(), "fw skills copy") {
+		t.Errorf("old R: %v", err)
+	}
+	py := Project{Root: t.TempDir(), Language: "python", Runner: []string{"python3"}}
+	probe := func(newSync, installed bool) func(Command) bool {
+		return func(c Command) bool {
+			code := c.Args[len(c.Args)-1]
+			if strings.Contains(code, "skills_move") {
+				return newSync
+			}
+			return installed
+		}
+	}
+	f.Probe = probe(true, true)
+	if err := f.CheckSkillsLock(py, "fw skills move"); err != nil {
+		t.Errorf("new framework-py: %v", err)
+	}
+	f.Probe = probe(false, true)
+	if err := f.CheckSkillsLock(py, "fw skills move"); err == nil || !strings.Contains(err.Error(), MinPythonSkills) ||
+		!strings.Contains(err.Error(), "then run fw skills move again. Nothing was changed.") {
+		t.Errorf("old framework-py: %v", err)
+	}
+	f.Probe = probe(false, false)
+	if err := f.CheckSkillsLock(py, "fw skills move"); err == nil || !strings.Contains(err.Error(), "isn't installed") {
+		t.Errorf("no framework-py: %v", err)
+	}
+	if err := f.CheckSkillsLock(Project{Language: "python"}, "fw skills move"); err == nil {
+		t.Error("ran without a Python environment")
+	}
+	f.Probe = func(Command) bool { t.Error("probed a Stata project"); return false }
+	if err := f.CheckSkillsLock(Project{Language: "stata"}, "fw skills copy"); err != nil {
+		t.Error(err)
+	}
+}

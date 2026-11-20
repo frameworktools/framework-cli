@@ -420,7 +420,11 @@ func (s *scaffolder) ai() error {
 	}
 	if len(tracked) > 0 {
 		var sources []skillsync.Source
-		for _, src := range SetupSkills(v, "") {
+		all, err := SetupSkills(v, "")
+		if err != nil {
+			return err
+		}
+		for _, src := range all {
 			if contains(tracked, src.Name) {
 				sources = append(sources, src)
 			}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // pullInstall installs one planned copy; tests replace it.
@@ -95,8 +96,9 @@ func decline(lock *Lock, before Lock, st Step) {
 	}
 	old := before.Skills[st.Entry]
 	if old == nil {
+		// A new entry keeps its base for the copies that were written, and
+		// goes when none was
 		delete(f.Copies, st.Path)
-		f.Base = nil
 		if len(f.Copies) == 0 {
 			delete(lock.Skills, st.Entry)
 		}
@@ -110,9 +112,28 @@ func decline(lock *Lock, before Lock, st Step) {
 	f.Base, f.Pending = old.clone().Base, old.clone().Pending
 }
 
-// applyMoves renames each moved folder, then saves the lock. Errors were
-// all checked by the planner, before this writes anything.
-func applyMoves(root string, before Lock, plan PlanResult) error {
+// applyMoves renames each moved folder, then saves the lock. A rename that
+// fails undoes the ones before it, newest first, and the lock isn't saved;
+// the error names any folder it couldn't move back.
+func applyMoves(root string, before Lock, plan PlanResult) (err error) {
+	type moved struct{ from, to, fromRel, toRel string }
+	var done []moved
+	defer func() {
+		if err == nil {
+			return
+		}
+		var stuck []string
+		for i := len(done) - 1; i >= 0; i-- {
+			if e := rename(done[i].to, done[i].from); e != nil {
+				stuck = append(stuck, done[i].toRel+" (it belongs at "+done[i].fromRel+")")
+			}
+		}
+		if len(stuck) > 0 {
+			err = fmt.Errorf("%w. These folders couldn't be moved back: %s", err, strings.Join(stuck, ", "))
+		} else if len(done) > 0 {
+			err = fmt.Errorf("%w. fw moved back the folders it had already moved, so nothing changed", err)
+		}
+	}()
 	for _, st := range plan.Steps {
 		if st.Action != ActionMove {
 			continue
@@ -131,7 +152,8 @@ func applyMoves(root string, before Lock, plan PlanResult) error {
 		if err = rename(src, dst); err != nil {
 			return fmt.Errorf("moving %s to %s: %w", st.From, st.Path, err)
 		}
+		done = append(done, moved{src, dst, st.From, st.Path})
 	}
-	_, err := saveIfChanged(root, before, plan.LockAfter)
+	_, err = saveIfChanged(root, before, plan.LockAfter)
 	return err
 }

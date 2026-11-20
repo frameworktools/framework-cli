@@ -20,4 +20,8 @@
 - Cloud skills' known hashes include the setup's `sync.known_hashes` and a snapshot's `known_hashes`, when Cloud sends them.
 - `--json` rows add `reason_code`, `hint_key`, and `hint_args`. `fw skills push --json` rows list `paths` instead of `path`.
 - Built-in Stata skills ship `internal/stata/skill-history.json`, the hash of every version fw has shipped, so an older unedited copy is recognized.
-- R projects need framework 2.1.0 or later for skill commands: fw checks for `skills_copy()` and `skills_move()`.
+- Commands that write the lock (`fw skills copy`, `fw skills move`, `fw skills sync`, and `fw skills push`) first check that the project's language package reads lock v2: framework 2.1.0 or later in R projects, framework-py 0.1.0.dev31 or later in Python projects, found by their `skills_copy()` and `skills_move()`. Dry runs aren't checked.
+- `fw skills push` fails a Cloud skill tracked on another server, before asking or writing anything, and stops with `lock_changed` when the lock changed while it asked to continue.
+- A setup skill whose bundle doesn't hash to its `sync.hash` stops the pull before anything is installed.
+- A move that fails partway moves back the folders it already moved, and names any it couldn't.
+- Case-only name differences are one folder only on a case-insensitive volume, so Linux projects never see a false `paths_alias`.

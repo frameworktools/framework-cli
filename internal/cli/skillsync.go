@@ -66,6 +66,11 @@ func newSkillSyncCmd(a *app) *cobra.Command {
 					opts.Variant = lang
 				}
 			}
+			if !opts.DryRun && opts.Direction != "status" {
+				if err := a.engines.CheckSkillsLock(a.engines.Detect(opts.Root), "fw skills sync"); err != nil {
+					return err
+				}
+			}
 			opts.ProjectToken = a.projectTokenFor(opts.Root, client.URL)
 			result, err := skillsync.Sync(cmd.Context(), client, opts)
 			if err != nil {

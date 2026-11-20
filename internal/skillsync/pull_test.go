@@ -229,3 +229,148 @@ func TestLockBytesStableAcrossPulls(t *testing.T) {
 		t.Errorf("rewritten: saved %v %v\n%s", res.Saved, err, readRel(t, root, lockFile))
 	}
 }
+
+// A lock changed between planning and confirming stops the push before
+// anything is sent or saved
+func TestPushStopsWhenTheLockChanged(t *testing.T) {
+	root := t.TempDir()
+	writeRel(t, root, ".claude/skills/x/SKILL.md", skillMD("x", "edited"))
+	writeRel(t, root, lockFile, `{"schema":1,"skills":{"a":{"paths":[".claude/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":2,"hash":"old"}}}`)
+	pp, err := PlanPush(PushOptions{Root: root, Dirs: []string{".claude/skills"},
+		Remote: func(string, LockEntry) (Remote, bool, error) { return Remote{Version: 2, Hash: "old"}, true, nil }})
+	if err != nil || !pp.Pending() {
+		t.Fatalf("%+v %v", pp, err)
+	}
+	changed := `{"schema":1,"skills":{"a":{"paths":[".agents/skills/x"],"variant":"stata","server":"https://cloud.test","skill_id":"acct-1","version":2,"hash":"old"}}}`
+	writeRel(t, root, lockFile, changed)
+	sent := false
+	err = pp.Apply("https://cloud.test", func(PushRequest) (Snapshot, error) { sent = true; return Snapshot{}, nil })
+	var pe *PlanError
+	if !errors.As(err, &pe) || pe.ReasonCode() != "lock_changed" || sent || readRel(t, root, lockFile) != changed {
+		t.Errorf("%v (sent %v)", err, sent)
+	}
+}
+
+// A move whose second rename fails moves the first folder back and leaves
+// the lock as it was; a folder it can't move back is named
+func TestMoveUndoesAPartialMove(t *testing.T) {
+	setup := func(t *testing.T) string {
+		root := t.TempDir()
+		for _, n := range []string{"a", "b"} {
+			writeRel(t, root, ".claude/skills/"+n+"/SKILL.md", skillMD(n, n))
+		}
+		writeRel(t, root, lockFile, `{"schema":1,"skills":{"a":{"paths":[".claude/skills/a"],"variant":"r","hash":"x"},"b":{"paths":[".claude/skills/b"],"variant":"r","hash":"y"}}}`)
+		return root
+	}
+	t.Cleanup(func() { rename = os.Rename })
+	for _, stuck := range []bool{false, true} {
+		root := setup(t)
+		lock := readRel(t, root, lockFile)
+		calls := 0
+		rename = func(from, to string) error {
+			calls++
+			if calls == 2 || (stuck && calls == 3) {
+				return errors.New("disk full")
+			}
+			return os.Rename(from, to)
+		}
+		_, err := Move(MoveOptions{Root: root, From: ".claude/skills", To: ".agents/skills"})
+		rename = os.Rename
+		if readRel(t, root, lockFile) != lock {
+			t.Errorf("stuck %v: the lock was saved", stuck)
+		}
+		if stuck {
+			if err == nil || !strings.Contains(err.Error(), "couldn't be moved back: .agents/skills/a (it belongs at .claude/skills/a)") {
+				t.Errorf("stuck: %v", err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "moved back the folders") || entriesIn(t, root, ".agents/skills") != nil ||
+			strings.Join(entriesIn(t, root, ".claude/skills"), ",") != "a,b" {
+			t.Errorf("undo: %v %v", err, entriesIn(t, root, ".agents/skills"))
+		}
+	}
+}
+
+// Absent names that differ only in case are one path only where the volume
+// folds case: on a case-sensitive one (Linux), Demo and demo are two
+// folders, and two setup names never falsely raise paths_alias
+func TestSamePathFoldsOnlyOnCaseInsensitiveVolumes(t *testing.T) {
+	root := t.TempDir()
+	check(t, os.MkdirAll(filepath.Join(root, ".claude", "skills"), 0o750))
+	_, err := os.Stat(filepath.Join(root, ".CLAUDE", "SKILLS"))
+	folds := err == nil
+	if foldsCase(filepath.Join(root, ".claude", "skills")) != folds {
+		t.Fatalf("foldsCase says %v; the volume says %v", !folds, folds)
+	}
+	if got := samePath(root, ".claude/skills/Demo", ".claude/skills/demo"); got != folds {
+		t.Errorf("samePath: %v on a volume that folds case: %v", got, folds)
+	}
+	_, err = pullSkills(root, []string{".claude/skills"}, pkg(t, "Demo", "a"), pkg(t, "demo", "b"))
+	var pe *PlanError
+	if aliased := errors.As(err, &pe) && pe.ReasonCode() == "paths_alias"; aliased != folds {
+		t.Errorf("paths_alias %v (%v) on a volume that folds case: %v", aliased, err, folds)
+	}
+}
+
+// A new skill whose second copy was declined keeps its entry and base for
+// the copy that was written
+func TestDeclineKeepsANewEntrysBase(t *testing.T) {
+	root := t.TempDir()
+	defer func() { pullInstall = installInto }()
+	pullInstall = func(backups *[]string, root string, paths []string, files []File, expected string) error {
+		if paths[0] == ".claude/skills/x" {
+			return errChanged
+		}
+		return installInto(backups, root, paths, files, expected)
+	}
+	if _, err := pullSkills(root, []string{".agents/skills", ".claude/skills"}, pkg(t, "x", "v1")); err != nil {
+		t.Fatal(err)
+	}
+	lock, _ := ReadLock(root)
+	e := lock.Skills["framework:x@stata"]
+	if e == nil || e.Base == nil || len(e.Copies) != 1 || e.Copies[".agents/skills/x"].Hash != e.Base.Hash {
+		t.Errorf("lock: %+v", e)
+	}
+}
+
+// After a copy is deleted from .claude/skills (the folder still there) and
+// a same-named folder sits untracked in .agents/skills, push gives the move
+// hint on both rows
+func TestPushTwinHintWithTheOldFolderThere(t *testing.T) {
+	root := t.TempDir()
+	check(t, os.MkdirAll(filepath.Join(root, ".claude", "skills"), 0o750))
+	writeRel(t, root, ".agents/skills/mine/SKILL.md", skillMD("mine", "e1"))
+	writeRel(t, root, lockFile, `{"schema":1,"skills":{"a":{"paths":[".claude/skills/mine"],"variant":"r","server":"https://cloud.test","skill_id":"acct-1","version":1,"hash":"x"}}}`)
+	pp, err := PlanPush(PushOptions{Root: root, Dirs: []string{".agents/skills"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range pp.Steps {
+		if s.Hint == nil || s.Hint.Key != HintMove || s.Hint.From != ".claude/skills/mine" || s.Hint.To[0] != ".agents/skills/mine" {
+			t.Errorf("%s %s: %+v", s.Path, s.Status, s.Hint)
+		}
+	}
+	if len(pp.Steps) != 2 {
+		t.Errorf("steps: %+v", pp.Steps)
+	}
+}
+
+// A move with a retarget judges each copy where it is now: the moved
+// folder's hash, read at its old place before the rename, joins known
+func TestMoveAndRetargetKnownHashes(t *testing.T) {
+	root := t.TempDir()
+	writeRel(t, root, ".claude/skills/demo/SKILL.md", skillMD("demo", "d1"))
+	files, _ := Scan(filepath.Join(root, ".claude", "skills", "demo"))
+	h, _ := Hash(files)
+	writeRel(t, root, lockFile, `{"schema":1,"skills":{"package:demo":{"paths":[".claude/skills/demo"],"variant":"r","hash":"`+h+`","origin":{"skill_id":"framework:demo","hash":"`+h+`"}}}}`)
+	res, err := Move(MoveOptions{Root: root, From: ".claude/skills/demo", To: ".agents/skills/demo", SkillID: "uuid-fork", Server: "https://cloud.test"})
+	if err != nil || len(res.Steps) != 2 || res.Steps[0].Reason != ReasonPathMoved || res.Steps[1].Reason != ReasonRetargeted {
+		t.Fatalf("%+v %v", res.Steps, err)
+	}
+	lock, _ := ReadLock(root)
+	e := lock.Skills["https://cloud.test/uuid-fork@r"]
+	if e == nil || strings.Join(e.Known, ",") != h || e.Copies[".agents/skills/demo"].Hash != h || e.Base != nil {
+		t.Errorf("lock: %+v", e)
+	}
+}

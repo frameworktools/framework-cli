@@ -8,8 +8,10 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // assistantSkillsDirs maps each assistant to the skills folder it reads, as
@@ -379,12 +381,60 @@ func samePath(root, a, b string) bool {
 		return false
 	case !strings.EqualFold(path.Base(a), path.Base(b)):
 		return false
+	case path.Base(a) != path.Base(b) && !foldsCase(nearestExisting(root, a)):
+		// Names that differ only in case are one folder only on a
+		// case-insensitive volume
+		return false
 	}
 	da, db := path.Dir(a), path.Dir(b)
 	if da == "." || db == "." {
 		return da == db
 	}
 	return samePath(root, da, db)
+}
+
+// nearestExisting is the deepest existing folder above rel, absolute.
+func nearestExisting(root, rel string) string {
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	for {
+		parent := filepath.Dir(p)
+		if parent == p {
+			return p
+		}
+		p = parent
+		if _, err := os.Lstat(p); err == nil {
+			return p
+		}
+	}
+}
+
+// foldsCase reports whether the volume holding the existing folder dir
+// matches names regardless of case: dir, or the nearest folder above it
+// whose name has a letter, is found under its name with the case swapped.
+// With no such name, it assumes the platform default.
+func foldsCase(dir string) bool {
+	for p := dir; ; p = filepath.Dir(p) {
+		name := filepath.Base(p)
+		if swapped := swapCase(name); swapped != name {
+			a, errA := os.Lstat(p)
+			b, errB := os.Lstat(filepath.Join(filepath.Dir(p), swapped))
+			if errA == nil {
+				return errB == nil && os.SameFile(a, b)
+			}
+		}
+		if filepath.Dir(p) == p {
+			return runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+		}
+	}
+}
+
+func swapCase(s string) string {
+	return strings.Map(func(r rune) rune {
+		if u := unicode.ToUpper(r); u != r {
+			return u
+		}
+		return unicode.ToLower(r)
+	}, s)
 }
 
 // diskSpelling is rel as the filesystem spells it: each part that exists

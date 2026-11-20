@@ -48,6 +48,7 @@ func CloudSource(name string, sync SyncSource, files []File, server string, know
 	if strings.HasPrefix(sync.ID, "framework:") {
 		id = Identity{Kind: KindBuiltin, SkillID: sync.ID, Variant: sync.Variant}
 	}
+	// Callers verify the bundle against sync.Hash before building a source
 	h := sync.Hash
 	if files != nil {
 		h, _ = Hash(files)

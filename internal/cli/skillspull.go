@@ -330,7 +330,10 @@ func (a *app) cloudSkills(ctx context.Context, root string, notes *[]string, ass
 	for name, on := range resolved.View.AI.Assistants {
 		assistants[name] = on
 	}
-	sources := stata.SetupSkills(resolved.View, server.URL)
+	sources, err := stata.SetupSkills(resolved.View, server.URL)
+	if err != nil {
+		return nil, "", err
+	}
 	for i := range sources {
 		a.latestSkill(ctx, &sources[i], notes)
 	}
@@ -459,7 +462,7 @@ func newSkillsPushCmd(a *app) *cobra.Command {
 			}
 			// An R project's skills come from its framework package's pull:
 			// an older one can leave copies out of step, so push waits for it
-			if err := a.engines.CheckRSkills(a.engines.Detect(root), "fw skills push"); err != nil {
+			if err := a.engines.CheckSkillsLock(a.engines.Detect(root), "fw skills push"); err != nil {
 				return err
 			}
 			client, err := a.skillsClient(server)
@@ -497,6 +500,12 @@ func (a *app) skillsClient(server string) (*cloud.Client, error) {
 func skillRemote(ctx context.Context, client *cloud.Client) func(string, skillsync.LockEntry) (skillsync.Remote, bool, error) {
 	return func(_ string, e skillsync.LockEntry) (skillsync.Remote, bool, error) {
 		id := e.Identity
+		// A Cloud skill lives on its own server: asking another would read
+		// its absence as "not found", and push it there as a new skill
+		if server := strings.TrimRight(client.URL, "/"); id.Kind == skillsync.KindCloud && strings.TrimRight(id.Server, "/") != server {
+			return skillsync.Remote{}, false, fmt.Errorf("%s is a skill on %s, and this push goes to %s, so it wasn't checked or sent. Push from a login to %s",
+				id.SkillID, id.Server, server, id.Server)
+		}
 		var route string
 		switch {
 		case id.Kind == skillsync.KindCloud:

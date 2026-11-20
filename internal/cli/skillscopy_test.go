@@ -530,7 +530,8 @@ func TestROldSkillSync(t *testing.T) {
 		}
 	}
 	before := len(f.ran)
-	for _, args := range [][]string{{"skills", "pull"}, {"skills", "push", "--dry-run"}} {
+	for _, args := range [][]string{{"skills", "pull"}, {"skills", "push", "--dry-run"}, {"skills", "copy", "--from", "claude", "--to", "agents"},
+		{"skills", "move", "claude", "agents"}} {
 		if _, _, err := h.run(t, "", args...); err == nil || !strings.Contains(err.Error(), "older skill sync") {
 			t.Errorf("fw %v: %v", args, err)
 		}

@@ -277,6 +277,8 @@ func (e *PlanError) Error() string {
 		return "the lock already tracks " + e.Key + "; move the copy into that entry's folder instead"
 	case "move_ambiguous":
 		return e.Path + " holds copies of more than one skill; name one skill's folder to change its identity"
+	case "lock_changed":
+		return lockFile + " changed since push checked it, so nothing was sent or saved; run push again"
 	case "paths_alias":
 		return "the setup names both " + e.Key + " and " + e.Path + ", which are one folder on this volume; rename one skill in the setup"
 	case "copy_source_missing":
@@ -1003,11 +1005,12 @@ func (p *planner) untrackedTwin(e *LockEntry) string {
 	return ""
 }
 
-// goneCopyNamed is a tracked copy named name whose folder is gone, or "".
+// goneCopyNamed is a tracked copy named name that is absent, whether or not
+// its folder is still there, or "".
 func (p *planner) goneCopyNamed(name string) string {
 	for _, k := range p.in.Lock.keys() {
 		for _, x := range p.in.Lock.Skills[k].paths() {
-			if path.Base(x) == name && p.in.Disk.Look(x).Absent && !p.in.Disk.FolderExists(path.Dir(x)) {
+			if path.Base(x) == name && p.in.Disk.Look(x).Absent {
 				return x
 			}
 		}

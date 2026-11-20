@@ -392,3 +392,21 @@ func mustDecode(t *testing.T, s string) []byte {
 	}
 	return raw
 }
+
+// A Cloud skill tracked on another server fails before anything is asked,
+// written, or sent: never pushed to this server as a new skill
+func TestSkillsPushRefusesAnotherServersSkill(t *testing.T) {
+	c := newSkillsCloud(t)
+	h := newHarness(t, map[string]string{"FW_CLOUD_TOKEN": "user-tok"})
+	dir := stataSkillsProject(t, h.app.home, c.server.URL, true)
+	h.app.cwd = dir
+	writeTestFile(t, filepath.Join(dir, ".claude", "skills", "analysis", "SKILL.md"), skillText("analysis", "Edited"))
+	lock := `{"schema":1,"skills":{"a":{"paths":[".claude/skills/analysis"],"variant":"stata","server":"https://other.test","skill_id":"acct-1","version":1,"hash":"old"}}}` + "\n"
+	lockPath := filepath.Join(dir, ".framework", "skills.lock.json")
+	writeTestFile(t, lockPath, lock)
+	out, _, err := h.run(t, "", "skills", "push", "--yes")
+	if err == nil || !strings.Contains(out, "acct-1 is a skill on https://other.test") || !strings.Contains(out, "1 failed") ||
+		len(c.posts) != 0 || readFile(t, lockPath) != lock {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}

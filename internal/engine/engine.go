@@ -116,6 +116,44 @@ const MinRFramework = "2.1.0"
 // package has an older skill sync: no skills_copy() or no skills_move().
 var rSkillSync = rHas("skills_copy", "skills_move")
 
+// MinPythonSkills is the first framework-py release with skills lock v2.
+// It is only named in messages: fw checks the installed package for
+// skills_copy() and skills_move(), as for R.
+const MinPythonSkills = "0.1.0.dev31"
+
+// pySkillSync imports framework-py and fails when it lacks skills lock v2.
+const pySkillSync = "import framework; framework.skills_copy; framework.skills_move"
+
+// CheckSkillsLock checks, before a command writes .framework/skills.lock.json
+// in schema 2, that the project's language package can read it: framework
+// MinRFramework or later in R projects, framework-py MinPythonSkills or
+// later in Python ones. Stata and unknown projects pass.
+func (f Finder) CheckSkillsLock(p Project, again string) error {
+	switch p.Language {
+	case "r":
+		return f.CheckRSkills(p, again)
+	case "python":
+	default:
+		return nil
+	}
+	update := "Update it with uv add -U framework-py (or pip install -U framework-py), then run " + again + " again. Nothing was changed."
+	if len(p.Runner) == 0 {
+		return &UnavailableError{Msg: "cannot run this Python project: " + p.Reason + ". fw checks that its framework-py can read the skills lock before writing it. Nothing was changed."}
+	}
+	run := func(a ...string) Command {
+		return Command{Program: p.Runner[0], Args: append(append([]string{}, p.Runner[1:]...), a...), Dir: p.Root}
+	}
+	if f.Probe(run("-c", pySkillSync)) {
+		return nil
+	}
+	if f.Probe(run("-c", "import framework")) {
+		reason := "the framework-py package in this project's environment has an older skill sync, which can't read the skills lock as fw " +
+			"writes it. fw needs a release with skills_copy() and skills_move() (framework-py " + MinPythonSkills + " or later)"
+		return &UnavailableError{Msg: reason + ". " + update}
+	}
+	return &UnavailableError{Msg: "framework-py isn't installed in this project's environment. Install it with uv add framework-py (or pip install framework-py), then run " + again + " again. Nothing was changed."}
+}
+
 // rInstalled quits with status 3 when the framework R package is missing.
 const rInstalled = `if (!requireNamespace("framework", quietly = TRUE)) quit(status = 3)`
 

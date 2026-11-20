@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/frameworktools/framework-cli/internal/skillsync"
 	"github.com/frameworktools/framework-cli/internal/spec"
 	"gopkg.in/yaml.v3"
 )
@@ -534,5 +535,22 @@ func TestSkillHistoryIsCurrent(t *testing.T) {
 		if !found {
 			t.Errorf("%s: its current hash %s isn't in skill-history.json; run go run ./tools/skillhistory", e.Name(), src.Hash)
 		}
+	}
+}
+
+// A setup skill whose bundle doesn't hash to its sync.hash stops the offer
+func TestSetupSkillsVerifyTheBundleHash(t *testing.T) {
+	var v View
+	if err := json.Unmarshal([]byte(`{"skills":{"x":{"content":"---\nname: x\n---\nx\n","sync":{"skill_id":"acct-1","version":1,"hash":"`+
+		strings.Repeat("0", 64)+`","variant":"stata"}}}}`), &v); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetupSkills(v, "https://cloud.test"); err == nil || !strings.Contains(err.Error(), "doesn't match its hash") {
+		t.Errorf("mismatch: %v", err)
+	}
+	sum, _ := skillsync.Hash(skillsync.BundleFromText("---\nname: x\n---\nx\n", nil))
+	v.Skills["x"].Sync.Hash = sum
+	if src, err := SetupSkills(v, "https://cloud.test"); err != nil || len(src) != 1 || src[0].Hash != sum {
+		t.Errorf("match: %+v %v", src, err)
 	}
 }

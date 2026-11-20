@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"sort"
 
@@ -80,7 +81,10 @@ func PackageSkills(kind string, sensitive bool) []string {
 // sources, in name order: a package skill fw ships, a Cloud skill at the
 // version the setup names, or inline setup text. server is the project's
 // Framework Cloud server, for a sync block that names none.
-func SetupSkills(v View, server string) []skillsync.Source {
+//
+// A Cloud skill whose bundle doesn't hash to the setup's sync.hash is an
+// error: nothing is installed from a setup that disagrees with itself.
+func SetupSkills(v View, server string) ([]skillsync.Source, error) {
 	names := make([]string, 0, len(v.Skills))
 	for name := range v.Skills {
 		names = append(names, name)
@@ -97,6 +101,9 @@ func SetupSkills(v View, server string) []skillsync.Source {
 		case entry.Package:
 			out = append(out, PackageSource(name))
 		case entry.Sync != nil:
+			if h, err := skillsync.Hash(files); err != nil || (entry.Sync.Hash != "" && h != entry.Sync.Hash) {
+				return nil, fmt.Errorf("the setup's skill %s doesn't match its hash (sync.hash %s); nothing was installed", name, entry.Sync.Hash)
+			}
 			variant := entry.Sync.Variant
 			if variant == "" {
 				variant = "stata"
@@ -107,5 +114,5 @@ func SetupSkills(v View, server string) []skillsync.Source {
 			out = append(out, skillsync.InlineSource(name, "stata", files))
 		}
 	}
-	return out
+	return out, nil
 }

@@ -68,6 +68,12 @@ func newSkillsCopyCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The language package must read the v2 lock this writes
+			if !dryRun {
+				if err := a.engines.CheckSkillsLock(a.engines.Detect(root), "fw skills copy"); err != nil {
+					return err
+				}
+			}
 			res, err := skillsync.Copy(skillsync.CopyOptions{Root: root, From: source, To: targets, Skills: skills, DryRun: dryRun})
 			if err != nil {
 				return err

@@ -179,10 +179,14 @@ func (pp *PushPlan) Apply(server string, send PushSender) error {
 		return err
 	}
 	defer release()
-	// The lock as it is now, with any adopts the plan records
+	// The lock as it is now, which must be the one push planned against:
+	// another command may have changed it while push asked to continue
 	lock, _, err := loadLock(pp.root)
 	if err != nil {
 		return err
+	}
+	if !lock.equal(pp.lock) {
+		return &PlanError{Code: "lock_changed"}
 	}
 	before := lock.clone()
 	for _, s := range pp.Steps {
