@@ -578,6 +578,10 @@ func (a *app) publishPath(cmd *cobra.Command, path string, f publishFlags) error
 	if doc.VersionURL != "" && !doc.Unchanged {
 		fmt.Fprintf(out, "This version: %s\n", doc.VersionURL)
 	}
+	// The link to paste into a blog or site that takes Framework embeds
+	if doc.EmbedLink != "" {
+		fmt.Fprintf(out, "Embed: %s\n", doc.EmbedLink)
+	}
 	if doc.Notice != nil && *doc.Notice != "" {
 		fmt.Fprintf(out, "Note: %s\n", *doc.Notice)
 	}

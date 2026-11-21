@@ -296,3 +296,21 @@ func TestPublishDisplay(t *testing.T) {
 		t.Errorf("display sent without --display: %+v", lastUpload)
 	}
 }
+
+func TestPublishPrintsEmbedLink(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, "model.dagitty", "dag { x -> y }")
+	out, errOut, err := h.run(t, "", "publish", "model.dagitty", "--yes")
+	if err != nil {
+		t.Fatal(err, errOut)
+	}
+	if !strings.Contains(out, "Embed: https://x/go/abcd") {
+		t.Errorf("no embed link: %q", out)
+	}
+	out, _, err = h.run(t, "", "publish", "model.dagitty", "--yes", "--json")
+	if err != nil || !strings.Contains(out, `"embed_link": "https://x/go/abcd"`) {
+		t.Errorf("json: %q %v", out, err)
+	}
+}

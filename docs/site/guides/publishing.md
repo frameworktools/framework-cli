@@ -48,6 +48,8 @@ Projects with `security.sensitive: true` can still publish shareable outputs; th
 
 ## URLs, versions, and storage
 
+After a Framework Cloud publish, `fw` prints `Embed:` with the link to paste into a blog or site that takes Framework embeds: a public artifact's short link, or an unlisted artifact's own link. It prints none for a private or password-protected artifact. `--json` includes it as `embed_link`.
+
 Every Cloud artifact receives an unguessable unlisted URL (`private_url`). Pass `--readable` to assign a readable URL under your account handle, or `--readable=false` to remove it; omitting `--readable` preserves the artifact's current setting.
 
 Publishing again to the same `--slug` creates a new immutable version while preserving links to earlier versions.
@@ -87,7 +89,7 @@ Framework Cloud keeps, for each artifact, what sites that embed it show. Set it 
 fw publish model.dagitty --display analysis=off --display legend=off
 ```
 
-Settings: `title`, `description`, `author`, `credit` (the link back), `details` (a model's or test's details), `variable_tips`, `column_summaries`, `output` and `links` (code snippets), `legend`, `analysis`, `dagitty`, and `code` (DAGs), and `interactive` (charts with a static image). Every setting is on until turned off. The artifact's own page shows everything.
+Settings: `title`, `description`, `author`, `credit` (the link back), `details` (a model's or test's details), `variable_tips`, `column_summaries`, `output` and `links` (code snippets), `legend`, `analysis`, `dagitty`, and `code` (DAGs), and `interactive` (charts with a static image). Settings are on until turned off, except that a DAG embeds as its drawing alone: turn on `description`, `analysis`, `dagitty`, or `code` to show them. The artifact's own page shows everything.
 
 ## DAGs
 
