@@ -108,7 +108,8 @@ type Upload struct {
 	DescriptionSet bool
 	Password       string
 	Visibility     string
-	Readable       *bool // nil keeps the document's current setting
+	Readable       *bool  // nil keeps the document's current setting
+	Display        string // JSON object of embed display settings; empty sends none
 }
 
 // Document is the response of POST /api/v1/documents.
@@ -168,7 +169,7 @@ func (c *Client) Publish(ctx context.Context, u Upload) (Document, error) {
 	if _, err := part.Write(u.Data); err != nil {
 		return Document{}, err
 	}
-	fields := map[string]string{"slug": u.Slug, "title": u.Title, "description": u.Description, "kind": u.Kind, "password": u.Password, "visibility": u.Visibility}
+	fields := map[string]string{"slug": u.Slug, "title": u.Title, "description": u.Description, "kind": u.Kind, "password": u.Password, "visibility": u.Visibility, "display": u.Display}
 	if u.Bundle {
 		fields["entrypoint"] = u.Entrypoint
 	}

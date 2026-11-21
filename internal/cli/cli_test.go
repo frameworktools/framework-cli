@@ -215,6 +215,9 @@ func fakeCloud(t *testing.T) *httptest.Server {
 				lastUpload[name+"_present"] = "true"
 			}
 		}
+		if values, ok := r.MultipartForm.Value["display"]; ok {
+			lastUpload["display"] = values[0]
+		}
 		for _, field := range []string{"file", "bundle"} {
 			if f, hdr, err := r.FormFile(field); err == nil {
 				data, _ := io.ReadAll(f)

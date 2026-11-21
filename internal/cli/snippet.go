@@ -167,6 +167,7 @@ func newSnippetPublishCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVar(&f.includePrivate, "include-private", false, "publish from a notebook whose path contains \"private\" without asking")
 	cmd.Flags().BoolVarP(&f.yes, "yes", "y", false, "upload without asking")
 	cmd.Flags().StringVar(&f.urlFlag, "url", "", "Framework Cloud server (default: the project's FW_CLOUD_URL)")
+	addDisplayFlag(cmd, &f)
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
 }

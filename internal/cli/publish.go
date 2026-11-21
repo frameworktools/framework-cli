@@ -296,6 +296,41 @@ func sizeText(n int) string {
 type publishFlags struct {
 	urlFlag, slug, title, entrypoint, to, description, kind, password, visibility, collection string
 	readable, includePrivate, yes, shareUnlisted                                              bool
+	display                                                                                   []string
+}
+
+// displayKeys are the embed display settings Framework Cloud keeps per artifact.
+var displayKeys = []string{"title", "description", "author", "details", "variable_tips", "column_summaries", "output", "links", "legend", "analysis", "dagitty", "code", "interactive"}
+
+// displaySettings turns --display NAME=on|off flags into the JSON object
+// Framework Cloud takes, or "" when none were given.
+func displaySettings(flags []string) (string, error) {
+	if len(flags) == 0 {
+		return "", nil
+	}
+	settings := map[string]bool{}
+	for _, flag := range flags {
+		name, value, ok := strings.Cut(flag, "=")
+		name = strings.TrimSpace(name)
+		if !ok || !slices.Contains(displayKeys, name) {
+			return "", usageError("--display takes NAME=on or NAME=off, with NAME one of " + strings.Join(displayKeys, ", "))
+		}
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "on", "true", "yes":
+			settings[name] = true
+		case "off", "false", "no":
+			settings[name] = false
+		default:
+			return "", usageError("--display " + name + " takes on or off")
+		}
+	}
+	data, err := json.Marshal(settings)
+	return string(data), err
+}
+
+// addDisplayFlag registers --display on a command that publishes to Framework Cloud.
+func addDisplayFlag(cmd *cobra.Command, f *publishFlags) {
+	cmd.Flags().StringArrayVar(&f.display, "display", nil, "what embeds show, NAME=on|off; repeatable (Cloud: "+strings.Join(displayKeys, ", ")+")")
 }
 
 func newPublishCmd(a *app) *cobra.Command {
@@ -347,6 +382,7 @@ func newPublishCmd(a *app) *cobra.Command {
 	_ = cmd.Flags().MarkHidden("allow-private")
 	cmd.Flags().BoolVarP(&f.yes, "yes", "y", false, "upload without asking")
 	cmd.Flags().StringVar(&f.urlFlag, "url", "", "Framework Cloud server (default: the project's FW_CLOUD_URL)")
+	addDisplayFlag(cmd, &f)
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
 }
@@ -364,6 +400,10 @@ func (a *app) publishPath(cmd *cobra.Command, path string, f publishFlags) error
 	if kind != "" && !slices.Contains(artifactKinds, kind) {
 		return usageError("--kind takes " + strings.Join(artifactKinds[:len(artifactKinds)-1], ", ") + ", or file")
 	}
+	display, err := displaySettings(f.display)
+	if err != nil {
+		return err
+	}
 	root, err := a.requireProject()
 	if err != nil {
 		return err
@@ -374,7 +414,7 @@ func (a *app) publishPath(cmd *cobra.Command, path string, f publishFlags) error
 	}
 	opts := staticPublishOptions{path: path, slug: slug, title: title, description: description, kind: kind, entrypoint: entrypoint, urlFlag: urlFlag, visibility: visibility, password: password, includePrivate: includePrivate, yes: yes}
 	if destination.Driver != "cloud" {
-		for _, name := range []string{"collection", "share-unlisted", "readable"} {
+		for _, name := range []string{"collection", "share-unlisted", "readable", "display"} {
 			if cmd.Flags().Changed(name) {
 				return usageError("--" + name + " requires Framework Cloud")
 			}
@@ -476,6 +516,7 @@ func (a *app) publishPath(cmd *cobra.Command, path string, f publishFlags) error
 	upload.PasswordSet, upload.DescriptionSet = cmd.Flags().Changed("password"), cmd.Flags().Changed("description")
 	upload.Description, upload.Kind = description, kind
 	upload.Password, upload.Visibility = password, visibility
+	upload.Display = display
 	if cmd.Flags().Changed("readable") {
 		upload.Readable = &readable
 	}

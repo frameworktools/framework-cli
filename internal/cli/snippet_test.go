@@ -270,3 +270,29 @@ func TestPublishKindDag(t *testing.T) {
 		t.Errorf("upload: %+v", lastUpload)
 	}
 }
+
+func TestPublishDisplay(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, "model.dagitty", "dag { x [exposure] y [outcome] x -> y }")
+	if _, errOut, err := h.run(t, "", "publish", "model.dagitty", "--display", "legend=off", "--display", "dagitty=on", "--yes"); err != nil {
+		t.Fatal(err, errOut)
+	}
+	if lastUpload["display"] != `{"dagitty":true,"legend":false}` {
+		t.Errorf("upload: %+v", lastUpload)
+	}
+	if _, _, err := h.run(t, "", "publish", "model.dagitty", "--display", "sparkles=off", "--yes"); exitCode(err) != exitUsage || !strings.Contains(err.Error(), "NAME one of title") {
+		t.Errorf("unknown setting: %v", err)
+	}
+	if _, _, err := h.run(t, "", "publish", "model.dagitty", "--display", "legend=maybe", "--yes"); exitCode(err) != exitUsage || !strings.Contains(err.Error(), "takes on or off") {
+		t.Errorf("bad value: %v", err)
+	}
+	// Without --display nothing is sent, so the stored settings stay
+	if _, _, err := h.run(t, "", "publish", "model.dagitty", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lastUpload["display"]; ok {
+		t.Errorf("display sent without --display: %+v", lastUpload)
+	}
+}

@@ -79,6 +79,16 @@ The snippet records the notebook's path in its git repository and the commit che
 
 `fw publish code_snippet.json --kind code_snippet` publishes a snippet document written by another client.
 
+## Embed display
+
+Framework Cloud keeps, for each artifact, what sites that embed it show. Set it on the artifact's **Settings** tab, or with `--display NAME=on|off` when you publish. The flag repeats, names only the settings it changes, and works with `fw publish` and `fw snippet publish`:
+
+```sh
+fw publish model.dagitty --display analysis=off --display legend=off
+```
+
+Settings: `title`, `description`, `author`, `details` (a model's or test's details), `variable_tips`, `column_summaries`, `output` and `links` (code snippets), `legend`, `analysis`, `dagitty`, and `code` (DAGs), and `interactive` (charts with a static image). Every setting is on until turned off. The artifact's own page shows everything.
+
 ## DAGs
 
 `fw publish model.dagitty` publishes a causal diagram written in DAGitty's model syntax. Framework Cloud reads the graph, lays it out, and draws it on its page and in embeds, with the DAGitty code beside it. `fw publish dag.json --kind dag` publishes a DAG document written by another client, such as one from the R, Python, or Stata package with labels, the code that built the graph, and adjustment sets.
