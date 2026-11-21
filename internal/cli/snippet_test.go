@@ -257,3 +257,16 @@ func TestPublishKindCodeSnippet(t *testing.T) {
 		t.Errorf("upload: %+v", lastUpload)
 	}
 }
+
+func TestPublishKindDag(t *testing.T) {
+	srv := fakeCloud(t)
+	h := newHarness(t, nil)
+	root := linkedProject(t, h, srv.URL)
+	write(t, root, "dag.json", `{"schema":"framework.artifact/v1","kind":"dag","dagitty":"dag { x [exposure] y [outcome] x -> y }"}`)
+	if _, errOut, err := h.run(t, "", "publish", "dag.json", "--kind", "dag", "--slug", "xy", "--yes"); err != nil {
+		t.Fatal(err, errOut)
+	}
+	if lastUpload["kind"] != "dag" {
+		t.Errorf("upload: %+v", lastUpload)
+	}
+}

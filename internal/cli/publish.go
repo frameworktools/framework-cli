@@ -23,7 +23,7 @@ import (
 )
 
 // artifactKinds are the kinds Framework Cloud accepts. file comes last.
-var artifactKinds = []string{"html", "image", "chart", "table", "data", "model", "test", "text", "pdf", "code_snippet", "file"}
+var artifactKinds = []string{"html", "image", "chart", "table", "data", "model", "test", "text", "pdf", "code_snippet", "dag", "file"}
 
 // maxUpload is the server's limit for one document.
 const maxUpload = 50 << 20

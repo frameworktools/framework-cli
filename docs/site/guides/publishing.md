@@ -79,6 +79,10 @@ The snippet records the notebook's path in its git repository and the commit che
 
 `fw publish code_snippet.json --kind code_snippet` publishes a snippet document written by another client.
 
+## DAGs
+
+`fw publish model.dagitty` publishes a causal diagram written in DAGitty's model syntax. Framework Cloud reads the graph, lays it out, and draws it on its page and in embeds, with the DAGitty code beside it. `fw publish dag.json --kind dag` publishes a DAG document written by another client, such as one from the R, Python, or Stata package with labels, the code that built the graph, and adjustment sets.
+
 ## GitHub Pages
 
 Projects backed by a GitHub repository can publish static artifacts directly to GitHub Pages. Enable Pages on the project's **GitHub & Pages** tab on Framework Cloud to add the deployment workflow that publishes `published/` whenever changes land on the default branch.
