@@ -285,7 +285,7 @@ func TestPublish(t *testing.T) {
 	}
 
 	out, _, err := h.run(t, "", "publish", "outputs/report.html", "--yes", "--slug", "report", "--readable")
-	if err != nil || !strings.Contains(out, "Link: https://x/d/abc") {
+	if err != nil || !strings.Contains(out, "Share:  https://x/go/abcd") || !strings.Contains(out, "Manage: https://x/artifacts/7") {
 		t.Fatalf("single file: %v\n%s", err, out)
 	}
 	if lastUpload["field"] != "file" || lastUpload["data"] != "<html>report</html>" || lastUpload["slug"] != "report" || lastUpload["readable"] != "1" {

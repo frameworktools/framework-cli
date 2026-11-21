@@ -297,7 +297,7 @@ func TestPublishDisplay(t *testing.T) {
 	}
 }
 
-func TestPublishPrintsEmbedLink(t *testing.T) {
+func TestPublishPrintsShareAndManageLinks(t *testing.T) {
 	srv := fakeCloud(t)
 	h := newHarness(t, nil)
 	root := linkedProject(t, h, srv.URL)
@@ -306,11 +306,12 @@ func TestPublishPrintsEmbedLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err, errOut)
 	}
-	if !strings.Contains(out, "Embed: https://x/go/abcd") {
-		t.Errorf("no embed link: %q", out)
+	want := "Published analysis, version 2.\nShare:  https://x/go/abcd\nManage: https://x/artifacts/7\n"
+	if out != want {
+		t.Errorf("output:\n%s\nwant:\n%s", out, want)
 	}
 	out, _, err = h.run(t, "", "publish", "model.dagitty", "--yes", "--json")
-	if err != nil || !strings.Contains(out, `"embed_link": "https://x/go/abcd"`) {
+	if err != nil || !strings.Contains(out, `"embed_link": "https://x/go/abcd"`) || !strings.Contains(out, `"artifact_url": "https://x/artifacts/7"`) {
 		t.Errorf("json: %q %v", out, err)
 	}
 }

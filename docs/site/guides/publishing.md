@@ -48,7 +48,15 @@ Projects with `security.sensitive: true` can still publish shareable outputs; th
 
 ## URLs, versions, and storage
 
-After a Framework Cloud publish, `fw` prints `Embed:` with the link to paste into a blog or site that takes Framework embeds: a public artifact's short link, or an unlisted artifact's own link. It prints none for a private or password-protected artifact. `--json` includes it as `embed_link`.
+After a Framework Cloud publish, `fw` prints two links:
+
+```text
+Published analysis, version 3.
+Share:  https://framework.pub/go/az7h
+Manage: https://framework.pub/artifacts/123
+```
+
+`Share` is the link people open, and the one to paste into a blog or site that takes Framework embeds: a public artifact's short link, or an unlisted artifact's own link. A private or password-protected artifact has none. `Manage` is the artifact's page on Framework Cloud, where you change who can open it, what embeds show, and its title and description. `--json` includes them as `embed_link` and `artifact_url`.
 
 Every Cloud artifact receives an unguessable unlisted URL (`private_url`). Pass `--readable` to assign a readable URL under your account handle, or `--readable=false` to remove it; omitting `--readable` preserves the artifact's current setting.
 

@@ -565,22 +565,32 @@ func (a *app) publishPath(cmd *cobra.Command, path string, f publishFlags) error
 	if a.jsonOut {
 		return writeJSON(out, doc)
 	}
-	if doc.Unchanged {
+	// Older servers send no share or manage link, so the line keeps the URL
+	newer := doc.EmbedLink != "" || doc.ArtifactURL != ""
+	switch {
+	case doc.Unchanged && newer:
+		fmt.Fprintf(out, "Unchanged, still version %d.\n", doc.Version)
+	case doc.Unchanged:
 		// A code snippet that matches its newest version adds none.
 		fmt.Fprintf(out, "Unchanged, still version %d: %s\n", doc.Version, doc.URL)
-	} else {
+	case newer:
+		fmt.Fprintf(out, "Published %s, version %d.\n", doc.Slug, doc.Version)
+	default:
 		fmt.Fprintf(out, "Published %s, version %d.\n", doc.Slug, doc.Version)
 		fmt.Fprintf(out, "Link: %s\n", doc.URL)
+		if doc.ReadableURL == nil && doc.PrivateURL != "" && doc.PrivateURL != doc.URL {
+			fmt.Fprintf(out, "Private link: %s\n", doc.PrivateURL)
+		}
+		if doc.VersionURL != "" {
+			fmt.Fprintf(out, "This version: %s\n", doc.VersionURL)
+		}
 	}
-	if doc.ReadableURL == nil && doc.PrivateURL != "" && doc.PrivateURL != doc.URL {
-		fmt.Fprintf(out, "Private link: %s\n", doc.PrivateURL)
-	}
-	if doc.VersionURL != "" && !doc.Unchanged {
-		fmt.Fprintf(out, "This version: %s\n", doc.VersionURL)
-	}
-	// The link to paste into a blog or site that takes Framework embeds
+	// Share: what people open and what a site embeds. Manage: the owner's page.
 	if doc.EmbedLink != "" {
-		fmt.Fprintf(out, "Embed: %s\n", doc.EmbedLink)
+		fmt.Fprintf(out, "Share:  %s\n", doc.EmbedLink)
+	}
+	if doc.ArtifactURL != "" {
+		fmt.Fprintf(out, "Manage: %s\n", doc.ArtifactURL)
 	}
 	if doc.Notice != nil && *doc.Notice != "" {
 		fmt.Fprintf(out, "Note: %s\n", *doc.Notice)

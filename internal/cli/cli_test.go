@@ -230,7 +230,7 @@ func fakeCloud(t *testing.T) *httptest.Server {
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"slug":"analysis","version":2,"url":"https://x/d/abc","private_url":"https://x/d/abc","readable_url":null,"version_url":"https://x/d/abc/v2","raw_url":"https://x/d/abc/raw","notice":null,"embed_link":"https://x/go/abcd"}`))
+		_, _ = w.Write([]byte(`{"slug":"analysis","version":2,"url":"https://x/d/abc","private_url":"https://x/d/abc","readable_url":null,"version_url":"https://x/d/abc/v2","raw_url":"https://x/d/abc/raw","notice":null,"embed_link":"https://x/go/abcd","artifact_url":"https://x/artifacts/7"}`))
 	})
 	mux.HandleFunc("PUT /api/v1/project/spec", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "proj-tok" {

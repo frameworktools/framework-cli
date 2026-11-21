@@ -130,6 +130,9 @@ type Document struct {
 	// a public artifact's short link, else its own link. Empty when the
 	// artifact can't be embedded, or the server predates it.
 	EmbedLink string `json:"embed_link,omitempty"`
+	// ArtifactURL is the artifact's page on Framework Cloud, for its owner:
+	// sharing, embed settings, and editing. Empty from older servers.
+	ArtifactURL string `json:"artifact_url,omitempty"`
 	// Unchanged is true when the upload matched the newest version, so the
 	// server kept that version and added none. Only code snippets do this.
 	Unchanged bool `json:"unchanged,omitempty"`
