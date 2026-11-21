@@ -300,7 +300,7 @@ type publishFlags struct {
 }
 
 // displayKeys are the embed display settings Framework Cloud keeps per artifact.
-var displayKeys = []string{"title", "description", "author", "details", "variable_tips", "column_summaries", "output", "links", "legend", "analysis", "dagitty", "code", "interactive"}
+var displayKeys = []string{"title", "description", "author", "credit", "details", "variable_tips", "column_summaries", "output", "links", "legend", "analysis", "dagitty", "code", "interactive"}
 
 // displaySettings turns --display NAME=on|off flags into the JSON object
 // Framework Cloud takes, or "" when none were given.

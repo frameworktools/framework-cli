@@ -87,7 +87,7 @@ Framework Cloud keeps, for each artifact, what sites that embed it show. Set it 
 fw publish model.dagitty --display analysis=off --display legend=off
 ```
 
-Settings: `title`, `description`, `author`, `details` (a model's or test's details), `variable_tips`, `column_summaries`, `output` and `links` (code snippets), `legend`, `analysis`, `dagitty`, and `code` (DAGs), and `interactive` (charts with a static image). Every setting is on until turned off. The artifact's own page shows everything.
+Settings: `title`, `description`, `author`, `credit` (the link back), `details` (a model's or test's details), `variable_tips`, `column_summaries`, `output` and `links` (code snippets), `legend`, `analysis`, `dagitty`, and `code` (DAGs), and `interactive` (charts with a static image). Every setting is on until turned off. The artifact's own page shows everything.
 
 ## DAGs
 
