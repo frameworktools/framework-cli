@@ -77,7 +77,7 @@ func TestPublishStructure(t *testing.T) {
 	if out != "Published analysis, version 2.\nShare:  https://x/go/abcd\nManage: https://x/artifacts/7\n" {
 		t.Errorf("stdout:\n%s", out)
 	}
-	if !strings.Contains(errOut, "│   └── *.rds     ignored (.gitignore:2) · 2 files\n") || strings.Contains(errOut, "fit.rds") {
+	if !strings.Contains(errOut, "│   └── *.rds     ignored by *.rds (.gitignore:2) · 2 files\n") || strings.Contains(errOut, "fit.rds") {
 		t.Errorf("stderr:\n%s", errOut)
 	}
 	data := lastUpload["data"]

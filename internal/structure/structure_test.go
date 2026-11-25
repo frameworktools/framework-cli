@@ -321,7 +321,7 @@ func TestRender(t *testing.T) {
 	if local.String() != wantLocal {
 		t.Errorf("local:\n%s\nwant:\n%s", local.String(), wantLocal)
 	}
-	if !strings.Contains(published.String(), "│   └── *.rds     ignored (.gitignore:2) · 2 files\n") || strings.Contains(published.String(), "fit.rds") {
+	if !strings.Contains(published.String(), "│   └── *.rds     ignored by *.rds (.gitignore:2) · 2 files\n") || strings.Contains(published.String(), "fit.rds") {
 		t.Errorf("published:\n%s", published.String())
 	}
 }
@@ -340,7 +340,7 @@ func TestPreviewListsTwentyIgnoredFiles(t *testing.T) {
 	if n := strings.Count(out.String(), "ignored by *.rds"); n != MaxListed+1 {
 		t.Errorf("%d rows for *.rds:\n%s", n, out.String())
 	}
-	if !strings.Contains(out.String(), "… and 7 files") {
+	if !strings.Contains(out.String(), "└── … 7 more   ignored by *.rds (.gitignore:2)\n") {
 		t.Errorf("no overflow row:\n%s", out.String())
 	}
 }

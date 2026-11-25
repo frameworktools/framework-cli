@@ -37,7 +37,7 @@ func (t *Tree) Render(w io.Writer, local bool) {
 					rows = append(rows, row{line: line{left: name, right: "ignored by " + ruleText(c.Ignored)}})
 				}
 				if more := len(c.Names) - len(shown); more > 0 {
-					rows = append(rows, row{line: line{left: "… and " + Count(more), right: "ignored by " + ruleText(c.Ignored)}})
+					rows = append(rows, row{line: line{left: "… " + thousands(more) + " more", right: "ignored by " + ruleText(c.Ignored)}})
 				}
 			case c.Type == Ignored:
 				rows = append(rows, row{line: line{left: c.Name, right: annotate(c)}})
@@ -84,7 +84,7 @@ func annotate(e *Entry) string {
 		parts = append(parts, e.Note)
 	}
 	if e.Type == Ignored {
-		return strings.Join(append(parts, "ignored ("+sourceText(e.Ignored)+")", Count(e.Hidden)), " · ")
+		return strings.Join(append(parts, "ignored by "+ruleText(e.Ignored), Count(e.Hidden)), " · ")
 	}
 	if !e.Stub {
 		return strings.Join(parts, " · ")
