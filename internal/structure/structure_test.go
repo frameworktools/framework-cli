@@ -326,6 +326,22 @@ func TestRender(t *testing.T) {
 	}
 }
 
+func TestPrivateIgnoredFolderSaysPrivateFirst(t *testing.T) {
+	root := fixture(t, true)
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("data/raw/\n*.rds\n.env\ndata/private/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := Build(Options{ProjectRoot: root, Local: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	tree.Render(&out, true)
+	if !strings.Contains(out.String(), "private/   private · ignored by data/private/ (.gitignore:4) · 1 file\n") {
+		t.Errorf("private and ignored folder:\n%s", out.String())
+	}
+}
+
 func TestPreviewListsTwentyIgnoredFiles(t *testing.T) {
 	root := fixture(t, true)
 	for i := range 25 {

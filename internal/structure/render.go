@@ -89,11 +89,11 @@ func annotate(e *Entry) string {
 	if !e.Stub {
 		return strings.Join(parts, " · ")
 	}
-	if e.Ignored != nil {
-		parts = append(parts, "ignored by "+ruleText(e.Ignored))
-	}
 	if e.Private {
 		parts = append(parts, "private")
+	}
+	if e.Ignored != nil {
+		parts = append(parts, "ignored by "+ruleText(e.Ignored))
 	}
 	return strings.Join(append(parts, Count(e.Hidden)), " · ")
 }
