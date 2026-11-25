@@ -38,6 +38,8 @@ fw skills copy --from claude        copy skills to the other assistants' folders
 fw skills move claude agents        move tracked skills to another folder
 fw publish PATH [--to github]       publish an artifact or rendered report
 fw snippet publish NB --cell LABEL  publish a notebook cell as a code snippet
+fw project structure [PATH...]      print the folder tree and what .gitignore hides
+fw publish --structure [PATH...]    publish the folder tree as a project structure
 fw config path | sync               inspect or copy configuration directories
 fw doctor                           report detected runtimes, paths, and server
 ```

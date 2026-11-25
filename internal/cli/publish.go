@@ -23,7 +23,7 @@ import (
 )
 
 // artifactKinds are the kinds Framework Cloud accepts. file comes last.
-var artifactKinds = []string{"html", "image", "chart", "table", "data", "model", "test", "text", "pdf", "code_snippet", "dag", "file"}
+var artifactKinds = []string{"html", "image", "chart", "table", "data", "model", "test", "text", "pdf", "code_snippet", "dag", "tree", "file"}
 
 // maxUpload is the server's limit for one document.
 const maxUpload = 50 << 20
@@ -300,7 +300,7 @@ type publishFlags struct {
 }
 
 // displayKeys are the embed display settings Framework Cloud keeps per artifact.
-var displayKeys = []string{"title", "description", "author", "credit", "details", "variable_tips", "column_summaries", "output", "links", "legend", "analysis", "dagitty", "code", "interactive"}
+var displayKeys = []string{"title", "description", "author", "credit", "details", "variable_tips", "column_summaries", "output", "links", "legend", "analysis", "dagitty", "code", "notes", "ignored", "interactive"}
 
 // displaySettings turns --display NAME=on|off flags into the JSON object
 // Framework Cloud takes, or "" when none were given.
@@ -335,8 +335,10 @@ func addDisplayFlag(cmd *cobra.Command, f *publishFlags) {
 
 func newPublishCmd(a *app) *cobra.Command {
 	var f publishFlags
+	var s structureFlags
+	var asStructure bool
 	cmd := &cobra.Command{
-		Use:   "publish PATH",
+		Use:   "publish PATH | --structure [PATH...]",
 		Short: "Publish an artifact to a configured destination",
 		Long: "Publishes a file, rendered HTML document, or rendered folder. Framework builds\n" +
 			"an artifact bundle with checksums before delivery. --to selects a named\n" +
@@ -351,13 +353,31 @@ func newPublishCmd(a *app) *cobra.Command {
 			"Rendered folders open at --entrypoint (default index.html). Referenced\n" +
 			"Quarto _files folders accompany HTML files. Symbolic links are refused.\n\n" +
 			"fw shows a summary and asks first; --yes skips the question. Files with\n" +
-			"private in their paths require --include-private without a terminal.",
+			"private in their paths require --include-private without a terminal.\n\n" +
+			"--structure publishes the folder tree of the project, or of the folders\n" +
+			"named, to Framework Cloud as a tree artifact. Ignored files publish as one\n" +
+			"row per rule with a file count, and ignored and private folders as a\n" +
+			"file count, so their names stay on this computer. --depth, --exclude,\n" +
+			"--note, --open, --highlight, and --ignored shape it; fw project\n" +
+			"structure previews it. The slug defaults to structure, or structure-<folder> for\n" +
+			"one subfolder, and the title to \"<folder> structure\".",
 		Example: "  fw publish notebooks/analysis.html\n" +
 			"  fw publish outputs/reports/summary.html --slug summary --readable --yes\n" +
 			"  fw publish _site --entrypoint index.html --json --yes\n" +
-			"  fw publish outputs/notebooks/results.html --to github --slug results",
-		Args: cobra.ExactArgs(1),
+			"  fw publish outputs/notebooks/results.html --to github --slug results\n" +
+			"  fw publish --structure --exclude renv --note R=\"Reusable functions\" --highlight README.md",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if asStructure {
+				return a.publishStructure(cmd, args, s, f)
+			}
+			for _, name := range structureFlagNames {
+				if cmd.Flags().Changed(name) {
+					return usageError("--" + name + " requires --structure")
+				}
+			}
+			if len(args) != 1 {
+				return usageError("fw publish takes one PATH, or --structure with folders")
+			}
 			path := args[0]
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(a.cwd, path)
@@ -383,6 +403,8 @@ func newPublishCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVarP(&f.yes, "yes", "y", false, "upload without asking")
 	cmd.Flags().StringVar(&f.urlFlag, "url", "", "Framework Cloud server (default: the project's FW_CLOUD_URL)")
 	addDisplayFlag(cmd, &f)
+	cmd.Flags().BoolVar(&asStructure, "structure", false, "publish the folder tree of the project, or of the folders named")
+	addStructureFlags(cmd, &s, true)
 	cmd.Flags().BoolVar(&a.jsonOut, "json", false, jsonHelp)
 	return cmd
 }

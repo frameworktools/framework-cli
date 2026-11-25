@@ -120,7 +120,7 @@ func newProjectCmd(a *app) *cobra.Command {
 	lf.BoolVar(&a.jsonOut, "json", false, jsonHelp+" (with --create)")
 	link.MarkFlagsMutuallyExclusive("from", "pull-token", "create")
 	link.MarkFlagsMutuallyExclusive("private", "public")
-	cmd.AddCommand(link, newProjectShowCmd(a), newProjectStatusCmd(a), newProjectBootstrapCmd(a), newPushSpecCmd(a), newProjectUpgradeCmd(a))
+	cmd.AddCommand(link, newProjectShowCmd(a), newProjectStatusCmd(a), newProjectBootstrapCmd(a), newPushSpecCmd(a), newProjectUpgradeCmd(a), newStructureCmd(a))
 	return cmd
 }
 

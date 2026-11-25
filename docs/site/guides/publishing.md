@@ -97,11 +97,62 @@ Framework Cloud keeps, for each artifact, what sites that embed it show. Set it 
 fw publish model.dagitty --display analysis=off --display legend=off
 ```
 
-Settings: `title`, `description`, `author`, `credit` (the link back), `details` (a model's or test's details), `variable_tips`, `column_summaries`, `output` and `links` (code snippets), `legend`, `analysis`, `dagitty`, and `code` (DAGs), and `interactive` (charts with a static image). Settings are on until turned off, except that a DAG embeds as its drawing alone: turn on `description`, `analysis`, `dagitty`, or `code` to show them. The artifact's own page shows everything.
+Settings: `title`, `description`, `author`, `credit` (the link back), `details` (a model's or test's details), `variable_tips`, `column_summaries`, `output` and `links` (code snippets), `legend`, `analysis`, `dagitty`, and `code` (DAGs), `notes` and `ignored` (project structures), and `interactive` (charts with a static image). Settings are on until turned off, except that a DAG embeds as its drawing alone: turn on `description`, `analysis`, `dagitty`, or `code` to show them. The artifact's own page shows everything.
 
 ## DAGs
 
 `fw publish model.dagitty` publishes a causal diagram written in DAGitty's model syntax. Framework Cloud reads the graph, lays it out, and draws it on its page and in embeds, with the DAGitty code beside it. `fw publish dag.json --kind dag` publishes a DAG document written by another client, such as one from the R, Python, or Stata package with labels, the code that built the graph, and adjustment sets.
+
+## Project structures
+
+A project structure is a folder tree with optional notes on its paths. A tutorial or course page embeds it to explain how a project's code is laid out. Ignored paths show the `.gitignore` rule that hides them.
+
+`fw project structure` prints the tree and uploads nothing. Ignored files are listed by name with their rule, up to 20 per folder and rule:
+
+```text
+$ fw project structure --note R="Reusable functions" --note README.md="Start here"
+my-project/
+├── data/
+│   ├── private/   private · 1 file
+│   └── raw/       ignored by data/raw/ (.gitignore:1) · 2 files
+├── outputs/
+│   ├── table.csv
+│   ├── draws.rds  ignored by *.rds (.gitignore:2)
+│   └── fit.rds    ignored by *.rds (.gitignore:2)
+├── R/             Reusable functions
+│   └── clean.R
+├── .gitignore
+├── README.md      Start here
+└── .env           ignored by .env (.gitignore:3)
+```
+
+`fw publish --structure` prints the tree as it publishes, then uploads it to Framework Cloud as a `tree` artifact:
+
+```sh
+fw publish --structure --note R="Reusable functions" --highlight README.md
+fw publish --structure R data --depth 2 --exclude renv
+```
+
+Ignored and private names stay on your computer:
+
+- `.git` is always left out.
+- An ignored folder publishes as its rule and a file count. Ignored files in other folders publish as one row per rule, with a file count.
+- A private folder publishes as a file count. A folder is private when it is named `private` or ends in `_private`, or when its `settings.yml` directory key contains `private` and not `public`.
+- A folder below `--depth` publishes as a file count.
+- `--exclude GLOB` leaves matching paths out entirely. Globs follow `.gitignore` syntax, so `renv` matches a folder at any level.
+- Symbolic links publish as files and are never followed.
+- A rule from outside the project publishes as `global` or `info/exclude`, never as a path.
+
+File counts stop at 10,000. In a git work tree, git decides what is ignored. Without git, `fw` reads the root `.gitignore`.
+
+Both commands take folders as `PATH`, relative to the current folder. The default is the project root. One folder publishes with that folder as its top. Several folders publish as one tree named after the project.
+
+- `--note PATH=TEXT` adds a note of up to 500 characters. A trailing `/` on a folder is allowed. A path not in the tree is an error.
+- `--open PATH` names a folder that starts open in embeds. By default, top-level folders start open.
+- `--highlight PATH` draws a path highlighted. Its folders open too.
+- `--ignored hide` leaves ignored paths out. A private folder still shows as a file count, unless it is also ignored.
+
+The slug defaults to `structure`, or `structure-<folder>` for one subfolder. The title defaults to `<folder> structure`. `--description`, `--visibility`, `--display`, `--collection`, and `--yes` work as for other artifacts. Display settings for structures are `title`, `description`, `notes`, and `ignored`. With `--display ignored=off`, embeds leave ignored rows out and keep private ones. A tree holds at most 5,000 paths.
 
 ## GitHub Pages
 
