@@ -326,6 +326,11 @@ func checkIgnore(walkRoot string, paths []string, top, gitDir, projectRoot strin
 // "info/exclude" for the repository's own excludes; "global" for any file
 // outside the work tree.
 func ruleSource(source, top, gitDir, walkRoot, projectRoot string) string {
+	if strings.HasPrefix(source, "/") && !filepath.IsAbs(source) {
+		// A POSIX path on Windows, such as a global excludes file git
+		// reports from an MSYS home. It is outside the work tree.
+		return "global"
+	}
 	abs := source
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(top, filepath.FromSlash(source))
