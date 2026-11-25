@@ -57,7 +57,7 @@ var refSince = map[string]string{
 	"skills copy":       "0.7.2",
 	"skills move":       "0.8.0",
 	"project structure": "0.8.7",
-	"artifacts flatten": "0.8.7",
+	"artifacts flatten": "0.8.9",
 }
 
 // refEnv names the environment variable that sets a flag.
