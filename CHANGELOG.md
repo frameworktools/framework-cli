@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- New: `fw artifacts flatten SLUG` keeps only an artifact's newest version, as version 1, and deletes the older versions for good. It asks first, defaulting to No, and needs `--yes` without a terminal. Inside a linked project it uses the project token; `--project` uses your login. Needs a Framework Cloud server with the flatten API.
 - New: project structure artifacts. `fw project structure [PATH...]` prints the folder tree, with each ignored file's rule, and uploads nothing. `fw publish --structure [PATH...]` publishes the tree to Framework Cloud as a `tree` artifact, with `--depth`, `--exclude`, `--note PATH=TEXT`, `--open`, `--highlight`, and `--ignored rules|hide`. Ignored files publish as one row per rule with a file count, and ignored, private, and too-deep folders as a file count, so their names never upload. git decides what is ignored; without git, fw reads the root `.gitignore`. The R, Python, and Stata packages build the same tree.
 - `fw publish --kind tree` publishes a tree document written by another client, and `--display` takes `notes` and `ignored`.
 - Skills lock v2. `.framework/skills.lock.json` tracks each skill by its identity (a built-in, a Cloud skill, setup text, or a folder not yet pushed) and records the last synced hash of each copy. fw reads a schema 1 lock and writes schema 2 only when a command changes the lock. A lock from a newer client stops skill commands with `lock_schema_unsupported` and the advice to update fw.

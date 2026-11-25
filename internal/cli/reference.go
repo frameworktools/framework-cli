@@ -34,7 +34,7 @@ var refCategoryOf = map[string]string{
 	"skills sync": "cloud", "skills pull": "cloud", "skills push": "cloud", "skills copy": "projects", "skills move": "projects", "pull": "cloud", "push": "cloud",
 	"data pull": "cloud", "data push": "cloud",
 	"login": "account", "logout": "account", "status": "account",
-	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud", "snippet publish": "cloud", "project structure": "projects",
+	"projects list": "cloud", "project show": "cloud", "blueprints list": "cloud", "publish": "cloud", "snippet publish": "cloud", "artifacts flatten": "cloud", "project structure": "projects",
 	"structures list": "cloud", "tools list": "cloud", "package-sets list": "cloud", "skills list": "cloud",
 	"new": "projects", "project link": "projects", "project status": "projects", "project bootstrap": "projects",
 	"project push-spec": "projects", "project upgrade": "projects", "adopt": "projects", "structures import": "cloud",
@@ -57,6 +57,7 @@ var refSince = map[string]string{
 	"skills copy":       "0.7.2",
 	"skills move":       "0.8.0",
 	"project structure": "0.8.7",
+	"artifacts flatten": "0.8.7",
 }
 
 // refEnv names the environment variable that sets a flag.
@@ -84,6 +85,7 @@ var refSeeAlso = map[string][]string{
 	"data push":         {"data pull", "push"},
 	"publish":           {"project link", "project structure", "guide:publishing", "r:ref:publish"},
 	"snippet publish":   {"publish", "guide:publishing"},
+	"artifacts flatten": {"publish", "guide:publishing"},
 	"project structure": {"publish", "guide:publishing"},
 	"new":               {"project bootstrap", "project link", "guide:projects"},
 	"project link":      {"publish", "project push-spec", "adopt"},
@@ -118,6 +120,8 @@ var refReturns = map[string]string{
 	"package-sets list": "With `--json`, `{\"server\": ..., \"package_sets\": [...]}`, each with `key`, `name`, `description`, `language`, `packages`, `version`, `system`, and `visibility`.",
 	"skills list":       "With `--json`, `{\"server\": ..., \"skills\": [...]}`, or `skill_sets` with `--sets`. A skill set also has `language`, `skills`, and the `packages` they need.",
 	"project status":    "With `--json`, an object with `root`, `language`, `language_source`, `runner` (a list), `runner_reason`, `cloud` (`linked`, `server`, `server_source`, `project`, `ok`, `problem`), and `warnings`.",
+	"artifacts flatten": "With `--json`, `{\"artifact\", \"version\", \"removed\", \"artifact_url\"}`: the slug, its version after flattening (1), how many older versions were deleted, and the artifact's page on Framework Cloud. " +
+		"A missing artifact fails with `reason` `not_found`, and a slug that several of your projects share with `reason` `ambiguous_slug`.",
 	"publish": "With `--json`, the document: `slug`, `version`, `url` (the link to share), `private_url`, `readable_url`, `version_url`, `raw_url`, and `notice`, plus `unchanged: true` when a code snippet matched its newest version and the server added none. " +
 		"With `--to github`, `url`, `commit` (null when nothing changed), `pushed`, and `pages_enabled` (null when the project is not linked, or fw could not reach Framework Cloud).",
 	"skills pull": "With `--json`, for Stata projects, `{\"source\", \"dry_run\", \"skills\", \"counts\", \"message\", \"notes\", \"backups\"}`. `source` is `cloud`, or `package` when Framework Cloud gave no list. " +

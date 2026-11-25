@@ -232,6 +232,28 @@ func fakeCloud(t *testing.T) *httptest.Server {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"slug":"analysis","version":2,"url":"https://x/d/abc","private_url":"https://x/d/abc","readable_url":null,"version_url":"https://x/d/abc/v2","raw_url":"https://x/d/abc/raw","notice":null,"embed_link":"https://x/go/abcd","artifact_url":"https://x/artifacts/7"}`))
 	})
+	mux.HandleFunc("POST /api/v1/artifacts/{slug}/flatten", func(w http.ResponseWriter, r *http.Request) {
+		token := auth(r)
+		if token != "proj-tok" && token != "user-tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		slug, project := r.PathValue("slug"), r.URL.Query().Get("project")
+		lastFlatten = token + " " + slug + " " + project
+		switch {
+		case slug == "missing":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"message":"Artifact not found."}`))
+		case slug == "shared" && project == "" && token == "user-tok":
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"message":"Several projects have an artifact with this slug."}`))
+		case slug == "external":
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"External publications can't be flattened."}`))
+		default:
+			_, _ = w.Write([]byte(`{"artifact":"` + slug + `","version":1,"removed":3,"artifact_url":"https://x/artifacts/7"}`))
+		}
+	})
 	mux.HandleFunc("PUT /api/v1/project/spec", func(w http.ResponseWriter, r *http.Request) {
 		if auth(r) != "proj-tok" {
 			w.WriteHeader(http.StatusForbidden)
@@ -262,6 +284,9 @@ var (
 	lastUpload map[string]string
 	lastSpec   string
 )
+
+// lastFlatten is the token, slug, and project of the last flatten.
+var lastFlatten string
 
 // lastStructure is the body of the last structure upload.
 var lastStructure string

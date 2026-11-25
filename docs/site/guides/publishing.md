@@ -66,6 +66,23 @@ Publishing again to the same `--slug` creates a new immutable version while pres
 fw publish outputs/notebooks/results.html --slug results --readable
 ```
 
+### Flattening versions
+
+`fw artifacts flatten SLUG` keeps only an artifact's newest version and renumbers it version 1:
+
+```sh
+fw artifacts flatten treatment-effect
+```
+
+```text
+Flattened treatment-effect to version 1; removed 3 older versions.
+Manage: https://framework.pub/artifacts/123
+```
+
+Older versions and their files are deleted for good. The Trash doesn't keep them. Links and embeds of old versions open the newest one. Collections and reports pinned to an old version move to version 1. The next publish continues after the highest old number, so a slug with versions 1 to 4 publishes version 5 next. External publications can't be flattened.
+
+`fw` asks first, defaulting to No. `--yes` skips the question and is required without a terminal. Inside a linked project, `fw` uses the project token in `.env` and flattens that project's artifact. `--project SLUG` uses your login instead and names the project, which is required when several of your projects have an artifact with the same slug. `--json` prints `artifact`, `version`, `removed`, and `artifact_url`.
+
 > [!NOTE]
 > Hosted accounts on `framework.pub` include free publishing with 1 GB of artifact storage per account. Self-hosted servers use your own configured storage backend.
 

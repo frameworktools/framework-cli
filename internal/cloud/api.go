@@ -242,3 +242,24 @@ func (c *Client) CreateProjectFromSpec(ctx context.Context, p SpecProject) (Crea
 	err := c.Do(ctx, http.MethodPost, "/api/v1/projects", p, &out)
 	return out, err
 }
+
+// Flattened is the response of POST /api/v1/artifacts/{slug}/flatten.
+type Flattened struct {
+	Artifact    string `json:"artifact"`
+	Version     int    `json:"version"`
+	Removed     int    `json:"removed"`
+	ArtifactURL string `json:"artifact_url"`
+}
+
+// Flatten makes an artifact's newest version its only one, version 1, and
+// deletes the older versions for good. project names the artifact's project
+// for an account token; a project token implies its own.
+func (c *Client) Flatten(ctx context.Context, slug, project string) (Flattened, error) {
+	path := "/api/v1/artifacts/" + url.PathEscape(slug) + "/flatten"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	var f Flattened
+	err := c.Do(ctx, http.MethodPost, path, nil, &f)
+	return f, err
+}
